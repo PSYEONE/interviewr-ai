@@ -1,0 +1,32 @@
+# Secrets - never commit
+.env
+*.key
+*.pem
+
+# Models (large binaries)
+models/
+*.bin
+*.gguf
+*.ggml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Tauri / node (overlay/)
+node_modules/
+overlay/src-tauri/target/
+overlay/dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
