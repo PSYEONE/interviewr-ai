@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Repo root is three levels up from this file (backend/app/config.py).
+# Resolve .env absolutely so it loads regardless of the process cwd.
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class STTProvider(StrEnum):
@@ -24,7 +29,7 @@ class LLMProvider(StrEnum):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_prefix="INTERVIEWR_",
         extra="ignore",
     )
@@ -53,6 +58,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     gemini_api_key: str = ""
     ollama_base_url: str = "http://127.0.0.1:11434"
+    llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
 
     @model_validator(mode="after")
     def _guard_remote_exposure(self) -> "Settings":

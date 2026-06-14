@@ -19,11 +19,15 @@ async def _preflight(settings: object) -> None:
         print("Set INTERVIEWR_LLM_MODEL in .env (e.g. qwen3:8b)")
         sys.exit(1)
 
-    llm = OllamaStreamer(settings.ollama_base_url, settings.llm_model)
+    llm = OllamaStreamer(
+        settings.ollama_base_url, settings.llm_model, settings.llm_keep_alive
+    )
     try:
         if not await llm.check_health():
             print(f"Cannot reach Ollama at {settings.ollama_base_url}")
             sys.exit(1)
+        print(f"Warming up {settings.llm_model} (loading into memory)...")
+        await llm.warmup()
     finally:
         await llm.close()
 
