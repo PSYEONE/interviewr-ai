@@ -30,3 +30,6 @@ overlay/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Local agent state
+.claude/
