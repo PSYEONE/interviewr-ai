@@ -17,9 +17,10 @@ SYSTEM_PROMPT = (
 
 
 class OllamaStreamer:
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(self, base_url: str, model: str, keep_alive: str = "30m") -> None:
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
         self._model = model
+        self._keep_alive = keep_alive
         self._transcript_parts: list[str] = []
         self._max_chars = 2000
 
@@ -29,6 +30,19 @@ class OllamaStreamer:
             return resp.status_code == 200
         except httpx.ConnectError:
             return False
+
+    async def warmup(self) -> None:
+        """Load the model into memory so the first real response has no cold-start lag."""
+        resp = await self._client.post(
+            "/api/chat",
+            json={
+                "model": self._model,
+                "stream": False,
+                "keep_alive": self._keep_alive,
+                "messages": [{"role": "user", "content": "ok"}],
+            },
+        )
+        resp.raise_for_status()
 
     async def stream_response(self, new_transcript: str) -> AsyncIterator[str]:
         """Send accumulated transcript to Ollama and yield streamed tokens."""
@@ -46,6 +60,7 @@ class OllamaStreamer:
             json={
                 "model": self._model,
                 "stream": True,
+                "keep_alive": self._keep_alive,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {

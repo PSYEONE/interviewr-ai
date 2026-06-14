@@ -30,6 +30,7 @@ async def run_pipeline(settings: Settings) -> None:
     llm = OllamaStreamer(
         base_url=settings.ollama_base_url,
         model=settings.llm_model,
+        keep_alive=settings.llm_keep_alive,
     )
     print(f"{YELLOW}[LLM]{RESET} ollama model={settings.llm_model}")
 
