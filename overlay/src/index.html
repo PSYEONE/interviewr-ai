@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <title>interviewr</title>
+</head>
+<body>
+  <div id="bar">
+    <span id="dot" data-state="offline" title="offline"></span>
+    <span id="brand">interviewr</span>
+    <span class="spacer"></span>
+    <button id="ans" title="Answer from current transcript">Answer</button>
+    <button id="clr" title="Clear pending buffer">Clear</button>
+    <button id="rst" title="Reset session">Reset</button>
+    <button id="pin" title="Toggle always-on-top">Pin</button>
+    <button id="quit" class="icon" title="Quit">&#10005;</button>
+  </div>
+
+  <div id="transcript">
+    <span id="t-done"></span><span id="t-live"></span>
+  </div>
+
+  <div id="answer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

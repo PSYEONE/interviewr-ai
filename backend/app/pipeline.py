@@ -1,54 +1,51 @@
-"""Phase 0 pipeline: PipeWire audio -> whisper.cpp STT -> Ollama LLM -> terminal."""
+"""Transcript producer: PipeWire audio -> whisper.cpp STT -> Session/EventBus."""
 
 from __future__ import annotations
 
-import sys
+import asyncio
 
 from .audio.capture import capture_audio, get_default_monitor
 from .config import Settings
-from .llm.ollama import OllamaStreamer
+from .events import EventBus, StatusEvent
+from .session import Session
 from .stt.whisper import WhisperTranscriber, transcribe_stream
 
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
 
-MIN_WORDS = 5  # skip LLM call for near-empty transcript chunks
+async def run_producer(settings: Settings, session: Session, bus: EventBus) -> None:
+    """Continuously transcribe captured audio and feed it into the session.
 
-
-async def run_pipeline(settings: Settings) -> None:
+    No LLM call here: answers are generated on demand via a client command. This
+    runs as a background task for the lifetime of the server.
+    """
     device = settings.audio_device or await get_default_monitor()
-    print(f"{YELLOW}[AUDIO]{RESET} capturing from {device}")
-
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
         use_gpu=settings.whisper_use_gpu,
+        gpu_device=settings.whisper_gpu_device,
     )
-    print(f"{YELLOW}[STT]{RESET} whisper.cpp model={settings.whisper_model}")
-
-    llm = OllamaStreamer(
-        base_url=settings.ollama_base_url,
-        model=settings.llm_model,
-        keep_alive=settings.llm_keep_alive,
-    )
-    print(f"{YELLOW}[LLM]{RESET} ollama model={settings.llm_model}")
-
+    # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
+    await asyncio.get_event_loop().run_in_executor(None, transcriber.warmup)
+    bus.publish(StatusEvent(state="listening"))
     try:
         audio_stream = capture_audio(device)
-        transcript_stream = transcribe_stream(audio_stream, transcriber)
-
-        async for text in transcript_stream:
-            print(f"{CYAN}[TRANSCRIPT]{RESET} {text}")
-
-            if len(text.split()) < MIN_WORDS:
-                continue
-
-            sys.stdout.write(f"{GREEN}[RESPONSE]{RESET} ")
-            sys.stdout.flush()
-            async for token in llm.stream_response(text):
-                sys.stdout.write(token)
-                sys.stdout.flush()
-            print()
+        transcript_stream = transcribe_stream(
+            audio_stream,
+            transcriber,
+            silence_rms=settings.vad_silence_rms,
+            silence_hold_s=settings.vad_silence_hold_s,
+            max_utterance_s=settings.vad_max_utterance_s,
+            partial_interval_s=settings.stt_partial_interval_s,
+            commit_margin_words=settings.stt_commit_margin_words,
+            emit_partials=settings.stt_emit_partials,
+        )
+        async for item in transcript_stream:
+            if item.final:
+                if settings.debug_print:
+                    print(f"[FINAL] {item.text}")
+                session.add_transcript(item.text)
+            else:
+                session.publish_partial(item.text)
+    except asyncio.CancelledError:
+        raise
     finally:
-        await llm.close()
+        bus.publish(StatusEvent(state="idle"))

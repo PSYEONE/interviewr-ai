@@ -1,35 +1,13 @@
-"""CLI entry point for Phase 0 pipeline."""
+"""CLI entry point: serve the WebSocket backend (or list capture devices)."""
 
 from __future__ import annotations
 
 import asyncio
 import sys
 
+import uvicorn
+
 from app.config import get_settings
-from app.llm.ollama import OllamaStreamer
-from app.pipeline import run_pipeline
-
-
-async def _preflight(settings: object) -> None:
-    """Validate Ollama is reachable and model is configured."""
-    from app.config import Settings
-
-    assert isinstance(settings, Settings)
-    if not settings.llm_model:
-        print("Set INTERVIEWR_LLM_MODEL in .env (e.g. qwen3:8b)")
-        sys.exit(1)
-
-    llm = OllamaStreamer(
-        settings.ollama_base_url, settings.llm_model, settings.llm_keep_alive
-    )
-    try:
-        if not await llm.check_health():
-            print(f"Cannot reach Ollama at {settings.ollama_base_url}")
-            sys.exit(1)
-        print(f"Warming up {settings.llm_model} (loading into memory)...")
-        await llm.warmup()
-    finally:
-        await llm.close()
 
 
 async def _list_devices() -> None:
@@ -46,13 +24,11 @@ def main() -> None:
         asyncio.run(_list_devices())
         return
 
+    # Preflight (ollama health + model warmup) and the capture producer run inside the
+    # FastAPI lifespan, on uvicorn's single event loop. One loop for the whole lifetime
+    # avoids the "Event loop is closed" teardown race the old double-asyncio.run had.
     settings = get_settings()
-    asyncio.run(_preflight(settings))
-    print("Starting pipeline (Ctrl+C to stop)\n")
-    try:
-        asyncio.run(run_pipeline(settings))
-    except KeyboardInterrupt:
-        print("\nShutting down.")
+    uvicorn.run("app.main:app", host=settings.host, port=settings.port, log_level="info")
 
 
 if __name__ == "__main__":
