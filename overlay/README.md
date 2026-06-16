@@ -50,8 +50,11 @@ un-toggled from a window you can no longer click. It will return later behind a 
 
 ## Platform notes (Wayland/KWin)
 
-- Always-on-top works.
-- **Click-through** is unreliable on Wayland; the toggle is best-effort.
+- **Always-on-top** does not work under native Wayland (GTK ignores keep-above), so the app
+  forces **XWayland** (`GDK_BACKEND=x11`) at startup, where keep-above works. Override with
+  `GDK_BACKEND=wayland` if you prefer native Wayland and don't need always-on-top.
+- **Click-through** is not exposed (Wayland traps input with no escape; returns later under X11
+  behind a global hotkey).
 - **Screen-capture exclusion** is not available on Wayland (Windows/macOS only, later).
 - The Linux webview is **WebKitGTK, not Chromium** — test UI changes here, not in Chrome.
 - If the window renders opaque instead of translucent, that is a compositor/transparency

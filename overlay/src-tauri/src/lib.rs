@@ -1,4 +1,5 @@
 use serde::Serialize;
+use tauri::Manager;
 
 #[derive(Serialize)]
 struct Connection {
@@ -43,9 +44,21 @@ fn quit(app: tauri::AppHandle) {
 }
 
 pub fn run() {
+    // On Wayland, GTK ignores "keep above", so always-on-top (and later click-through /
+    // capture exclusion) silently do nothing. Force XWayland, where those actually work.
+    // Respect an explicit override so a user can opt back into native Wayland.
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     load_env();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_connection, quit])
+        .setup(|app| {
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_always_on_top(true); // re-assert after the window exists
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
