@@ -34,11 +34,16 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
             silence_rms=settings.vad_silence_rms,
             silence_hold_s=settings.vad_silence_hold_s,
             max_utterance_s=settings.vad_max_utterance_s,
+            partial_interval_s=settings.stt_partial_interval_s,
+            emit_partials=settings.stt_emit_partials,
         )
-        async for text in transcript_stream:
-            if settings.debug_print:
-                print(f"[TRANSCRIPT] {text}")
-            session.add_transcript(text)
+        async for item in transcript_stream:
+            if item.final:
+                if settings.debug_print:
+                    print(f"[FINAL] {item.text}")
+                session.add_transcript(item.text)
+            else:
+                session.publish_partial(item.text)
     except asyncio.CancelledError:
         raise
     finally:
