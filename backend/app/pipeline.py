@@ -26,7 +26,11 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     try:
         audio_stream = capture_audio(device)
         transcript_stream = transcribe_stream(
-            audio_stream, transcriber, silence_rms=settings.vad_silence_rms
+            audio_stream,
+            transcriber,
+            silence_rms=settings.vad_silence_rms,
+            silence_hold_s=settings.vad_silence_hold_s,
+            max_utterance_s=settings.vad_max_utterance_s,
         )
         async for text in transcript_stream:
             if settings.debug_print:
