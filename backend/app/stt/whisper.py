@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 
 import numpy as np
 
 
 class WhisperTranscriber:
-    """Wraps pywhispercpp Model for windowed transcription with dedup."""
+    """Wraps pywhispercpp Model for utterance transcription with dedup."""
 
     def __init__(self, model_name: str = "base.en", use_gpu: bool = True) -> None:
         from pywhispercpp.model import Model
@@ -45,35 +46,63 @@ class WhisperTranscriber:
         return " ".join(curr_words[overlap:])
 
 
+# Whisper emits non-speech annotations like [BLANK_AUDIO] or (wind blowing) on
+# ambiguous audio. Strip bracketed/parenthesized groups; spoken text rarely uses them.
+_ANNOTATION = re.compile(r"\[[^\]]*\]|\([^)]*\)")
+
+
+def _clean(text: str) -> str:
+    return " ".join(_ANNOTATION.sub(" ", text).split())
+
+
 async def transcribe_stream(
     audio_stream: AsyncIterator[np.ndarray],
     transcriber: WhisperTranscriber,
-    window_s: float = 5.0,
-    slide_s: float = 3.0,
     sample_rate: int = 16000,
     silence_rms: float = 0.01,
+    silence_hold_s: float = 0.7,
+    min_speech_s: float = 0.4,
+    max_utterance_s: float = 18.0,
 ) -> AsyncIterator[str]:
-    """Accumulate audio into overlapping windows and yield transcribed text.
+    """Segment audio by silence and transcribe each complete utterance once.
 
-    Windows quieter than ``silence_rms`` skip whisper entirely: this cuts idle CPU
-    to near zero and avoids the hallucinated text whisper emits on near-silent input.
+    Chunks quieter than ``silence_rms`` are silence. Speech is accumulated until
+    ``silence_hold_s`` of trailing silence ends the utterance (or ``max_utterance_s``
+    forces a flush). Transcribing whole utterances with no window overlap avoids the
+    re-transcription and duplicate text that sliding windows produce, and skipping
+    silent stretches keeps idle CPU near zero.
     """
-    window_samples = int(window_s * sample_rate)
-    slide_samples = int(slide_s * sample_rate)
-    buffer = np.array([], dtype=np.float32)
     loop = asyncio.get_event_loop()
+    speech: list[np.ndarray] = []
+    speech_s = 0.0
+    trailing_silence_s = 0.0
+
+    async def flush() -> str | None:
+        nonlocal speech, speech_s, trailing_silence_s
+        had = speech_s
+        audio = np.concatenate(speech) if speech else None
+        speech = []
+        speech_s = 0.0
+        trailing_silence_s = 0.0
+        if audio is None or had < min_speech_s:
+            return None
+        transcriber.reset_context()  # each utterance is independent
+        text = await loop.run_in_executor(None, transcriber.transcribe, audio)
+        return _clean(text) or None
 
     async for chunk in audio_stream:
-        buffer = np.concatenate([buffer, chunk])
-        if len(buffer) >= window_samples:
-            window = buffer[:window_samples].copy()
-            buffer = buffer[slide_samples:]
+        chunk_s = len(chunk) / sample_rate
+        rms = float(np.sqrt(np.mean(chunk**2))) if chunk.size else 0.0
 
-            rms = float(np.sqrt(np.mean(window**2)))
-            if rms < silence_rms:
-                transcriber.reset_context()  # silence is a dedup boundary
-                continue
+        if rms >= silence_rms:
+            speech.append(chunk)
+            speech_s += chunk_s
+            trailing_silence_s = 0.0
+        elif speech:
+            speech.append(chunk)  # keep a little trailing silence as context
+            trailing_silence_s += chunk_s
 
-            text = await loop.run_in_executor(None, transcriber.transcribe, window)
-            if text.strip():
+        if speech and (trailing_silence_s >= silence_hold_s or speech_s >= max_utterance_s):
+            text = await flush()
+            if text:
                 yield text
