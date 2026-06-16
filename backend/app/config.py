@@ -53,9 +53,11 @@ class Settings(BaseSettings):
     whisper_gpu_device: int = -1  # Vulkan device index; -1 = default (0). Pin the discrete GPU on iGPU+dGPU laptops
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
     vad_silence_hold_s: float = 0.7  # trailing silence that ends an utterance
-    vad_max_utterance_s: float = 6.0  # force a flush during continuous speech (latency cap)
+    vad_max_utterance_s: float = 15.0  # force a flush in continuous speech; bounds buffer/cost,
+    # not latency (incremental commits handle that). Low values chop sentences and hurt accuracy.
     stt_emit_partials: bool = True  # stream a live tentative tail (off = commit-only, cheaper on CPU)
     stt_partial_interval_s: float = 0.4  # how often to re-transcribe for the live tail
+    stt_commit_margin_words: int = 3  # hold back this many live-edge words before committing
 
     # llm
     llm_provider: LLMProvider = LLMProvider.OLLAMA

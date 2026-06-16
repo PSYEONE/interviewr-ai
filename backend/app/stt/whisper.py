@@ -35,7 +35,13 @@ class WhisperTranscriber:
     def transcribe_raw(self, audio: np.ndarray) -> str:
         """Full transcription of a float32 buffer, cleaned. No dedup state: streaming
         callers re-transcribe a growing buffer and compare whole hypotheses themselves."""
-        segments = self._model.transcribe(audio)
+        segments = self._model.transcribe(
+            audio,
+            temperature=0.0,  # greedy; no random sampling
+            no_context=True,  # don't carry decoder state across calls (reduces drift)
+            suppress_blank=True,
+            suppress_nst=True,  # suppress non-speech tokens (music/sfx hallucinations)
+        )
         text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
         return _clean(text)
 
@@ -56,9 +62,28 @@ _ANNOTATION = re.compile(r"\[[^\]]*\]|\([^)]*\)")
 # words on sub-second buffers.
 PARTIAL_MIN_S = 1.0
 
+# Keep at most this much trailing silence when transcribing; whisper invents text
+# ("thank you", "I'd like to say") when it decodes a long silent tail.
+TRIM_KEEP_S = 0.2
+
+
+def _collapse_repeats(words: list[str], limit: int = 2) -> list[str]:
+    """Drop runs of the same word longer than ``limit``. Looping repetition is a
+    classic whisper hallucination on ambiguous audio; real speech rarely repeats 3+."""
+    out: list[str] = []
+    prev = ""
+    run = 0
+    for word in words:
+        key = word.lower()
+        run = run + 1 if key == prev else 1
+        prev = key
+        if run <= limit:
+            out.append(word)
+    return out
+
 
 def _clean(text: str) -> str:
-    return " ".join(_ANNOTATION.sub(" ", text).split())
+    return " ".join(_collapse_repeats(_ANNOTATION.sub(" ", text).split()))
 
 
 def _common_prefix(a: list[str], b: list[str]) -> int:
@@ -79,6 +104,7 @@ async def transcribe_stream(
     min_speech_s: float = 0.4,
     max_utterance_s: float = 6.0,
     partial_interval_s: float = 0.4,
+    commit_margin_words: int = 2,
     emit_partials: bool = True,
 ) -> AsyncIterator[Hypothesis]:
     """Stream a live transcript using LocalAgreement-2.
@@ -103,6 +129,9 @@ async def transcribe_stream(
 
     async def transcribe_buffer() -> list[str]:
         audio = np.concatenate(speech)
+        drop = int((trailing_silence_s - TRIM_KEEP_S) * sample_rate)
+        if 0 < drop < len(audio):
+            audio = audio[:-drop]  # don't feed a long silent tail to whisper
         text = await loop.run_in_executor(None, transcriber.transcribe_raw, audio)
         return text.split()
 
@@ -154,9 +183,12 @@ async def transcribe_stream(
             since_partial_s = 0.0
             hyp = await transcribe_buffer()
             agree = _common_prefix(prev_hyp, hyp)
-            if agree > committed:
-                yield Hypothesis(" ".join(hyp[committed:agree]), True)
-                committed = agree
+            # Hold back the last few agreed words: the live edge lacks right-context and
+            # whisper revises it, so two near-adjacent passes can agree on a wrong guess.
+            safe = max(committed, agree - commit_margin_words)
+            if safe > committed:
+                yield Hypothesis(" ".join(hyp[committed:safe]), True)
+                committed = safe
             if emit_partials:
                 yield Hypothesis(" ".join(hyp[committed:]), False)
             prev_hyp = hyp
