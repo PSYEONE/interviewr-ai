@@ -1,5 +1,4 @@
 use serde::Serialize;
-use tauri::WebviewWindow;
 
 #[derive(Serialize)]
 struct Connection {
@@ -38,13 +37,6 @@ fn get_connection() -> Connection {
     }
 }
 
-/// Best-effort input passthrough. Tauri exposes the call, but on Wayland the compositor
-/// (KWin) may ignore it; treat success as "requested", not "guaranteed".
-#[tauri::command]
-fn toggle_click_through(window: WebviewWindow, on: bool) -> Result<(), String> {
-    window.set_ignore_cursor_events(on).map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
@@ -53,11 +45,7 @@ fn quit(app: tauri::AppHandle) {
 pub fn run() {
     load_env();
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            get_connection,
-            toggle_click_through,
-            quit
-        ])
+        .invoke_handler(tauri::generate_handler![get_connection, quit])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
