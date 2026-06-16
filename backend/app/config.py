@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
     vad_silence_hold_s: float = 0.7  # trailing silence that ends an utterance
     vad_max_utterance_s: float = 6.0  # force a flush during continuous speech (latency cap)
+    stt_emit_partials: bool = True  # stream a live tentative tail (off = commit-only, cheaper on CPU)
+    stt_partial_interval_s: float = 0.4  # how often to re-transcribe for the live tail
 
     # llm
     llm_provider: LLMProvider = LLMProvider.OLLAMA

@@ -48,6 +48,11 @@ class Session:
         self._seq += 1
         self._bus.publish(TranscriptEvent(text=text, seq=self._seq))
 
+    def publish_partial(self, text: str) -> None:
+        """Broadcast a tentative (not-yet-settled) transcript tail. Deliberately does
+        not touch _parts/_history, so the LLM only ever answers on committed text."""
+        self._bus.publish(TranscriptEvent(text=text, final=False, seq=self._seq))
+
     def request_answer(self) -> None:
         """Toggle: answer from the buffered transcript + history, then clear the buffer."""
         transcript = " ".join(self._parts).strip()
