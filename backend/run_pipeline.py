@@ -32,7 +32,20 @@ async def _preflight(settings: object) -> None:
         await llm.close()
 
 
+async def _list_devices() -> None:
+    """Print available capture targets and the id to set as INTERVIEWR_AUDIO_DEVICE."""
+    from app.audio.capture import list_capture_targets
+
+    for t in await list_capture_targets():
+        print(f"  [{t.kind:7}] {t.label:24} -> {t.id}")
+    print("\nSet INTERVIEWR_AUDIO_DEVICE to one of the ids above (empty = default monitor).")
+
+
 def main() -> None:
+    if "--list-devices" in sys.argv[1:]:
+        asyncio.run(_list_devices())
+        return
+
     settings = get_settings()
     asyncio.run(_preflight(settings))
     print("Starting pipeline (Ctrl+C to stop)\n")

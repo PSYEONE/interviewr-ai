@@ -12,8 +12,11 @@ output). That's the wrong long-term strategy:
 
 Build a capture-source selector so the user captures **only the call/meeting audio**:
 
-- [ ] Enumerate available capture targets (PipeWire sources, sink monitors, and individual
-      application sink-inputs) and expose them via config + the API.
+- [x] Enumerate capture sources (sink monitors + mics) via `list_capture_targets()` in
+      `app/audio/capture.py`; list them from the CLI with `run_pipeline.py --list-devices`.
+      Selection works today by setting `INTERVIEWR_AUDIO_DEVICE` to a listed id.
+- [ ] Extend enumeration to individual application **sink-inputs** (needs node-level
+      targeting, not just source names) and expose targets via the API.
 - [ ] Support capturing a **specific application's** output stream (pick the browser /
       Zoom / Meet), not the global monitor.
 - [ ] Support a **virtual null sink** mode: route the call app into a dedicated null sink,
