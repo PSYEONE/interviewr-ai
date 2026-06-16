@@ -1,6 +1,15 @@
 // Overlay client. The data path is a plain WebSocket to the backend; Rust only
 // supplies the connection details (host/port/token from the project .env).
 const { invoke } = window.__TAURI__.core;
+const { getCurrentWindow } = window.__TAURI__.window;
+
+// data-tauri-drag-region does not fire on the WebKitGTK (Linux) backend, so drive the
+// drag explicitly from the title bar's mousedown instead.
+const bar = document.getElementById("bar");
+bar.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.target.closest("button")) return;
+  getCurrentWindow().startDragging().catch(() => {});
+});
 
 const dot = document.getElementById("dot");
 const done = document.getElementById("t-done");
