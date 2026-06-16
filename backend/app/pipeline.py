@@ -25,7 +25,10 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     bus.publish(StatusEvent(state="listening"))
     try:
         audio_stream = capture_audio(device)
-        async for text in transcribe_stream(audio_stream, transcriber):
+        transcript_stream = transcribe_stream(
+            audio_stream, transcriber, silence_rms=settings.vad_silence_rms
+        )
+        async for text in transcript_stream:
             if settings.debug_print:
                 print(f"[TRANSCRIPT] {text}")
             session.add_transcript(text)

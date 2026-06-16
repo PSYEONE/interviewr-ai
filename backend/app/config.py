@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     stt_provider: STTProvider = STTProvider.WHISPER_CPP
     whisper_model: str = "base.en"
     whisper_use_gpu: bool = True  # Vulkan; falls back to CPU
+    vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
 
     # llm
     llm_provider: LLMProvider = LLMProvider.OLLAMA
