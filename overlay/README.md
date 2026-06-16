@@ -48,12 +48,23 @@ cargo tauri build   # produces a .deb / AppImage under src-tauri/target/release/
 (Click-through is intentionally not exposed yet: on Wayland it engages but cannot be
 un-toggled from a window you can no longer click. It will return later behind a global hotkey.)
 
-## Platform notes (Wayland/KWin)
+## Always-on-top (KDE/KWin)
 
-- **Always-on-top** does not work under native Wayland (GTK ignores keep-above), so the app
-  forces **XWayland** (`GDK_BACKEND=x11`) at startup, where keep-above works. Override with
-  `GDK_BACKEND=wayland` if you prefer native Wayland and don't need always-on-top.
-- **Click-through** is not exposed (Wayland traps input with no escape; returns later under X11
+GTK can't pin a window on Wayland (keep-above is ignored), so apply a KWin rule once:
+
+```bash
+./scripts/install-kwin-rule.sh
+```
+
+(or import `contrib/interviewr.kwinrule` via System Settings > Window Management > Window Rules
+> Import). If it still isn't pinned, the window class differs from the default; find it via
+"Detect Window Properties" in that KCM and re-run `./scripts/install-kwin-rule.sh <class>`.
+
+Only KDE is wired up for now. GNOME/Sway/Hyprland and a portable XWayland fallback come later.
+
+## Platform notes
+
+- **Click-through** is not exposed yet (on Wayland it traps input with no escape; returns later
   behind a global hotkey).
 - **Screen-capture exclusion** is not available on Wayland (Windows/macOS only, later).
 - The Linux webview is **WebKitGTK, not Chromium** — test UI changes here, not in Chrome.

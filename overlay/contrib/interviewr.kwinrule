@@ -1,0 +1,7 @@
+[b6a9f2c1-7e3d-4a8b-9c2e-0123456789ab]
+Description=interviewr overlay - keep above
+wmclass=interviewr-overlay
+wmclassmatch=1
+wmclasscomplete=false
+above=true
+aboverule=2
