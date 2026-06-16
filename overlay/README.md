@@ -43,8 +43,10 @@ cargo tauri build   # produces a .deb / AppImage under src-tauri/target/release/
 
 - **Answer / Clear / Reset** — the same WS commands the engine already exposes.
 - Drag the top bar to move; resize from the edges.
-- **&#9678;** toggles click-through (best-effort: KWin/Wayland may ignore it).
 - **&#10005;** quits.
+
+(Click-through is intentionally not exposed yet: on Wayland it engages but cannot be
+un-toggled from a window you can no longer click. It will return later behind a global hotkey.)
 
 ## Platform notes (Wayland/KWin)
 

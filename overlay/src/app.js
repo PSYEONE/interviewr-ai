@@ -113,15 +113,5 @@ document.getElementById("rst").onclick = () => {
 };
 document.getElementById("quit").onclick = () => invoke("quit");
 
-let clickThrough = false;
-const ct = document.getElementById("ct");
-ct.onclick = async () => {
-  clickThrough = !clickThrough;
-  try {
-    await invoke("toggle_click_through", { on: clickThrough });
-  } catch {}
-  ct.classList.toggle("on", clickThrough);
-};
-
 setInterval(() => send("ping"), 20000); // keepalive
 connect();
