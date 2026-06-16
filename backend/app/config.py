@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
 
+    # server / session
+    debug_print: bool = False  # also print transcripts to stdout (dev)
+    max_buffer_chars: int = 2000  # rolling transcript buffer fed to an answer
+    max_history_chars: int = 3000  # retained prior Q&A context
+    event_queue_maxsize: int = 256  # per-subscriber bounded queue
+
     @model_validator(mode="after")
     def _guard_remote_exposure(self) -> "Settings":
         if self.enable_remote_viewer:
