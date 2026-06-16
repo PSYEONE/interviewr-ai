@@ -48,7 +48,7 @@ class Settings(BaseSettings):
 
     # stt
     stt_provider: STTProvider = STTProvider.WHISPER_CPP
-    whisper_model: str = "base.en"
+    whisper_model: str = "small.en"  # best accuracy/speed tradeoff on test-clean (see eval/)
     whisper_use_gpu: bool = True  # Vulkan; falls back to CPU
     whisper_gpu_device: int = -1  # Vulkan device index; -1 = default (0). Pin the discrete GPU on iGPU+dGPU laptops
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
