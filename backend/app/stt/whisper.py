@@ -74,17 +74,19 @@ async def transcribe_stream(
     """
     loop = asyncio.get_event_loop()
     speech: list[np.ndarray] = []
-    speech_s = 0.0
+    speech_s = 0.0  # above-threshold audio only; gates out tiny noise blips
+    buffered_s = 0.0  # total audio held since the segment opened; the latency bound
     trailing_silence_s = 0.0
 
     async def flush() -> str | None:
-        nonlocal speech, speech_s, trailing_silence_s
-        had = speech_s
+        nonlocal speech, speech_s, buffered_s, trailing_silence_s
+        had_speech = speech_s
         audio = np.concatenate(speech) if speech else None
         speech = []
         speech_s = 0.0
+        buffered_s = 0.0
         trailing_silence_s = 0.0
-        if audio is None or had < min_speech_s:
+        if audio is None or had_speech < min_speech_s:
             return None
         transcriber.reset_context()  # each utterance is independent
         text = await loop.run_in_executor(None, transcriber.transcribe, audio)
@@ -97,12 +99,14 @@ async def transcribe_stream(
         if rms >= silence_rms:
             speech.append(chunk)
             speech_s += chunk_s
+            buffered_s += chunk_s
             trailing_silence_s = 0.0
         elif speech:
             speech.append(chunk)  # keep a little trailing silence as context
+            buffered_s += chunk_s
             trailing_silence_s += chunk_s
 
-        if speech and (trailing_silence_s >= silence_hold_s or speech_s >= max_utterance_s):
+        if speech and (trailing_silence_s >= silence_hold_s or buffered_s >= max_utterance_s):
             text = await flush()
             if text:
                 yield text
