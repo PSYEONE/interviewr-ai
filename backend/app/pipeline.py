@@ -35,6 +35,7 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
             silence_hold_s=settings.vad_silence_hold_s,
             max_utterance_s=settings.vad_max_utterance_s,
             partial_interval_s=settings.stt_partial_interval_s,
+            commit_margin_words=settings.stt_commit_margin_words,
             emit_partials=settings.stt_emit_partials,
         )
         async for item in transcript_stream:
