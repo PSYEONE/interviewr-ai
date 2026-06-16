@@ -54,6 +54,7 @@ async def stream_text(
     silence_hold_s: float,
     max_utterance_s: float,
     partial_interval_s: float,
+    commit_margin_words: int,
 ) -> str:
     """Feed the file through the real streaming pipeline in 0.3s chunks and return the
     concatenated committed text. Trailing silence is appended so the final utterance flushes
@@ -74,6 +75,7 @@ async def stream_text(
         silence_hold_s=silence_hold_s,
         max_utterance_s=max_utterance_s,
         partial_interval_s=partial_interval_s,
+        commit_margin_words=commit_margin_words,
         emit_partials=True,
     ):
         if item.final and item.text:
@@ -97,6 +99,7 @@ def parse_args(settings: Settings) -> argparse.Namespace:
     p.add_argument("--silence-hold", type=float, default=settings.vad_silence_hold_s)
     p.add_argument("--silence-rms", type=float, default=settings.vad_silence_rms)
     p.add_argument("--partial-interval", type=float, default=settings.stt_partial_interval_s)
+    p.add_argument("--commit-margin", type=int, default=settings.stt_commit_margin_words)
     return p.parse_args()
 
 
@@ -161,6 +164,7 @@ def main() -> None:
                     silence_hold_s=args.silence_hold,
                     max_utterance_s=args.max_utterance,
                     partial_interval_s=args.partial_interval,
+                    commit_margin_words=args.commit_margin,
                 )
             )
             stream_infer_s += tr.infer_s
@@ -200,7 +204,8 @@ def _print_report(
     print(f"RESULTS  model={args.model}  files={n}  audio={audio_s / 60:.1f} min")
     print(
         f"knobs: max_utterance={args.max_utterance}s silence_hold={args.silence_hold}s "
-        f"silence_rms={args.silence_rms} partial_interval={args.partial_interval}s"
+        f"silence_rms={args.silence_rms} partial_interval={args.partial_interval}s "
+        f"commit_margin={args.commit_margin}"
     )
     print("-" * 64)
     if do_model:
@@ -238,6 +243,7 @@ def _write_results(
             "silence_hold_s": args.silence_hold,
             "silence_rms": args.silence_rms,
             "partial_interval_s": args.partial_interval,
+            "commit_margin_words": args.commit_margin,
         },
         "aggregate": aggregate,
         "files": rows,
