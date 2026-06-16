@@ -12,11 +12,26 @@ import numpy as np
 class WhisperTranscriber:
     """Wraps pywhispercpp Model for utterance transcription with dedup."""
 
-    def __init__(self, model_name: str = "base.en", use_gpu: bool = True) -> None:
-        from pywhispercpp.model import Model
+    def __init__(
+        self, model_name: str = "base.en", use_gpu: bool = True, gpu_device: int = -1
+    ) -> None:
+        from pywhispercpp.model import ContextParams, Model
 
-        self._model = Model(model_name, print_realtime=False, print_progress=False)
+        # whisper.cpp defaults to Vulkan device 0, which on multi-GPU laptops is the
+        # weak integrated GPU. gpu_device >= 0 pins the discrete GPU instead.
+        ctx: ContextParams = {"use_gpu": use_gpu}
+        if gpu_device >= 0:
+            ctx["gpu_device"] = gpu_device
+        self._model = Model(
+            model_name, print_realtime=False, print_progress=False, context_params=ctx
+        )
         self._prev_words: list[str] = []
+
+    def warmup(self) -> None:
+        """Run one dummy inference up front. The first Vulkan transcribe pays a
+        one-time shader compile (~20s); do it at startup, not on the first utterance."""
+        self._model.transcribe(np.zeros(16000, dtype=np.float32))
+        self._prev_words = []
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transcribe a float32 audio buffer, returning only new text."""

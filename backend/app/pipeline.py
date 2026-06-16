@@ -21,7 +21,10 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
         use_gpu=settings.whisper_use_gpu,
+        gpu_device=settings.whisper_gpu_device,
     )
+    # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
+    await asyncio.get_event_loop().run_in_executor(None, transcriber.warmup)
     bus.publish(StatusEvent(state="listening"))
     try:
         audio_stream = capture_audio(device)

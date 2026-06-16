@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     stt_provider: STTProvider = STTProvider.WHISPER_CPP
     whisper_model: str = "base.en"
     whisper_use_gpu: bool = True  # Vulkan; falls back to CPU
+    whisper_gpu_device: int = -1  # Vulkan device index; -1 = default (0). Pin the discrete GPU on iGPU+dGPU laptops
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
     vad_silence_hold_s: float = 0.7  # trailing silence that ends an utterance
     vad_max_utterance_s: float = 6.0  # force a flush during continuous speech (latency cap)
