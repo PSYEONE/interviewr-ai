@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -41,7 +42,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     llm = OllamaClient(settings.ollama_base_url, settings.llm_model, settings.llm_keep_alive)
     if not await llm.check_health():
         raise RuntimeError(f"Ollama unreachable at {settings.ollama_base_url}")
-    await llm.warmup()
 
     bus = EventBus(maxsize=settings.event_queue_maxsize)
     session = Session(
@@ -54,17 +54,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.bus = bus
     app.state.session = session
 
+    # Warm the LLM in the background. Live transcription must not wait on the model
+    # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
+    # for an answer, and keep_alive holds it warm after that.
+    warmup_task: asyncio.Task[None] = asyncio.create_task(_warm_llm(llm))
     producer: asyncio.Task[None] = asyncio.create_task(run_producer(settings, session, bus))
     try:
         yield
     finally:
         producer.cancel()
-        try:
-            await producer
-        except asyncio.CancelledError:
-            pass
+        warmup_task.cancel()
+        for task in (producer, warmup_task):
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await session.aclose()
         await llm.close()
+
+
+async def _warm_llm(llm: OllamaClient) -> None:
+    """Best-effort LLM warmup; a failure here must not stop live transcription."""
+    try:
+        await llm.warmup()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning("LLM warmup failed: %s", exc)
 
 
 app = FastAPI(title="interviewr-ai", version="0.0.0", lifespan=lifespan)
