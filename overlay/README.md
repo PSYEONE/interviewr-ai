@@ -42,6 +42,7 @@ cargo tauri build   # produces a .deb / AppImage under src-tauri/target/release/
 ## Controls
 
 - **Answer / Clear / Reset** — the same WS commands the engine already exposes.
+- **Pin** toggles always-on-top (uses the KWin rule on KDE/Wayland; the native call elsewhere).
 - Drag the top bar to move; resize from the edges.
 - **&#10005;** quits.
 
@@ -50,15 +51,15 @@ un-toggled from a window you can no longer click. It will return later behind a 
 
 ## Always-on-top (KDE/KWin)
 
-GTK can't pin a window on Wayland (keep-above is ignored), so apply a KWin rule once:
+GTK can't pin a window on Wayland (keep-above is ignored), so on KDE the app drives a KWin
+"keep above" window rule. It applies the rule itself on startup (pinned by default) and the
+**Pin** button toggles it, so no manual setup is needed. The standalone
+`scripts/install-kwin-rule.sh` (and `contrib/interviewr.kwinrule` for GUI import) remain for
+headless use or if you'd rather the app not touch your KWin config.
 
-```bash
-./scripts/install-kwin-rule.sh
-```
-
-(or import `contrib/interviewr.kwinrule` via System Settings > Window Management > Window Rules
-> Import). If it still isn't pinned, the window class differs from the default; find it via
-"Detect Window Properties" in that KCM and re-run `./scripts/install-kwin-rule.sh <class>`.
+If it isn't pinned, the window class differs from the default `interviewr-overlay`; find it via
+System Settings > Window Rules > "Detect Window Properties" and run
+`./scripts/install-kwin-rule.sh <class>`.
 
 Only KDE is wired up for now. GNOME/Sway/Hyprland and a portable XWayland fallback come later.
 

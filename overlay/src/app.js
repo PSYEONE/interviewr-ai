@@ -113,5 +113,16 @@ document.getElementById("rst").onclick = () => {
 };
 document.getElementById("quit").onclick = () => invoke("quit");
 
+let pinned = true; // app pins on startup
+const pin = document.getElementById("pin");
+pin.classList.add("on");
+pin.onclick = async () => {
+  pinned = !pinned;
+  try {
+    await invoke("set_pin", { on: pinned });
+  } catch {}
+  pin.classList.toggle("on", pinned);
+};
+
 setInterval(() => send("ping"), 20000); // keepalive
 connect();
