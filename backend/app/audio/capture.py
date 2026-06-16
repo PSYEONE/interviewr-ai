@@ -114,5 +114,9 @@ async def capture_audio(
     except asyncio.IncompleteReadError:
         pass
     finally:
-        proc.terminate()
+        if proc.returncode is None:
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass  # pw-record already exited (e.g. on shutdown)
         await proc.wait()

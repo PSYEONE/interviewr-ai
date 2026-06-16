@@ -1,9 +1,10 @@
-"""Ollama streaming LLM client."""
+"""Ollama streaming LLM client (stateless)."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
+from typing import Literal, TypedDict
 
 import httpx
 
@@ -16,13 +17,18 @@ SYSTEM_PROMPT = (
 )
 
 
-class OllamaStreamer:
+class Message(TypedDict):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class OllamaClient:
+    """Stateless Ollama client. Conversation history lives in the Session."""
+
     def __init__(self, base_url: str, model: str, keep_alive: str = "30m") -> None:
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
         self._model = model
         self._keep_alive = keep_alive
-        self._transcript_parts: list[str] = []
-        self._max_chars = 2000
 
     async def check_health(self) -> bool:
         try:
@@ -44,16 +50,10 @@ class OllamaStreamer:
         )
         resp.raise_for_status()
 
-    async def stream_response(self, new_transcript: str) -> AsyncIterator[str]:
-        """Send accumulated transcript to Ollama and yield streamed tokens."""
-        self._transcript_parts.append(new_transcript)
-        transcript = " ".join(self._transcript_parts)
-
-        # trim to last N chars
-        if len(transcript) > self._max_chars:
-            transcript = transcript[-self._max_chars :]
-            self._transcript_parts = [transcript]
-
+    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
+        """Stream tokens for the given conversation. SYSTEM_PROMPT is prepended."""
+        payload: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        payload.extend(messages)
         async with self._client.stream(
             "POST",
             "/api/chat",
@@ -61,16 +61,7 @@ class OllamaStreamer:
                 "model": self._model,
                 "stream": True,
                 "keep_alive": self._keep_alive,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Live transcript:\n{transcript}\n\n"
-                            "Provide a helpful, concise response."
-                        ),
-                    },
-                ],
+                "messages": payload,
             },
         ) as resp:
             resp.raise_for_status()

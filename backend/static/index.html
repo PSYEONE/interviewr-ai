@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>interviewr verify</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 2rem; max-width: 50rem; }
+  #t { white-space: pre-wrap; background: #f4f4f4; padding: .75rem; border-radius: 6px; }
+  #t-live { color: #999; }
+  #a { white-space: pre-wrap; color: #0a6b0a; padding: .75rem; }
+  button { font-size: 14px; padding: .4rem .8rem; margin-right: .5rem; }
+  h3 { margin: 1.2rem 0 .3rem; }
+</style>
+<button id="ans">Answer</button>
+<button id="clr">Clear</button>
+<button id="rst">Reset</button>
+<h3>Transcript</h3>
+<div id="t"><span id="t-done"></span><span id="t-live"></span></div>
+<h3>Answer</h3>
+<div id="a"></div>
+<script>
+  const tok = new URLSearchParams(location.search).get("token") || "";
+  const ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(tok)}`);
+  const done = document.getElementById("t-done"), live = document.getElementById("t-live");
+  const A = document.getElementById("a");
+  let cur = null, committed = "";
+  ws.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    switch (ev.type) {
+      case "transcript":
+        if (ev.final) {
+          if (ev.text) committed += ev.text + " ";
+          done.textContent = committed;
+          live.textContent = "";  // cleared; next partial re-sets the tail
+        } else {
+          live.textContent = ev.text;  // tentative tail, replaced in place each tick
+        }
+        break;
+      case "answer.start": cur = ev.answer_id; A.textContent = ""; break;
+      case "answer.token": if (ev.answer_id === cur) A.textContent += ev.token; break;
+      case "answer.done": if (ev.cancelled) A.textContent += " [cancelled]"; break;
+      case "error": A.textContent += `\n[error: ${ev.message}]`; break;
+      case "status": document.title = "interviewr: " + ev.state; break;
+    }
+  };
+  ws.onclose = (e) => { document.title = "interviewr: closed " + e.code; };
+  const send = (type) => ws.send(JSON.stringify({ type }));
+  document.getElementById("ans").onclick = () => send("answer");
+  document.getElementById("clr").onclick = () => send("clear");
+  document.getElementById("rst").onclick = () => send("reset");
+</script>
