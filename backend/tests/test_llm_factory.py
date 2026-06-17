@@ -58,10 +58,20 @@ def test_build_llm_groq() -> None:
     assert isinstance(llm, OpenAICompatClient)
 
 
-@pytest.mark.parametrize("provider", [LLMProvider.ANTHROPIC, LLMProvider.OPENAI])
-def test_build_llm_unimplemented(provider: LLMProvider) -> None:
-    with pytest.raises(NotImplementedError):
-        build_llm(_settings(llm_provider=provider))
+def test_build_llm_openai() -> None:
+    pytest.importorskip("openai")
+    from app.llm.openai_compat import OpenAICompatClient
+
+    llm = build_llm(_settings(llm_provider=LLMProvider.OPENAI, openai_api_key="k"))
+    assert isinstance(llm, OpenAICompatClient)
+
+
+def test_build_llm_anthropic() -> None:
+    pytest.importorskip("anthropic")
+    from app.llm.anthropic import AnthropicClient
+
+    llm = build_llm(_settings(llm_provider=LLMProvider.ANTHROPIC, anthropic_api_key="k"))
+    assert isinstance(llm, AnthropicClient)
 
 
 def test_missing_model_rejected() -> None:
@@ -72,10 +82,18 @@ def test_missing_model_rejected() -> None:
 @pytest.mark.parametrize(
     ("provider", "key_var"),
     [
+        (LLMProvider.ANTHROPIC, "INTERVIEWR_ANTHROPIC_API_KEY"),
+        (LLMProvider.OPENAI, "INTERVIEWR_OPENAI_API_KEY"),
         (LLMProvider.GEMINI, "INTERVIEWR_GEMINI_API_KEY"),
         (LLMProvider.GROQ, "INTERVIEWR_GROQ_API_KEY"),
     ],
 )
 def test_missing_cloud_key_rejected(provider: LLMProvider, key_var: str) -> None:
     with pytest.raises(ValueError, match=key_var):
-        _settings(llm_provider=provider, gemini_api_key="", groq_api_key="")
+        _settings(
+            llm_provider=provider,
+            anthropic_api_key="",
+            openai_api_key="",
+            gemini_api_key="",
+            groq_api_key="",
+        )
