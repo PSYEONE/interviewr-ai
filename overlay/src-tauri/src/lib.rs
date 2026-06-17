@@ -53,14 +53,40 @@ fn set_pin(window: WebviewWindow, on: bool) -> Result<bool, String> {
     Ok(on)
 }
 
+/// KWin rule identifiers, shared by the writer and the state reader so they never drift.
+#[cfg(target_os = "linux")]
+const KWIN_GROUP: &str = "b6a9f2c1-7e3d-4a8b-9c2e-0123456789ab";
+#[cfg(target_os = "linux")]
+const KWIN_FILE: &str = "kwinrulesrc";
+
+/// Read the persisted keep-above value for our rule. None if the rule does not exist yet
+/// (first run) or the KDE read tools are absent.
+#[cfg(target_os = "linux")]
+fn kwin_keep_above_state() -> Option<bool> {
+    use std::process::Command;
+    let val = ["kreadconfig6", "kreadconfig5"].iter().find_map(|bin| {
+        Command::new(bin)
+            .args(["--file", KWIN_FILE, "--group", KWIN_GROUP, "--key", "above"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    })?;
+    match val.as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None, // key absent (empty) -> rule not established yet
+    }
+}
+
 /// Write/flip a KWin window rule that forces the overlay above other windows, then reload KWin.
 /// Idempotent: re-running just updates the `above` flag. KDE only (silently does nothing if the
 /// kwriteconfig/qdbus tools are absent).
 #[cfg(target_os = "linux")]
 fn set_kwin_keep_above(on: bool) -> Result<(), String> {
     use std::process::Command;
-    const GROUP: &str = "b6a9f2c1-7e3d-4a8b-9c2e-0123456789ab";
-    const FILE: &str = "kwinrulesrc";
+    const GROUP: &str = KWIN_GROUP;
+    const FILE: &str = KWIN_FILE;
 
     let kwrite = |args: &[&str]| -> bool {
         ["kwriteconfig6", "kwriteconfig5"]
@@ -107,19 +133,34 @@ fn set_kwin_keep_above(on: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Pin state the UI initializes its toggle from, so it never disagrees with the window.
+/// On Linux this is the persisted KWin keep-above value (pinned on first run); elsewhere the
+/// window is recreated on top each launch, so report pinned.
+#[tauri::command]
+fn get_pin() -> bool {
+    #[cfg(target_os = "linux")]
+    return kwin_keep_above_state().unwrap_or(true);
+    #[cfg(not(target_os = "linux"))]
+    return true;
+}
+
 pub fn run() {
     // Always-on-top is enforced by a KWin window rule, not the toolkit: on native Wayland
     // GTK ignores keep-above, and forcing XWayland to dodge that costs HiDPI scaling and
     // normal window management. See scripts/install-kwin-rule.sh.
     load_env();
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_connection, set_pin, quit])
+        .invoke_handler(tauri::generate_handler![get_connection, set_pin, get_pin, quit])
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(true); // honored on X11/Win/macOS; no-op on Wayland
             }
+            // Pin by default only on first run; later launches honor the user's saved choice
+            // (the KWin rule persists), so an unpinned overlay reopens unpinned.
             #[cfg(target_os = "linux")]
-            let _ = set_kwin_keep_above(true); // pin by default on KDE/Wayland
+            if kwin_keep_above_state().is_none() {
+                let _ = set_kwin_keep_above(true);
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
