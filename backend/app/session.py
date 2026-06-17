@@ -19,14 +19,14 @@ from .events import (
     StatusEvent,
     TranscriptEvent,
 )
-from .llm.ollama import Message, OllamaClient
+from .llm.base import LLMClient, Message
 
 
 class Session:
     def __init__(
         self,
         bus: EventBus,
-        llm: OllamaClient,
+        llm: LLMClient,
         max_buffer_chars: int = 2000,
         max_history_chars: int = 3000,
     ) -> None:
