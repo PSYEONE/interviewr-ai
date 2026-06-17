@@ -20,6 +20,7 @@ from .events import (
     TranscriptEvent,
 )
 from .llm.base import LLMClient, Message
+from .rag import Retriever, format_context
 
 
 class Session:
@@ -29,9 +30,11 @@ class Session:
         llm: LLMClient,
         max_buffer_chars: int = 2000,
         max_history_chars: int = 3000,
+        retriever: Retriever | None = None,
     ) -> None:
         self._bus = bus
         self._llm = llm
+        self._retriever = retriever
         self._max_buffer_chars = max_buffer_chars
         self._max_history_chars = max_history_chars
         self._parts: list[str] = []
@@ -87,7 +90,10 @@ class Session:
         self._bus.publish(
             AnswerStartEvent(answer_id=answer_id, source_chars=len(transcript))
         )
-        messages: list[Message] = [*self._history, {"role": "user", "content": transcript}]
+        # Retrieved RAG context augments only the message sent to the LLM; history keeps the
+        # raw transcript (below) so each turn retrieves fresh and context never accretes.
+        prompt = await self._with_context(transcript)
+        messages: list[Message] = [*self._history, {"role": "user", "content": prompt}]
         tokens: list[str] = []
         cancelled = False
         try:
@@ -103,6 +109,18 @@ class Session:
         finally:
             self._bus.publish(AnswerDoneEvent(answer_id=answer_id, cancelled=cancelled))
             self._bus.publish(StatusEvent(state="listening"))
+
+    async def _with_context(self, transcript: str) -> str:
+        """Prepend retrieved resume/JD context to the question. Best-effort: any failure
+        falls back to the bare transcript so RAG can never break an answer."""
+        if self._retriever is None:
+            return transcript
+        try:
+            chunks = await self._retriever.retrieve(transcript)
+        except Exception:  # noqa: BLE001 - retrieval is an enhancement, not a dependency
+            return transcript
+        context = format_context(chunks)
+        return f"{context}{transcript}" if context else transcript
 
     def _commit_history(self, transcript: str, answer: str) -> None:
         if not answer:
