@@ -130,5 +130,43 @@ pin.onclick = async () => {
   pin.classList.toggle("on", pinned);
 };
 
+// Hide from screen capture: KWin's excludeFromCapture (KDE Plasma 6.6+), driven via a transient
+// KWin script and persisted in a KWin rule. Opt-in; re-applied at startup so it survives restarts.
+// (The cursor is composited into the capture separately and isn't altered here — for full stealth
+// the user picks a uniform cursor theme while sharing.)
+const hide = document.getElementById("hide");
+let hidden = false;
+invoke("get_capture_supported")
+  .then((ok) => {
+    if (!ok) {
+      hide.disabled = true;
+      hide.title = "Hide from screen recording — requires KDE Plasma 6.6+";
+      return;
+    }
+    invoke("get_capture_hidden")
+      .then(async (on) => {
+        hidden = !!on;
+        hide.classList.toggle("on", hidden);
+        // Re-apply the persisted choice this session: on 6.6 the runtime property was lost on
+        // restart, so re-run the script now (harmless on 6.7 where the rule already applied it).
+        if (hidden) {
+          try {
+            await invoke("set_capture_hidden", { on: true });
+          } catch {}
+        }
+      })
+      .catch(() => {});
+    hide.onclick = async () => {
+      hidden = !hidden;
+      try {
+        await invoke("set_capture_hidden", { on: hidden });
+      } catch {}
+      hide.classList.toggle("on", hidden);
+    };
+  })
+  .catch(() => {
+    hide.disabled = true;
+  });
+
 setInterval(() => send("ping"), 20000); // keepalive
 connect();
