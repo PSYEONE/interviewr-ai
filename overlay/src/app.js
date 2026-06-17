@@ -113,9 +113,15 @@ document.getElementById("rst").onclick = () => {
 };
 document.getElementById("quit").onclick = () => invoke("quit");
 
-let pinned = true; // app pins on startup
 const pin = document.getElementById("pin");
-pin.classList.add("on");
+let pinned = true;
+// Initialize the toggle from the real (persisted) pin state so it never lies after a restart.
+invoke("get_pin")
+  .then((on) => {
+    pinned = !!on;
+    pin.classList.toggle("on", pinned);
+  })
+  .catch(() => pin.classList.toggle("on", pinned));
 pin.onclick = async () => {
   pinned = !pinned;
   try {
