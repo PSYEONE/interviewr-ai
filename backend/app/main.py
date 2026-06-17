@@ -25,7 +25,8 @@ from .events import (
     Subscription,
     parse_command,
 )
-from .llm.ollama import OllamaClient
+from .llm import build_llm
+from .llm.base import LLMClient
 from .pipeline import run_producer
 from .session import Session
 
@@ -39,9 +40,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not settings.llm_model:
         raise RuntimeError("INTERVIEWR_LLM_MODEL is not set")
 
-    llm = OllamaClient(settings.ollama_base_url, settings.llm_model, settings.llm_keep_alive)
+    llm = build_llm(settings)
     if not await llm.check_health():
-        raise RuntimeError(f"Ollama unreachable at {settings.ollama_base_url}")
+        raise RuntimeError(f"LLM provider '{settings.llm_provider}' health check failed")
 
     bus = EventBus(maxsize=settings.event_queue_maxsize)
     session = Session(
@@ -73,7 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await llm.close()
 
 
-async def _warm_llm(llm: OllamaClient) -> None:
+async def _warm_llm(llm: LLMClient) -> None:
     """Best-effort LLM warmup; a failure here must not stop live transcription."""
     try:
         await llm.warmup()

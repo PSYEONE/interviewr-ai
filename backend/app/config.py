@@ -24,6 +24,7 @@ class LLMProvider(StrEnum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     GEMINI = "gemini"
+    GROQ = "groq"
     OLLAMA = "ollama"
 
 
@@ -65,6 +66,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     gemini_api_key: str = ""
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"  # OpenAI-compatible endpoint
     ollama_base_url: str = "http://127.0.0.1:11434"
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
 
@@ -83,6 +86,20 @@ class Settings(BaseSettings):
                     "INTERVIEWR_ENABLE_REMOTE_VIEWER=True requires "
                     "INTERVIEWR_AUTH_TOKEN with >=16 chars."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_llm(self) -> "Settings":
+        # Every provider needs a model id. BYOK cloud providers also need their key.
+        # Fail at config time with a named var, not deep in the request path.
+        if not self.llm_model:
+            raise ValueError("INTERVIEWR_LLM_MODEL is required.")
+        required_key = {
+            LLMProvider.GEMINI: ("INTERVIEWR_GEMINI_API_KEY", self.gemini_api_key),
+            LLMProvider.GROQ: ("INTERVIEWR_GROQ_API_KEY", self.groq_api_key),
+        }.get(self.llm_provider)
+        if required_key is not None and not required_key[1]:
+            raise ValueError(f"INTERVIEWR_LLM_PROVIDER={self.llm_provider} requires {required_key[0]}.")
         return self
 
 
