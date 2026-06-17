@@ -4,22 +4,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Sequence
-from typing import Literal, TypedDict
 
 import httpx
 
-SYSTEM_PROMPT = (
-    "You are a real-time meeting and interview copilot. "
-    "You receive live audio transcription and provide concise, helpful responses. "
-    "Focus on answering questions detected in the transcript, "
-    "providing relevant context, and surfacing key points. "
-    "Be direct and brief."
-)
-
-
-class Message(TypedDict):
-    role: Literal["system", "user", "assistant"]
-    content: str
+from .base import SYSTEM_PROMPT, Message
 
 
 class OllamaClient:

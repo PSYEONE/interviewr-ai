@@ -20,6 +20,8 @@ local = [
 ]
 cloud = [
     "anthropic",
+    "google-genai",
+    "openai",
 ]
 dev = [
     "ruff",
@@ -36,6 +38,11 @@ line-length = 100
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+# Cloud SDKs are optional extras; don't fail strict typing when they aren't installed.
+[[tool.mypy.overrides]]
+module = ["google.*", "openai.*"]
+ignore_missing_imports = true
 
 [build-system]
 requires = ["hatchling"]
