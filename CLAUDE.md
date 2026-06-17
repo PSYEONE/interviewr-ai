@@ -66,8 +66,34 @@ That's what keeps phone/browser clients nearly free to add later.
   rule to force it (see `overlay/scripts/install-kwin-rule.sh`). Works natively on X11/Windows/macOS.
 - **Click-through (input passthrough):** unreliable on Wayland; fine on X11. Tauri exposes
   the call (`set_ignore_cursor_events`) but the compositor decides.
-- **Screen-capture exclusion:** **not available on Wayland.** It's a Windows/macOS feature
-  only. Treat it as a Win/Mac-only enhancement, not a Linux promise.
+- **Screen-capture exclusion:** KDE-only. Two KWin layers exist: (1) the **runtime**
+  `excludeFromCapture` Window property — scriptable since **KWin 6.6** (verified in `window.h`:
+  `Q_PROPERTY(... WRITE setExcludeFromCapture ...)`), which is what the "Hide from Screencast"
+  menu action sets; (2) the **persistent** `excludefromcapture` *window rule* — only since **6.7**
+  (absent from `Plasma/6.6` `rulesettings.kcfg`, present in `Plasma/6.7`). The overlay drives layer
+  (1) so it works on 6.6: the "Hide" toggle runs a transient KWin script over D-Bus
+  (`kwin_run_script` / `exclude_capture_script` in `overlay/src-tauri/src/lib.rs`) that flips the
+  property on the window matched by `OVERLAY_WMCLASS`. Opt-in, **gated on KWin >= 6.6**
+  (`capture_supported`; button disabled below that). The preference is **persisted** by writing the
+  layer-(2) `excludefromcapture` rule key (`KWIN_CAPTURE_KEY`): inert-but-remembered on 6.6, honored
+  natively on 6.7+. On 6.6 the runtime property is lost when the window is recreated, so the
+  frontend re-runs the script at startup to re-apply the stored choice. The **cursor** is composited
+  into the capture separately from the window, and the overlay deliberately does **not** try to
+  alter it: in-app cursor tricks were tried and removed (a CSS arrow over our surface only covered
+  hover/buttons; `setResizable`-while-hidden to kill the resize-edge cursor is as unreliable on
+  Wayland as `set_always_on_top` — doesn't apply at startup, doesn't restore on toggle; and the
+  title-bar move cursor is compositor-drawn during the interactive-move grab, with no in-app fix —
+  manual drag is impossible since clients can't position their own toplevels, and XWayland was
+  rejected for HiDPI/window-mgmt regressions). So the cursor shows normally; for **true** stealth the
+  user applies a uniform cursor theme (System Settings → Cursors, all shapes = the arrow) while
+  sharing — system-wide, a deliberate "while sharing" choice the overlay can't scope to itself (a
+  good candidate for an end-user notice when the feature is documented). **No** GNOME/Mutter or
+  wlroots/Hyprland equivalent. Only **PipeWire-portal** capturers honor it
+  (Spectacle recording, OBS-PipeWire, browser WebRTC, Zoom/Meet, and — confirmed — Discord);
+  non-portal X11 grabs do not. Privacy/accessibility convenience, **not** an undetectability
+  guarantee (also defeated by a phone camera). Document/market as "KDE Plasma 6.6+", not generic
+  Linux. Separately, Windows/macOS have a real exclusion via Tauri `set_content_protected` (a
+  Win/Mac-only path, untestable on the maintainer's machine).
 - **WebView differences:** Linux Tauri uses **WebKitGTK**, not Chromium. Test the UI inside the
   actual Tauri webview, not just Chrome. APIs/rendering can differ.
 
