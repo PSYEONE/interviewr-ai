@@ -31,4 +31,7 @@ overlay/dist/
 .idea/
 .vscode/
 
+# RAG store (user documents + embeddings)
+backend/data/
+
 # Local agent state
