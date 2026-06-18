@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from app.system.hardware import (
     GpuInfo,
+    _amd_card_vram_mb,
     _gpus_from,
     _meminfo_mb,
+    _nvidia_parse,
     _parse_vulkan_summary,
     recommend,
 )
@@ -90,3 +92,40 @@ def test_recommend_no_discrete_gpu_goes_cloud() -> None:
     assert rec.can_run_local is False
     assert rec.discrete_gpu_index is None
     assert rec.suggested_models  # still suggests tiny models as a fallback
+
+
+def test_recommend_surfaces_driver_error() -> None:
+    rec = recommend([], ram_mb=16000, gpu_error="Driver/library version mismatch")
+    assert rec.can_run_local is False
+    assert "driver" in rec.reason.lower()
+    assert "Driver/library version mismatch" in rec.reason
+
+
+def test_nvidia_parse_ok() -> None:
+    vram, err = _nvidia_parse(
+        "NVIDIA GeForce RTX 3070 Laptop GPU, 8192\nNVIDIA GeForce RTX 4090, 24564\n", "", 0
+    )
+    assert err is None
+    assert vram == {"NVIDIA GeForce RTX 3070 Laptop GPU": 8192, "NVIDIA GeForce RTX 4090": 24564}
+
+
+def test_nvidia_parse_driver_mismatch() -> None:
+    vram, err = _nvidia_parse("", "Failed to initialize NVML: Driver/library version mismatch", 255)
+    assert vram == {}
+    assert err is not None
+    assert "mismatch" in err.lower()
+
+
+def test_nvidia_parse_no_card_is_not_an_error() -> None:
+    # nvidia-smi installed but no NVIDIA GPU: nonzero exit, no known marker.
+    vram, err = _nvidia_parse("", "No devices were found", 6)
+    assert vram == {}
+    assert err is None
+
+
+def test_amd_card_vram_prefers_largest_pool() -> None:
+    gb = 1024 * 1024 * 1024
+    assert _amd_card_vram_mb(20 * gb, 256 * 1024 * 1024, 16 * gb) == 20480  # discrete: vram_total
+    assert _amd_card_vram_mb(256 * 1024 * 1024, 32 * gb, 0) == 32768  # APU: vis_vram_total wins
+    assert _amd_card_vram_mb(0, 0, 8 * gb) == 8192  # only GTT exposed
+    assert _amd_card_vram_mb(0, 0, 0) == 0
