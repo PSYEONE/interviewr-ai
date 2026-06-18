@@ -29,6 +29,7 @@ class SystemReport(BaseModel):
     gpus: list[GpuInfo]
     cpu_count: int
     ram_mb: int
+    gpu_error: str | None  # GPU present but driver unreachable; lets the UI say so
     ollama: OllamaStatus
     recommendation: Recommendation
 
@@ -55,8 +56,9 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         gpus=info.gpus,
         cpu_count=info.cpu_count,
         ram_mb=info.ram_mb,
+        gpu_error=info.gpu_error,
         ollama=ollama,
-        recommendation=recommend(info.gpus, info.ram_mb),
+        recommendation=recommend(info.gpus, info.ram_mb, info.gpu_error),
     )
 
 
