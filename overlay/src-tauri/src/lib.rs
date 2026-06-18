@@ -129,7 +129,7 @@ fn kwin_version() -> Option<(u32, u32)> {
 }
 
 /// The scriptable `excludeFromCapture` Window property exists in KWin 6.6+. We set it at runtime
-/// via a transient KWin script — the same thing the "Hide from Screencast" menu action does — so
+/// via a transient KWin script (the same thing the "Hide from Screencast" menu action does), so
 /// this works on 6.6, even though the *persistent* window rule only arrived in 6.7.
 #[cfg(target_os = "linux")]
 fn capture_supported() -> bool {
@@ -249,14 +249,14 @@ fn kwin_rule_bool_state(key: &str) -> Option<bool> {
 }
 
 /// Pin state the UI initializes its toggle from, so it never disagrees with the window.
-/// On Linux this is the persisted KWin keep-above value (pinned on first run); elsewhere the
-/// window is recreated on top each launch, so report pinned.
+/// On Linux this is the persisted KWin keep-above value; unset defaults to unpinned (the wizard
+/// and a fresh install start unpinned until the user pins the panel).
 #[tauri::command]
 fn get_pin() -> bool {
     #[cfg(target_os = "linux")]
-    return kwin_rule_bool_state("above").unwrap_or(true);
+    return kwin_rule_bool_state("above").unwrap_or(false);
     #[cfg(not(target_os = "linux"))]
-    return true;
+    return false;
 }
 
 /// Toggle "hide from screen capture" (KWin 6.6+; a no-op elsewhere). Persists the intent in the
@@ -300,6 +300,24 @@ fn get_capture_supported() -> bool {
     return false;
 }
 
+/// Size the overlay relative to the monitor's logical resolution, so a fixed 420x600 isn't tiny
+/// on a 4K panel. Logical size already folds in the OS display scaling, so this looks right on a
+/// 1080p laptop and a HiDPI 4K alike. Clamped to sane bounds, then centered.
+fn size_to_screen(win: &WebviewWindow) {
+    let Ok(Some(monitor)) = win.current_monitor() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let phys = monitor.size();
+    let logical_w = phys.width as f64 / scale;
+    let logical_h = phys.height as f64 / scale;
+    // Landscape: wider than tall.
+    let w = (logical_w * 0.40).clamp(1000.0, 1200.0);
+    let h = (logical_h * 0.42).clamp(700.0, 760.0);
+    let _ = win.set_size(tauri::LogicalSize::new(w, h));
+    let _ = win.center();
+}
+
 pub fn run() {
     // Always-on-top is enforced by a KWin window rule, not the toolkit: on native Wayland
     // GTK ignores keep-above, and forcing XWayland to dodge that costs HiDPI scaling and
@@ -316,15 +334,11 @@ pub fn run() {
             quit
         ])
         .setup(|app| {
+            // Start unpinned: the setup wizard has no pin control, so the window must not trap
+            // itself always-on-top. The panel's Pin toggle sets and persists the user's choice.
             if let Some(win) = app.get_webview_window("main") {
-                let _ = win.set_always_on_top(true); // honored on X11/Win/macOS; no-op on Wayland
-            }
-            // Pin by default only on first run; later launches honor the user's saved choice
-            // (the KWin rule persists), so an unpinned overlay reopens unpinned. Hide-from-capture
-            // is opt-in, so it is never auto-enabled here.
-            #[cfg(target_os = "linux")]
-            if kwin_rule_bool_state("above").is_none() {
-                let _ = set_kwin_rule_bool("above", true);
+                let _ = win.set_always_on_top(false);
+                size_to_screen(&win);
             }
             Ok(())
         })
