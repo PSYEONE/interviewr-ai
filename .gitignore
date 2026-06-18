@@ -35,3 +35,5 @@ overlay/dist/
 backend/data/
 
 # Local agent state
+.git.broken*
+.env.bak
