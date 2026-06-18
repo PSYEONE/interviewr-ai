@@ -6,7 +6,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root is three levels up from this file (backend/app/config.py).
@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     max_history_chars: int = 3000  # retained prior Q&A context
     event_queue_maxsize: int = 256  # per-subscriber bounded queue
 
+    @field_validator("stt_provider", "llm_provider", "embed_provider", mode="before")
+    @classmethod
+    def _blank_provider_to_default(cls, v: object, info: ValidationInfo) -> object:
+        # A blank provider line in .env (e.g. `INTERVIEWR_LLM_PROVIDER=`) means "unset", not an
+        # invalid enum: fall back to the field default instead of crashing config load.
+        if v == "" and info.field_name is not None:
+            return cls.model_fields[info.field_name].get_default()
+        return v
+
     @model_validator(mode="after")
     def _guard_remote_exposure(self) -> "Settings":
         if self.enable_remote_viewer:
@@ -110,10 +119,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_llm(self) -> "Settings":
-        # Every provider needs a model id. BYOK cloud providers also need their key.
-        # Fail at config time with a named var, not deep in the request path.
+        # An empty llm_model is the "unconfigured" state: the setup wizard fills it in and the
+        # engine boots in setup mode rather than failing. Once a model is set, a BYOK cloud
+        # provider also needs its key, validated here with a named var, not deep in a request.
         if not self.llm_model:
-            raise ValueError("INTERVIEWR_LLM_MODEL is required.")
+            return self
         required_key = {
             LLMProvider.ANTHROPIC: ("INTERVIEWR_ANTHROPIC_API_KEY", self.anthropic_api_key),
             LLMProvider.OPENAI: ("INTERVIEWR_OPENAI_API_KEY", self.openai_api_key),
