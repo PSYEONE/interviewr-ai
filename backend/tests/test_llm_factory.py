@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
-from app.config import LLMProvider, Settings
+from app.config import EmbedProvider, LLMProvider, Settings, STTProvider
 from app.llm import build_llm
 from app.llm.base import LLMClient, Message
 from app.llm.ollama import OllamaClient
@@ -74,9 +74,18 @@ def test_build_llm_anthropic() -> None:
     assert isinstance(llm, AnthropicClient)
 
 
-def test_missing_model_rejected() -> None:
-    with pytest.raises(ValueError, match="INTERVIEWR_LLM_MODEL"):
-        _settings(llm_model="")
+def test_empty_model_allowed_for_setup_mode() -> None:
+    # An empty model is the unconfigured state; the engine boots in setup mode (the wizard
+    # fills it in) instead of refusing to start.
+    assert _settings(llm_model="").llm_model == ""
+
+
+def test_blank_provider_falls_back_to_default() -> None:
+    # A blank `INTERVIEWR_LLM_PROVIDER=` line must not crash config load; it means "unset".
+    s = _settings(llm_provider="", stt_provider="", embed_provider="")
+    assert s.llm_provider is LLMProvider.OLLAMA
+    assert s.stt_provider is STTProvider.WHISPER_CPP
+    assert s.embed_provider is EmbedProvider.OLLAMA
 
 
 @pytest.mark.parametrize(

@@ -36,3 +36,5 @@ backend/data/
 
 # Local agent state
 .claude/
+.git.broken*
+.env.bak
