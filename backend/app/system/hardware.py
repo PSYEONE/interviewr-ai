@@ -45,6 +45,7 @@ class SystemInfo(BaseModel):
     gpus: list[GpuInfo]
     cpu_count: int
     ram_mb: int
+    gpu_error: str | None = None  # nvidia-smi present but driver unreachable
 
 
 class Recommendation(BaseModel):
@@ -111,27 +112,86 @@ def _gpus_from(summary: str | None, nvidia_vram: dict[str, int], amd_vram: list[
     return gpus
 
 
-def _nvidia_vram() -> dict[str, int]:
-    """Map NVIDIA device name -> total VRAM (MB). Names match vulkaninfo's deviceName."""
-    out = _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
-    if not out:
-        return {}
+def _nvidia_parse(stdout: str, stderr: str, returncode: int) -> tuple[dict[str, int], str | None]:
+    """Turn one nvidia-smi run into (name -> VRAM MB, driver-error string).
+
+    nvidia-smi can exit nonzero while printing a driver fault (e.g. the kernel
+    module was updated without a reboot: "Driver/library version mismatch"). When
+    that happens Vulkan can't see the card either, so it would silently vanish and
+    look like "no GPU"; surface the fault instead. A clean nonzero exit with no
+    known marker (e.g. simply no NVIDIA card present) yields ({}, None).
+    """
+    combined = f"{stdout}\n{stderr}".lower()
+    markers = (
+        "driver/library version mismatch",
+        "couldn't communicate with the nvidia driver",
+        "failed to initialize nvml",
+    )
+    if any(marker in combined for marker in markers):
+        lines = (stdout + stderr).strip().splitlines()
+        return {}, (lines[0][:140] if lines else "NVIDIA driver error")
+    if returncode != 0:
+        return {}, None
     result: dict[str, int] = {}
-    for line in out.strip().splitlines():
+    for line in stdout.strip().splitlines():
         parts = [p.strip() for p in line.split(",")]
         if len(parts) >= 2 and parts[1].isdigit():
             result[parts[0]] = int(parts[1])
-    return result
+    return result, None
+
+
+def _nvidia_probe() -> tuple[dict[str, int], str | None]:
+    """Map NVIDIA device name -> total VRAM (MB), plus a driver-error string when
+    nvidia-smi is present but the driver is unreachable. Names match vulkaninfo's
+    deviceName. ({}, None) means no nvidia-smi or no NVIDIA card."""
+    if shutil.which("nvidia-smi") is None:
+        return {}, None
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}, None
+    return _nvidia_parse(proc.stdout, proc.stderr, proc.returncode)
+
+
+def _amd_card_vram_mb(vram_total: int, vis_vram_total: int, gtt_total: int) -> int:
+    """Usable VRAM (MB) for one AMD card from its sysfs mem_info_* byte counts.
+
+    Discrete cards report real VRAM in mem_info_vram_total. APUs / unified-memory
+    SoCs (e.g. Strix Halo) report a tiny vram_total with the real usable pool in
+    vis_vram_total, or expose only gtt_total; take the largest so an APU isn't
+    reported as ~0 MB and dropped. Returns 0 when nothing is determinable.
+    """
+    best = max(vram_total, vis_vram_total)
+    if best <= 0:
+        best = gtt_total
+    return best // (1024 * 1024) if best > 0 else 0
 
 
 def _amd_vram() -> list[int]:
     """Total VRAM (MB) per AMD card, in sysfs card order."""
-    values: list[int] = []
-    for path in sorted(Path("/sys/class/drm").glob("card*/device/mem_info_vram_total")):
+
+    def _read_int(path: Path) -> int:
         try:
-            values.append(int(path.read_text().strip()) // (1024 * 1024))
+            return int(path.read_text().strip())
         except (OSError, ValueError):
-            continue
+            return 0
+
+    values: list[int] = []
+    for vram_path in sorted(Path("/sys/class/drm").glob("card*/device/mem_info_vram_total")):
+        base = vram_path.parent
+        mb = _amd_card_vram_mb(
+            _read_int(vram_path),
+            _read_int(base / "mem_info_vis_vram_total"),
+            _read_int(base / "mem_info_gtt_total"),
+        )
+        if mb > 0:
+            values.append(mb)
     return values
 
 
@@ -147,7 +207,7 @@ def _meminfo_mb(text: str) -> int:
 
 
 def detect_gpus() -> list[GpuInfo]:
-    return _gpus_from(_run(["vulkaninfo", "--summary"]), _nvidia_vram(), _amd_vram())
+    return _gpus_from(_run(["vulkaninfo", "--summary"]), _nvidia_probe()[0], _amd_vram())
 
 
 def detect_system() -> SystemInfo:
@@ -155,27 +215,39 @@ def detect_system() -> SystemInfo:
         ram_mb = _meminfo_mb(Path("/proc/meminfo").read_text())
     except OSError:
         ram_mb = 0
-    return SystemInfo(gpus=detect_gpus(), cpu_count=os.cpu_count() or 0, ram_mb=ram_mb)
+    nvidia_vram, gpu_error = _nvidia_probe()
+    gpus = _gpus_from(_run(["vulkaninfo", "--summary"]), nvidia_vram, _amd_vram())
+    return SystemInfo(
+        gpus=gpus, cpu_count=os.cpu_count() or 0, ram_mb=ram_mb, gpu_error=gpu_error
+    )
 
 
-def recommend(gpus: list[GpuInfo], ram_mb: int) -> Recommendation:
+def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) -> Recommendation:
     """Verdict on running a decent local LLM, based on the best discrete GPU's VRAM.
 
     Integrated GPUs share system RAM and CPU fallback is slow, so "can run local" keys off a
     discrete card with enough VRAM for a responsive 7B+ model. Thresholds are deliberately
-    conservative (a 7-8B Q4 model needs ~5-6 GB plus headroom).
+    conservative (a 7-8B Q4 model needs ~5-6 GB plus headroom). gpu_error, when set, means a
+    GPU exists but its driver is unreachable, so we say that rather than "no GPU".
     """
     discrete = [g for g in gpus if g.kind == "discrete" and g.vram_mb is not None]
     best = max(discrete, key=lambda g: g.vram_mb or 0, default=None)
     if best is None or best.vram_mb is None:
+        reason = (
+            f"GPU driver error: {gpu_error}. The card is installed but unusable until the "
+            "driver is fixed (often a reboot after a driver update). Local models fall back "
+            "to CPU and will be slow until then."
+            if gpu_error
+            else "No discrete GPU detected. Local models run on CPU and will be slow; "
+            "cloud is recommended for responsive answers."
+        )
         return Recommendation(
             can_run_local=False,
             tier="none",
             vram_mb=None,
             suggested_models=_MODELS_SMALL,
             discrete_gpu_index=None,
-            reason="No discrete GPU detected. Local models run on CPU and will be slow; "
-            "cloud is recommended for responsive answers.",
+            reason=reason,
         )
     vram = best.vram_mb
     if vram >= 15000:
