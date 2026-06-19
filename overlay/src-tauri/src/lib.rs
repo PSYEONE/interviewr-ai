@@ -1,5 +1,13 @@
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use serde::Serialize;
-use tauri::{Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 #[derive(Serialize)]
 struct Connection {
@@ -41,6 +49,280 @@ fn get_connection() -> Connection {
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+// Backend sidecar: the overlay owns the FastAPI engine as a child process so "apply settings"
+// is a supervised restart, not a manual one. We use plain std::process (no tauri-plugin-shell,
+// so no extra capabilities) and manage the lifecycle here. Bundling a Python runtime for
+// distribution is a separate future installer concern; this launches the project venv.
+
+/// How many recent engine stderr lines we keep to explain a failure to the user.
+const STDERR_TAIL_LINES: usize = 25;
+/// A crash this soon after spawn means the engine never came up (vs. ran a while then died).
+const INSTANT_CRASH_SECS: u64 = 5;
+/// Consecutive instant crashes before we stop respawning and surface a hard error.
+const MAX_INSTANT_CRASHES: u32 = 3;
+
+#[derive(Default)]
+struct EngineState {
+    /// PID of the live engine (== its process-group id on Unix), or None when down.
+    child_pid: Mutex<Option<u32>>,
+    /// Does the overlay want the engine alive? Cleared right before an intentional kill so the
+    /// monitor can tell a planned restart/quit from a crash.
+    should_run: AtomicBool,
+    /// True only when this overlay spawned the engine (vs. a manually-run/external one).
+    manage_engine: AtomicBool,
+    /// Bumped on an intentional restart so the outgoing child's monitor won't respawn it.
+    generation: AtomicU64,
+    /// Consecutive instant-crash count for the crash-loop guard.
+    instant_failures: AtomicU32,
+    /// Ring buffer of the engine's most recent stderr lines.
+    stderr_tail: Mutex<VecDeque<String>>,
+    /// Last fatal failure message, if any. Stored as well as emitted because the initial spawn
+    /// can fail before the webview has attached its `engine://failed` listener (events emitted
+    /// then are dropped); the frontend polls this to recover that case.
+    last_error: Mutex<Option<String>>,
+}
+
+#[derive(Clone, Serialize)]
+struct EngineFailed {
+    message: String,
+}
+
+/// Walk up from the working dir to find the backend (the dir containing `run_pipeline.py`).
+/// Deliberately not keyed on `.env`: the engine boots in setup mode without one, and the wizard
+/// is what creates `.env` in the first place.
+fn find_backend_dir() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let nested = dir.join("backend");
+        if nested.join("run_pipeline.py").is_file() {
+            return Some(nested);
+        }
+        if dir.join("run_pipeline.py").is_file() {
+            return Some(dir); // launched from inside backend/ itself
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+struct EngineCmd {
+    python: PathBuf,
+    dir: PathBuf,
+}
+
+/// Resolve the interpreter + working dir to launch `run_pipeline.py`. Prefers the project venv;
+/// both are overridable for packaged builds / non-standard layouts.
+fn engine_command() -> Result<EngineCmd, String> {
+    let dir = match std::env::var("INTERVIEWR_BACKEND_DIR") {
+        Ok(d) if !d.trim().is_empty() => PathBuf::from(d),
+        _ => find_backend_dir().ok_or_else(|| {
+            "could not locate the backend (no run_pipeline.py found above the working dir; \
+             set INTERVIEWR_BACKEND_DIR)"
+                .to_string()
+        })?,
+    };
+    if !dir.is_dir() {
+        return Err(format!("backend dir not found: {}", dir.display()));
+    }
+    let python = match std::env::var("INTERVIEWR_BACKEND_PYTHON") {
+        Ok(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => {
+            let venv = if cfg!(windows) {
+                dir.join(".venv/Scripts/python.exe")
+            } else {
+                dir.join(".venv/bin/python")
+            };
+            if venv.is_file() {
+                venv
+            } else {
+                PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
+            }
+        }
+    };
+    Ok(EngineCmd { python, dir })
+}
+
+/// Is something already serving the engine port? If so we don't spawn a second one (lets the
+/// maintainer keep running the backend by hand in dev).
+fn engine_reachable() -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let host = std::env::var("INTERVIEWR_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let port: u16 = std::env::var("INTERVIEWR_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8765);
+    let Ok(addrs) = format!("{host}:{port}").to_socket_addrs() else {
+        return false;
+    };
+    addrs.into_iter().any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok())
+}
+
+/// Kill the engine's whole process group so the `pw-record` capture subprocess dies with it.
+/// We shell out to `kill` (matching this file's other shell-outs) so we never need the Child
+/// handle, which the monitor thread owns for `wait()`.
+#[cfg(unix)]
+fn kill_group(pid: u32) {
+    let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+}
+
+#[cfg(windows)]
+fn kill_group(pid: u32) {
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status();
+}
+
+/// Record a fatal engine failure: store it (for the startup race) and emit it (for a live UI).
+fn report_failure(app: &AppHandle, message: String) {
+    *app.state::<EngineState>().last_error.lock().unwrap() = Some(message.clone());
+    let _ = app.emit("engine://failed", EngineFailed { message });
+}
+
+/// Build a user-facing failure message from the engine's recent stderr.
+fn engine_error_message(state: &EngineState) -> String {
+    let tail = state.stderr_tail.lock().unwrap();
+    if tail.is_empty() {
+        "The engine keeps crashing on startup. Check the terminal logs for details.".to_string()
+    } else {
+        let lines: Vec<&str> = tail.iter().map(String::as_str).collect();
+        format!("The engine keeps crashing on startup:\n\n{}", lines.join("\n"))
+    }
+}
+
+/// Launch the engine and supervise it. A stderr-reader thread tees logs and fills the ring
+/// buffer; a monitor thread waits on the child and, on an unexpected exit, respawns it (with a
+/// crash-loop guard) or surfaces `engine://failed`.
+fn spawn_engine(app: &AppHandle) -> Result<(), String> {
+    let cmd = engine_command()?;
+    let mut command = Command::new(&cmd.python);
+    command
+        .arg("run_pipeline.py")
+        .current_dir(&cmd.dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0); // own group: killing -pid reaps pw-record too
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("failed to launch engine ({}): {e}", cmd.python.display()))?;
+    let pid = child.id();
+
+    let state = app.state::<EngineState>();
+    *state.child_pid.lock().unwrap() = Some(pid);
+    *state.last_error.lock().unwrap() = None; // a fresh start clears any prior failure
+    let my_gen = state.generation.load(Ordering::SeqCst);
+    let spawned_at = Instant::now();
+
+    if let Some(stderr) = child.stderr.take() {
+        let app_err = app.clone();
+        std::thread::spawn(move || {
+            let state = app_err.state::<EngineState>();
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                eprintln!("[engine] {line}");
+                let mut tail = state.stderr_tail.lock().unwrap();
+                tail.push_back(line);
+                while tail.len() > STDERR_TAIL_LINES {
+                    tail.pop_front();
+                }
+            }
+        });
+    }
+
+    let app_mon = app.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        let elapsed = spawned_at.elapsed();
+        let state = app_mon.state::<EngineState>();
+        {
+            let mut cur = state.child_pid.lock().unwrap();
+            if *cur == Some(pid) {
+                *cur = None;
+            }
+        }
+        // Planned restart (stale generation) or quit (should_run cleared): don't respawn.
+        let intentional = !state.should_run.load(Ordering::SeqCst)
+            || state.generation.load(Ordering::SeqCst) != my_gen;
+        if intentional {
+            return;
+        }
+        let failures = if elapsed < Duration::from_secs(INSTANT_CRASH_SECS) {
+            state.instant_failures.fetch_add(1, Ordering::SeqCst) + 1
+        } else {
+            state.instant_failures.store(0, Ordering::SeqCst);
+            0
+        };
+        if failures >= MAX_INSTANT_CRASHES {
+            report_failure(&app_mon, engine_error_message(&state));
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        if let Err(e) = spawn_engine(&app_mon) {
+            report_failure(&app_mon, e);
+        }
+    });
+    Ok(())
+}
+
+/// Kill the running engine on app teardown so it never outlives the overlay.
+fn stop_engine(state: &EngineState) {
+    state.should_run.store(false, Ordering::SeqCst);
+    let pid = *state.child_pid.lock().unwrap();
+    if let Some(pid) = pid {
+        kill_group(pid);
+    }
+}
+
+/// Intentional kill + clean respawn (used to apply settings). Blocking; runs off the main thread.
+fn do_restart(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<EngineState>();
+    if !state.manage_engine.load(Ordering::SeqCst) {
+        return Err("not_managed".to_string());
+    }
+    state.generation.fetch_add(1, Ordering::SeqCst); // invalidate the outgoing child's monitor
+    state.instant_failures.store(0, Ordering::SeqCst);
+    let pid = *state.child_pid.lock().unwrap();
+    if let Some(pid) = pid {
+        kill_group(pid);
+    }
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while state.child_pid.lock().unwrap().is_some() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    state.should_run.store(true, Ordering::SeqCst);
+    spawn_engine(app)
+}
+
+/// Restart the engine to apply new settings. Returns `not_managed` when an external/manual
+/// engine owns the port, so the UI can fall back to asking the user to restart it.
+#[tauri::command]
+async fn restart_engine(app: AppHandle) -> Result<(), String> {
+    match tauri::async_runtime::spawn_blocking(move || do_restart(&app)).await {
+        Ok(inner) => inner,
+        Err(e) => Err(format!("restart task failed: {e}")),
+    }
+}
+
+/// Whether this overlay owns (and can restart) the engine.
+#[tauri::command]
+fn engine_managed(state: State<'_, EngineState>) -> bool {
+    state.manage_engine.load(Ordering::SeqCst)
+}
+
+/// Last fatal engine failure, if any. Lets the frontend recover a failure emitted before its
+/// `engine://failed` listener was attached (e.g. an initial-spawn error at startup).
+#[tauri::command]
+fn engine_error(state: State<'_, EngineState>) -> Option<String> {
+    state.last_error.lock().unwrap().clone()
 }
 
 /// Toggle always-on-top. The toolkit call works on X11/Windows/macOS; on KDE/Wayland it is a
@@ -324,6 +606,7 @@ pub fn run() {
     // normal window management. See scripts/install-kwin-rule.sh.
     load_env();
     tauri::Builder::default()
+        .manage(EngineState::default())
         .invoke_handler(tauri::generate_handler![
             get_connection,
             set_pin,
@@ -331,6 +614,9 @@ pub fn run() {
             set_capture_hidden,
             get_capture_hidden,
             get_capture_supported,
+            restart_engine,
+            engine_managed,
+            engine_error,
             quit
         ])
         .setup(|app| {
@@ -340,8 +626,28 @@ pub fn run() {
                 let _ = win.set_always_on_top(false);
                 size_to_screen(&win);
             }
+            // Own the backend unless one is already serving the port or the user opted out.
+            let handle = app.handle().clone();
+            let state = handle.state::<EngineState>();
+            let opted_out = std::env::var("INTERVIEWR_NO_SIDECAR")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false);
+            if opted_out || engine_reachable() {
+                state.manage_engine.store(false, Ordering::SeqCst);
+            } else {
+                state.manage_engine.store(true, Ordering::SeqCst);
+                state.should_run.store(true, Ordering::SeqCst);
+                if let Err(e) = spawn_engine(&handle) {
+                    report_failure(&handle, e);
+                }
+            }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                stop_engine(&app_handle.state::<EngineState>());
+            }
+        });
 }
