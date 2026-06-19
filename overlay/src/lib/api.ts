@@ -13,6 +13,27 @@ async function getJSON<T>(path: string): Promise<T> {
 export const getHealth = (): Promise<Health> => getJSON<Health>("/health");
 export const getSettings = (): Promise<ConfigView> => getJSON<ConfigView>("/settings");
 
+// Poll /health until `pred` holds or `timeoutMs` elapses. Used after an engine restart to wait
+// for the fresh process to come up and report the new config. Returns the matching Health, or
+// throws on timeout. Unreachable health (engine still restarting) counts as "not yet".
+export async function waitForHealth(
+  pred: (h: Health) => boolean,
+  timeoutMs = 30000,
+  intervalMs = 500,
+): Promise<Health> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const h = await getHealth();
+      if (pred(h)) return h;
+    } catch {
+      /* engine not back yet */
+    }
+    if (Date.now() >= deadline) throw new Error("timed out waiting for the engine");
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 // Detecting GPUs shells out to vulkaninfo/nvidia-smi/Ollama, so cache the result module-side:
 // it survives the wizard step components unmounting on back-navigation. `force` re-probes (used
 // by the refresh button and after a model pull). The cache is refreshed on every real fetch.

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { postSettings } from "../../lib/api";
+  import { postSettings, waitForHealth } from "../../lib/api";
+  import { engineManaged, restartEngine } from "../../lib/tauri";
   import type { SystemReport } from "../../lib/types";
 
   let {
@@ -15,7 +16,8 @@
   } = $props();
 
   let saving = $state(false);
-  let saved = $state(false);
+  let saved = $state(false); // manual-restart fallback (dev / external engine)
+  let statusMsg = $state("");
   let error = $state<string | null>(null);
 
   const LABELS: Record<string, string> = {
@@ -61,14 +63,41 @@
     })),
   );
 
+  function msgOf(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+  }
+
   async function save(): Promise<void> {
     saving = true;
     error = null;
     try {
+      statusMsg = "Saving…";
       await postSettings(updates);
-      saved = true;
+
+      // If we don't own the engine (dev / a manually-run backend), we can't restart it; show
+      // the manual fallback instead.
+      const managed = await engineManaged().catch(() => false);
+      if (!managed) {
+        saved = true;
+        return;
+      }
+
+      statusMsg = "Restarting engine…";
+      try {
+        await restartEngine();
+      } catch (e) {
+        if (msgOf(e).includes("not_managed")) {
+          saved = true;
+          return;
+        }
+        throw e;
+      }
+
+      statusMsg = "Waiting for the engine…";
+      await waitForHealth((h) => h.configured && h.ready);
+      recheck(); // engine is up with the new config: advance to the panel
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      error = msgOf(e);
     } finally {
       saving = false;
     }
@@ -87,10 +116,14 @@
 
   {#if error}<p class="text-warn">{error}</p>{/if}
 
+  {#if saving && statusMsg}
+    <p class="text-dim text-xs">{statusMsg}</p>
+  {/if}
+
   {#if saved}
     <div class="card selected">
       <strong>Saved.</strong>
-      <p class="text-xs">Restart the engine to apply, then continue. (Automatic restart is coming.)</p>
+      <p class="text-xs">Restart the engine to apply, then continue.</p>
     </div>
   {/if}
 
@@ -99,7 +132,7 @@
     <button class="mr-auto" onclick={back} disabled={saving}>Back</button>
     {#if !saved}
       <button class="primary" onclick={save} disabled={saving}>
-        {saving ? "Saving…" : "Save"}
+        {saving ? statusMsg || "Saving…" : "Save"}
       </button>
     {:else}
       <button class="primary" onclick={recheck}>I've restarted, continue</button>

@@ -1,7 +1,8 @@
 // Typed wrappers over the overlay's Rust commands (overlay/src-tauri/src/lib.rs) and the
-// window drag. No new Rust commands are added in this phase.
+// window drag.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type { Connection } from "./types";
@@ -17,3 +18,20 @@ export const getCaptureSupported = (): Promise<boolean> =>
 export const quit = (): Promise<void> => invoke("quit");
 export const startDragging = (): Promise<void> => getCurrentWindow().startDragging();
 export const minimizeWindow = (): Promise<void> => getCurrentWindow().minimize();
+
+// Engine sidecar. restartEngine rejects with "not_managed" when an external/manual backend
+// owns the port (dev), so callers can fall back to a manual-restart prompt.
+export const restartEngine = (): Promise<void> => invoke("restart_engine");
+export const engineManaged = (): Promise<boolean> => invoke<boolean>("engine_managed");
+
+// Last fatal engine failure, or null. Polled in the offline path to recover a failure that was
+// emitted (engine://failed) before this webview attached its listener (e.g. an initial-spawn
+// error at startup).
+export const engineError = (): Promise<string | null> =>
+  invoke<string | null>("engine_error");
+
+// Fired by Rust when the engine gives up (crash-loop) or fails to start; payload is the
+// stderr tail so the UI can tell the user what actually went wrong.
+export function onEngineFailed(cb: (message: string) => void): Promise<UnlistenFn> {
+  return listen<{ message: string }>("engine://failed", (e) => cb(e.payload.message));
+}
