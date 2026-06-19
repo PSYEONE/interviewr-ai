@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     max_history_chars: int = 3000  # retained prior Q&A context
     event_queue_maxsize: int = 256  # per-subscriber bounded queue
 
+    # conversation history (local-only persistence of answered Q&A turns)
+    history_enabled: bool = True  # persist turns to local sqlite; off = nothing is written
+    history_db_path: str = ""  # empty = backend/data/history.sqlite3
+
     @field_validator("stt_provider", "llm_provider", "embed_provider", mode="before")
     @classmethod
     def _blank_provider_to_default(cls, v: object, info: ValidationInfo) -> object:
@@ -151,6 +155,13 @@ class Settings(BaseSettings):
 
     def resolved_rag_db_path(self) -> Path:
         return Path(self.rag_db_path) if self.rag_db_path else _BACKEND_DIR / "data" / "rag.sqlite3"
+
+    def resolved_history_db_path(self) -> Path:
+        return (
+            Path(self.history_db_path)
+            if self.history_db_path
+            else _BACKEND_DIR / "data" / "history.sqlite3"
+        )
 
 
 @lru_cache

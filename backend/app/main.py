@@ -14,6 +14,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     WebSocket,
@@ -21,7 +22,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
@@ -37,6 +38,13 @@ from .events import (
     StatusEvent,
     Subscription,
     parse_command,
+)
+from .history import (
+    ConversationDetail,
+    ConversationRecord,
+    HistoryStore,
+    format_conversation_md,
+    format_history_md,
 )
 from .llm import build_llm
 from .llm.base import LLMClient
@@ -62,8 +70,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.bus = bus
     app.state.session = None
     app.state.retriever = None
+    app.state.history = None
     app.state.configured = bool(settings.llm_model)
     app.state.ready = False
+
+    # History persists regardless of LLM config so the endpoints serve past conversations even
+    # in setup mode; the live Session only writes to it when configured + enabled.
+    history = HistoryStore(settings.resolved_history_db_path())
+    app.state.history = history
 
     # Setup mode: with no model (or an unhealthy LLM) the engine still serves the capability,
     # settings, and model-pull endpoints so the wizard can configure it; only the audio+LLM
@@ -88,6 +102,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 max_buffer_chars=settings.max_buffer_chars,
                 max_history_chars=settings.max_history_chars,
                 retriever=retriever,
+                history=history,
+                history_enabled=settings.history_enabled,
             )
             app.state.session = session
             app.state.ready = True
@@ -116,11 +132,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 except (asyncio.CancelledError, Exception):  # noqa: BLE001
                     pass
         if app.state.session is not None:
-            await app.state.session.aclose()
+            await app.state.session.aclose()  # may write a final title via history + llm
         if llm is not None:
             await llm.close()
         if retriever is not None:
             await retriever.close()
+        history.close()
 
 
 async def _warm_llm(llm: LLMClient) -> None:
@@ -386,6 +403,85 @@ async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bo
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"restart_required": True}
+
+
+def _get_history(request: Request) -> HistoryStore:
+    history: HistoryStore | None = request.app.state.history
+    if history is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="history store unavailable"
+        )
+    return history
+
+
+def _attachment(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+@app.get("/history")
+async def list_history(request: Request) -> list[ConversationRecord]:
+    """Conversations newest-first, each with a turn count and first-question preview."""
+    _require_auth(request)
+    return _get_history(request).list_conversations()
+
+
+# Declared before /history/{conversation_id} so "export" is not parsed as a conversation id.
+@app.get("/history/export")
+async def export_history(request: Request, fmt: str = Query("md", alias="format")) -> Response:
+    """Download all conversations: Markdown by default, JSON with ?format=json."""
+    _require_auth(request)
+    details = _get_history(request).export()
+    if fmt == "json":
+        return JSONResponse(content=details, headers=_attachment("interviewr-history.json"))
+    return Response(
+        content=format_history_md(details),
+        media_type="text/markdown",
+        headers=_attachment("interviewr-history.md"),
+    )
+
+
+@app.get("/history/{conversation_id}")
+async def get_history(request: Request, conversation_id: int) -> ConversationDetail:
+    _require_auth(request)
+    detail = _get_history(request).get_conversation(conversation_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such conversation")
+    return detail
+
+
+@app.get("/history/{conversation_id}/export")
+async def export_conversation(
+    request: Request, conversation_id: int, fmt: str = Query("md", alias="format")
+) -> Response:
+    """Download one conversation as a Markdown 'script' (or JSON with ?format=json)."""
+    _require_auth(request)
+    detail = _get_history(request).get_conversation(conversation_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such conversation")
+    if fmt == "json":
+        return JSONResponse(
+            content=detail, headers=_attachment(f"conversation-{conversation_id}.json")
+        )
+    return Response(
+        content=format_conversation_md(detail),
+        media_type="text/markdown",
+        headers=_attachment(f"conversation-{conversation_id}.md"),
+    )
+
+
+@app.delete("/history/{conversation_id}")
+async def delete_history(request: Request, conversation_id: int) -> dict[str, bool]:
+    _require_auth(request)
+    if not _get_history(request).delete_conversation(conversation_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such conversation")
+    return {"deleted": True}
+
+
+@app.delete("/history")
+async def clear_history(request: Request) -> dict[str, bool]:
+    _require_auth(request)
+    _get_history(request).clear()
+    return {"cleared": True}
 
 
 if _STATIC_DIR.is_dir():
