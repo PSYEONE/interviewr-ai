@@ -41,7 +41,7 @@ cargo tauri build   # produces a .deb / AppImage under src-tauri/target/release/
 
 ## Controls
 
-- **Answer / Clear / Reset** — the same WS commands the engine already exposes.
+- **Answer / Clear / Reset**, the same WS commands the engine already exposes.
 - **Pin** toggles always-on-top (uses the KWin rule on KDE/Wayland; the native call elsewhere).
 - Drag the top bar to move; resize from the edges.
 - **&#10005;** quits.
@@ -68,7 +68,7 @@ Only KDE is wired up for now. GNOME/Sway/Hyprland and a portable XWayland fallba
 - **Click-through** is not exposed yet (on Wayland it traps input with no escape; returns later
   behind a global hotkey).
 - **Screen-capture exclusion** is not available on Wayland (Windows/macOS only, later).
-- The Linux webview is **WebKitGTK, not Chromium** — test UI changes here, not in Chrome.
+- The Linux webview is **WebKitGTK, not Chromium**, test UI changes here, not in Chrome.
 - If the window renders opaque instead of translucent, that is a compositor/transparency
   limitation, not a bug in the client.
 

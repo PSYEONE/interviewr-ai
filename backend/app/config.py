@@ -6,12 +6,14 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo root is three levels up from this file (backend/app/config.py).
 # Resolve .env absolutely so it loads regardless of the process cwd.
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+# backend/ dir (parents[1]); the default RAG db lives under backend/data/.
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 class STTProvider(StrEnum):
@@ -26,6 +28,12 @@ class LLMProvider(StrEnum):
     GEMINI = "gemini"
     GROQ = "groq"
     OLLAMA = "ollama"
+
+
+class EmbedProvider(StrEnum):
+    OLLAMA = "ollama"  # local default; no key, runs offline
+    OPENAI = "openai"
+    GEMINI = "gemini"
 
 
 class Settings(BaseSettings):
@@ -71,11 +79,32 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
 
+    # rag (retrieval over resume + job description)
+    rag_enabled: bool = True
+    embed_provider: EmbedProvider = EmbedProvider.OLLAMA
+    embed_model: str = "nomic-embed-text"  # ollama default; `ollama pull nomic-embed-text`
+    rag_top_k: int = 4  # chunks injected per answer
+    rag_min_score: float = 0.0  # drop matches below this cosine score (0 = keep top_k)
+    rag_chunk_chars: int = 1000
+    rag_chunk_overlap: int = 200
+    rag_db_path: str = ""  # empty = backend/data/rag.sqlite3
+    resume_path: str = ""  # optional: ingest this file at startup (headless/dev convenience)
+    job_desc_path: str = ""  # optional: ingest this file at startup
+
     # server / session
     debug_print: bool = False  # also print transcripts to stdout (dev)
     max_buffer_chars: int = 2000  # rolling transcript buffer fed to an answer
     max_history_chars: int = 3000  # retained prior Q&A context
     event_queue_maxsize: int = 256  # per-subscriber bounded queue
+
+    @field_validator("stt_provider", "llm_provider", "embed_provider", mode="before")
+    @classmethod
+    def _blank_provider_to_default(cls, v: object, info: ValidationInfo) -> object:
+        # A blank provider line in .env (e.g. `INTERVIEWR_LLM_PROVIDER=`) means "unset", not an
+        # invalid enum: fall back to the field default instead of crashing config load.
+        if v == "" and info.field_name is not None:
+            return cls.model_fields[info.field_name].get_default()
+        return v
 
     @model_validator(mode="after")
     def _guard_remote_exposure(self) -> "Settings":
@@ -90,17 +119,38 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_llm(self) -> "Settings":
-        # Every provider needs a model id. BYOK cloud providers also need their key.
-        # Fail at config time with a named var, not deep in the request path.
+        # An empty llm_model is the "unconfigured" state: the setup wizard fills it in and the
+        # engine boots in setup mode rather than failing. Once a model is set, a BYOK cloud
+        # provider also needs its key, validated here with a named var, not deep in a request.
         if not self.llm_model:
-            raise ValueError("INTERVIEWR_LLM_MODEL is required.")
+            return self
         required_key = {
+            LLMProvider.ANTHROPIC: ("INTERVIEWR_ANTHROPIC_API_KEY", self.anthropic_api_key),
+            LLMProvider.OPENAI: ("INTERVIEWR_OPENAI_API_KEY", self.openai_api_key),
             LLMProvider.GEMINI: ("INTERVIEWR_GEMINI_API_KEY", self.gemini_api_key),
             LLMProvider.GROQ: ("INTERVIEWR_GROQ_API_KEY", self.groq_api_key),
         }.get(self.llm_provider)
         if required_key is not None and not required_key[1]:
             raise ValueError(f"INTERVIEWR_LLM_PROVIDER={self.llm_provider} requires {required_key[0]}.")
         return self
+
+    @model_validator(mode="after")
+    def _validate_embed(self) -> "Settings":
+        # Cloud embedders need their key; the local default (Ollama) needs nothing.
+        if not self.rag_enabled:
+            return self
+        required_key = {
+            EmbedProvider.OPENAI: ("INTERVIEWR_OPENAI_API_KEY", self.openai_api_key),
+            EmbedProvider.GEMINI: ("INTERVIEWR_GEMINI_API_KEY", self.gemini_api_key),
+        }.get(self.embed_provider)
+        if required_key is not None and not required_key[1]:
+            raise ValueError(
+                f"INTERVIEWR_EMBED_PROVIDER={self.embed_provider} requires {required_key[0]}."
+            )
+        return self
+
+    def resolved_rag_db_path(self) -> Path:
+        return Path(self.rag_db_path) if self.rag_db_path else _BACKEND_DIR / "data" / "rag.sqlite3"
 
 
 @lru_cache

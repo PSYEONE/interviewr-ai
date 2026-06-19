@@ -9,11 +9,24 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .config import Settings, get_settings
+from .config_store import ConfigView, apply_config, current_config
 from .events import (
     AnswerCommand,
     ClearCommand,
@@ -28,7 +41,14 @@ from .events import (
 from .llm import build_llm
 from .llm.base import LLMClient
 from .pipeline import run_producer
+from .rag import Retriever, build_retriever
+from .rag.base import DocKind
+from .rag.store import DocumentRecord
 from .session import Session
+from .system import SystemReport, collect_system_report
+from .system.ollama_admin import OllamaAdmin
+
+_log = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 _DEAD_SUBSCRIBER_DROPS = 500  # close a writer that has fallen this far behind
@@ -37,41 +57,70 @@ _DEAD_SUBSCRIBER_DROPS = 500  # close a writer that has fallen this far behind
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    if not settings.llm_model:
-        raise RuntimeError("INTERVIEWR_LLM_MODEL is not set")
-
-    llm = build_llm(settings)
-    if not await llm.check_health():
-        raise RuntimeError(f"LLM provider '{settings.llm_provider}' health check failed")
-
     bus = EventBus(maxsize=settings.event_queue_maxsize)
-    session = Session(
-        bus,
-        llm,
-        max_buffer_chars=settings.max_buffer_chars,
-        max_history_chars=settings.max_history_chars,
-    )
     app.state.settings = settings
     app.state.bus = bus
-    app.state.session = session
+    app.state.session = None
+    app.state.retriever = None
+    app.state.configured = bool(settings.llm_model)
+    app.state.ready = False
 
-    # Warm the LLM in the background. Live transcription must not wait on the model
-    # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
-    # for an answer, and keep_alive holds it warm after that.
-    warmup_task: asyncio.Task[None] = asyncio.create_task(_warm_llm(llm))
-    producer: asyncio.Task[None] = asyncio.create_task(run_producer(settings, session, bus))
+    # Setup mode: with no model (or an unhealthy LLM) the engine still serves the capability,
+    # settings, and model-pull endpoints so the wizard can configure it; only the audio+LLM
+    # session/producer is paused. A fully configured, healthy LLM boots the live pipeline.
+    llm: LLMClient | None = None
+    warmup_task: asyncio.Task[None] | None = None
+    producer: asyncio.Task[None] | None = None
+
+    # RAG depends only on the embedder, not the LLM, so start it regardless of LLM config. This
+    # lets the wizard's Context step (CV / job-description upload) work even in setup mode.
+    retriever: Retriever | None = await _start_retriever(settings)
+    app.state.retriever = retriever
+
+    if not app.state.configured:
+        _log.warning("INTERVIEWR_LLM_MODEL not set; starting in setup mode (configure via wizard)")
+    else:
+        llm = build_llm(settings)
+        if await llm.check_health():
+            session = Session(
+                bus,
+                llm,
+                max_buffer_chars=settings.max_buffer_chars,
+                max_history_chars=settings.max_history_chars,
+                retriever=retriever,
+            )
+            app.state.session = session
+            app.state.ready = True
+            # Warm the LLM in the background. Live transcription must not wait on the model
+            # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
+            # for an answer, and keep_alive holds it warm after that.
+            warmup_task = asyncio.create_task(_warm_llm(llm))
+            producer = asyncio.create_task(run_producer(settings, session, bus))
+        else:
+            _log.warning(
+                "LLM provider '%s' unhealthy; starting in setup mode", settings.llm_provider
+            )
+            await llm.close()
+            llm = None
+
     try:
         yield
     finally:
-        producer.cancel()
-        warmup_task.cancel()
         for task in (producer, warmup_task):
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        await session.aclose()
-        await llm.close()
+            if task is not None:
+                task.cancel()
+        for task in (producer, warmup_task):
+            if task is not None:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
+        if app.state.session is not None:
+            await app.state.session.aclose()
+        if llm is not None:
+            await llm.close()
+        if retriever is not None:
+            await retriever.close()
 
 
 async def _warm_llm(llm: LLMClient) -> None:
@@ -79,17 +128,66 @@ async def _warm_llm(llm: LLMClient) -> None:
     try:
         await llm.warmup()
     except Exception as exc:  # noqa: BLE001
-        logging.getLogger(__name__).warning("LLM warmup failed: %s", exc)
+        _log.warning("LLM warmup failed: %s", exc)
+
+
+async def _start_retriever(settings: Settings) -> Retriever | None:
+    """Build the retriever and bootstrap configured docs. RAG is an enhancement: if the
+    embedder is unreachable, log and run without it rather than blocking transcription."""
+    retriever = build_retriever(settings)
+    if retriever is None:
+        return None
+    if not await retriever.check_health():
+        _log.warning(
+            "embedder '%s' health check failed; RAG disabled (transcription unaffected)",
+            settings.embed_provider,
+        )
+        await retriever.close()
+        return None
+    await _bootstrap_documents(settings, retriever)
+    return retriever
+
+
+async def _bootstrap_documents(settings: Settings, retriever: Retriever) -> None:
+    """Ingest resume/job-desc files named in config, unless that kind is already stored."""
+    present: set[str] = {doc["kind"] for doc in retriever.list_documents()}
+    targets: list[tuple[str, DocKind]] = [
+        (settings.resume_path, "resume"),
+        (settings.job_desc_path, "job_description"),
+    ]
+    for path_str, kind in targets:
+        if not path_str or kind in present:
+            continue
+        path = Path(path_str)
+        try:
+            record = await retriever.ingest_file(path.name, kind, path.read_bytes())
+            _log.info("bootstrapped %s (%d chunks) from %s", kind, record["chunk_count"], path)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("failed to bootstrap %s from %s: %s", kind, path_str, exc)
 
 
 app = FastAPI(title="interviewr-ai", version="0.0.0", lifespan=lifespan)
 
+# The overlay (and a future browser client) call the HTTP API via fetch() from the webview,
+# which enforces CORS; the WS is exempt. Allow only local + Tauri origins. Requests stay
+# token-gated, and no credentials/cookies are used (the auth token rides an explicit header).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=(
+        r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|tauri://localhost|https?://tauri\.localhost)$"
+    ),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health(request: Request) -> dict[str, object]:
     settings = get_settings()
     return {
         "status": "ok",
+        "configured": bool(settings.llm_model),  # has the user completed setup?
+        "ready": bool(getattr(request.app.state, "ready", False)),  # is the live pipeline running?
         "stt_provider": settings.stt_provider,
         "llm_provider": settings.llm_provider,
         "remote_viewer": str(settings.enable_remote_viewer),
@@ -108,7 +206,7 @@ def _token_ok(settings: Settings, token: str) -> bool:
 async def ws_endpoint(ws: WebSocket) -> None:
     settings: Settings = ws.app.state.settings
     bus: EventBus = ws.app.state.bus
-    session: Session = ws.app.state.session
+    session: Session | None = ws.app.state.session
 
     if not _token_ok(settings, ws.query_params.get("token", "")):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -116,7 +214,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
 
     sub = bus.subscribe()
-    bus.publish(StatusEvent(state="listening"))
+    # In setup mode there is no session yet; tell clients to show the wizard, not "listening".
+    bus.publish(StatusEvent(state="listening" if session is not None else "unconfigured"))
     reader = asyncio.create_task(_reader(ws, session))
     writer = asyncio.create_task(_writer(ws, sub))
     try:
@@ -143,7 +242,7 @@ async def _writer(ws: WebSocket, sub: Subscription) -> None:
         return
 
 
-async def _reader(ws: WebSocket, session: Session) -> None:
+async def _reader(ws: WebSocket, session: Session | None) -> None:
     try:
         while True:
             raw = await ws.receive_text()
@@ -152,6 +251,13 @@ async def _reader(ws: WebSocket, session: Session) -> None:
             except ValidationError:
                 await ws.send_text(
                     ErrorEvent(code="bad_command", message="unparseable").model_dump_json()
+                )
+                continue
+            if session is None:
+                await ws.send_text(
+                    ErrorEvent(
+                        code="needs_setup", message="engine not configured"
+                    ).model_dump_json()
                 )
                 continue
             match cmd:
@@ -165,6 +271,121 @@ async def _reader(ws: WebSocket, session: Session) -> None:
                     pass
     except WebSocketDisconnect:
         return
+
+
+def _require_auth(request: Request) -> None:
+    """Same token policy as the WS path, for HTTP: ?token= or 'Authorization: Bearer'."""
+    settings: Settings = request.app.state.settings
+    token = request.query_params.get("token", "")
+    if not token:
+        header = request.headers.get("authorization", "")
+        if header.lower().startswith("bearer "):
+            token = header[7:]
+    if not _token_ok(settings, token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad or missing token")
+
+
+def _get_retriever(request: Request) -> Retriever:
+    retriever: Retriever | None = request.app.state.retriever
+    if retriever is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG is disabled or the embedder is unavailable",
+        )
+    return retriever
+
+
+@app.post("/documents")
+async def add_document(
+    request: Request,
+    kind: DocKind = Form("other"),
+    name: str | None = Form(None),
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+) -> DocumentRecord:
+    """Ingest a resume/JD/notes doc from an uploaded file OR a raw-text field.
+
+    The overlay's drag-drop (Phase 3) becomes a multipart POST here; pasted notes use `text`.
+    """
+    _require_auth(request)
+    retriever = _get_retriever(request)
+    try:
+        if file is not None:
+            doc_name = name or file.filename or "upload"
+            return await retriever.ingest_file(doc_name, kind, await file.read())
+        if text is not None and text.strip():
+            return await retriever.ingest_text(name or "notes", kind, text)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST, detail="provide a 'file' upload or a 'text' field"
+    )
+
+
+@app.get("/documents")
+async def list_documents(request: Request) -> list[DocumentRecord]:
+    _require_auth(request)
+    return _get_retriever(request).list_documents()
+
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(request: Request, doc_id: int) -> dict[str, bool]:
+    _require_auth(request)
+    if not _get_retriever(request).delete_document(doc_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such document")
+    return {"deleted": True}
+
+
+class PullRequest(BaseModel):
+    model: str
+
+
+class SettingsUpdate(BaseModel):
+    updates: dict[str, object]
+
+
+@app.get("/system/info")
+async def system_info(request: Request) -> SystemReport:
+    """Hardware capability + Ollama status for the setup wizard's GPU-check screen."""
+    _require_auth(request)
+    settings: Settings = request.app.state.settings
+    return await collect_system_report(settings)
+
+
+@app.post("/ollama/pull")
+async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
+    """Pull an Ollama model, streaming progress as newline-delimited JSON (PullProgress)."""
+    _require_auth(request)
+    settings: Settings = request.app.state.settings
+
+    async def stream() -> AsyncIterator[str]:
+        admin = OllamaAdmin(settings.ollama_base_url)
+        try:
+            async for progress in admin.pull_model(body.model):
+                yield progress.model_dump_json() + "\n"
+        finally:
+            await admin.close()
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@app.get("/settings")
+async def read_settings(request: Request) -> ConfigView:
+    """Current config for the settings UI; secret values are redacted to set/unset flags."""
+    _require_auth(request)
+    return current_config(request.app.state.settings)
+
+
+@app.post("/settings")
+async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bool]:
+    """Validate and persist config to .env. The engine must restart to apply (Phase 3c)."""
+    _require_auth(request)
+    settings: Settings = request.app.state.settings
+    try:
+        apply_config(settings, body.updates)
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"restart_required": True}
 
 
 if _STATIC_DIR.is_dir():
