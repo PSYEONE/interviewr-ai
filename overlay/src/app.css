@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+/* Single retheme point: palette + fonts. Paste portfolio tokens here to restyle.
+   Near-black/white base (matching the portfolio) but with a functional accent and
+   status colors the overlay relies on to signal state. */
+@theme {
+  --color-bg: #0a0a0a;
+  --color-fg: #ededed;
+  --color-dim: #8a8a93;
+  --color-accent: #89b4fa;
+  --color-ok: #a6e3a1;
+  --color-warn: #f9e2af;
+  --color-bad: #f38ba8;
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+}
+
+/* Non-utility theming: window translucency (kept opaque only for the wizard). */
+:root {
+  --panel-bg: rgba(10, 10, 10, 0.86);
+  --bar-bg: rgba(255, 255, 255, 0.04);
+  --solid: #0a0a0a;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100vh;
+    background: transparent;
+    color: var(--color-fg);
+    /* Fixed px (main.ts sets it once per display); no viewport units, so resizing stays smooth. */
+    font-size: 16px;
+    line-height: 1.5;
+    user-select: none;
+  }
+  /* Translucent panel look; the wizard shell paints opaque over it. */
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-bg);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgb(255 255 255 / 0.06);
+  }
+  #app {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Drag bars (panel + wizard); the drag itself is driven from JS. */
+  #bar,
+  #wizbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--bar-bg);
+    cursor: move;
+  }
+  #brand {
+    font-weight: 600;
+    color: var(--color-dim);
+  }
+
+  /* Status dot: hue carries state. */
+  #dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    background: #555;
+    flex: none;
+  }
+  #dot[data-state="listening"] { background: var(--color-ok); }
+  #dot[data-state="thinking"] { background: var(--color-accent); }
+  #dot[data-state="connecting"] { background: var(--color-warn); }
+  #dot[data-state="offline"],
+  #dot[data-state="idle"],
+  #dot[data-state="unconfigured"] { background: var(--color-bad); }
+
+  #transcript {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #t-live { color: var(--color-dim); }
+  #answer {
+    max-height: 45%;
+    overflow-y: auto;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--color-ok);
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+  }
+  #answer:empty { display: none; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.12);
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Sharp, square aesthetic with generous spacing (matching the Welcome edits). */
+  button {
+    @apply rounded-none border border-white/10 bg-white/5 px-2.5 py-1.5 text-sm text-fg transition;
+  }
+  button:hover { @apply border-white/20 bg-white/10; }
+  button:active { @apply translate-y-px; }
+  button:focus-visible { @apply outline-2 outline-offset-1 outline-accent; }
+  button:disabled { @apply cursor-default opacity-40; }
+  button:disabled:hover { @apply border-white/10 bg-white/5; }
+  button.icon { @apply px-2 py-1; }
+  button.on { @apply border-transparent bg-accent text-black; }
+  button.primary {
+    @apply border-transparent bg-accent px-4 py-2 text-base font-semibold text-black;
+    box-shadow: 0 1px 8px rgb(137 180 250 / 0.25);
+  }
+  button.primary:hover { @apply bg-accent brightness-105; }
+  button.primary:disabled { box-shadow: none; }
+
+  .wiz {
+    @apply flex flex-1 flex-col gap-4 overflow-y-auto p-8;
+  }
+  /* All wizard buttons share the primary size (dark "secondary" + accent "primary" match). */
+  .wiz button:not(.icon):not(.choice) { @apply px-4 py-2 text-base; }
+  .wiz h1 { @apply text-2xl font-semibold; }
+  .wiz h1.hero { @apply text-center text-5xl; }
+  .wiz h2 { @apply text-base font-semibold; }
+  .wiz p { @apply text-dim; }
+  .wiz ul { @apply list-disc pl-5 text-dim; }
+  .wiz label { @apply mb-1 block text-xs text-dim; }
+  .wiz input[type="text"],
+  .wiz input[type="password"] {
+    @apply w-full rounded-none border border-white/10 bg-white/5 px-2 py-1.5 text-fg;
+  }
+
+  .wizard-shell {
+    @apply flex min-h-0 flex-1 flex-col;
+    background: var(--solid);
+  }
+
+  .card { @apply rounded-none border border-white/10 bg-white/5 px-3 py-2.5; }
+  .card.selected { @apply border-accent; }
+  .card.disabled { @apply opacity-50; }
+
+  .badge { @apply rounded-none border border-ok/40 px-1.5 text-[11px] text-ok; }
+  .badge-muted { @apply rounded-none border border-white/20 px-1.5 text-[11px] text-dim; }
+
+  /* Equal-weight choice boxes (local / cloud / rent): same color, recommendation via badge. */
+  .choice {
+    @apply flex min-h-28 min-w-40 flex-1 flex-col items-start gap-2 border border-white/10 bg-white/5 p-5 text-left transition;
+  }
+  .choice:hover:not(:disabled) { @apply border-accent bg-white/10; }
+  .choice-title { @apply text-base font-semibold text-fg; }
+  .choice-desc { @apply text-sm text-dim; }
+
+  .bar-track { @apply h-1.5 overflow-hidden bg-white/10; }
+  .bar-fill { @apply h-full bg-accent transition-[width] duration-200; }
+
+  .filebtn {
+    @apply mt-2 block cursor-pointer border border-dashed border-white/20 px-2.5 py-2 text-xs text-dim;
+  }
+  .filebtn:hover { @apply border-accent text-fg; }
+  .filebtn input { @apply hidden; }
+
+  .splash { @apply flex flex-1 items-center justify-center text-dim; }
+}

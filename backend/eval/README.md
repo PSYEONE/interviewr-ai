@@ -27,9 +27,9 @@ Requires `ffmpeg` on PATH and the `jiwer` dev dep (`pip install -e ".[dev]"`).
 
 Two passes, scored as **normalized WER** (lowercased, punctuation stripped):
 
-- **model** — the whole file transcribed once via `WhisperTranscriber.transcribe_raw`. Pure
+- **model**, the whole file transcribed once via `WhisperTranscriber.transcribe_raw`. Pure
   model quality. Comparable to published whisper WER.
-- **stream** — the file fed through the real `transcribe_stream` in 0.3s chunks, scoring the
+- **stream**, the file fed through the real `transcribe_stream` in 0.3s chunks, scoring the
   committed text. This is what users actually see.
 - **pipeline-induced delta** = stream_wer − model_wer. Errors our streaming/VAD/LocalAgreement
   logic adds on top of the model (boundary drops, premature commits). Watch this when tuning the

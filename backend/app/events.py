@@ -43,12 +43,12 @@ class AnswerDoneEvent(BaseModel):
 
 class StatusEvent(BaseModel):
     type: Literal["status"] = "status"
-    state: Literal["idle", "listening", "thinking"]
+    state: Literal["idle", "listening", "thinking", "unconfigured"]
 
 
 class ErrorEvent(BaseModel):
     type: Literal["error"] = "error"
-    code: Literal["llm_unavailable", "internal", "bad_command", "unauthorized"]
+    code: Literal["llm_unavailable", "internal", "bad_command", "unauthorized", "needs_setup"]
     message: str
 
 
