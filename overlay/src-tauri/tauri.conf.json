@@ -4,22 +4,25 @@
   "version": "0.1.0",
   "identifier": "dev.interviewr.overlay",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
         "title": "interviewr",
-        "width": 420,
-        "height": 600,
-        "minWidth": 280,
-        "minHeight": 200,
+        "width": 760,
+        "height": 460,
+        "minWidth": 360,
+        "minHeight": 280,
         "resizable": true,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": true,
+        "alwaysOnTop": false,
         "skipTaskbar": false
       }
     ],
