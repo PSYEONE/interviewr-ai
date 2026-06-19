@@ -53,6 +53,7 @@ export interface SystemReport {
   gpus: GpuInfo[];
   cpu_count: number;
   ram_mb: number;
+  gpu_error: string | null; // GPU present but driver unreachable (e.g. NVIDIA mismatch)
   ollama: OllamaStatus;
   recommendation: Recommendation;
 }

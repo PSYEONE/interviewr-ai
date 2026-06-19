@@ -170,4 +170,9 @@
   .filebtn input { @apply hidden; }
 
   .splash { @apply flex flex-1 items-center justify-center text-dim; }
+  .splash.error { @apply flex-col gap-3 p-6 text-center; }
+  .splash.error strong { @apply text-warn; }
+  .splash.error .msg {
+    @apply max-h-48 w-full overflow-auto whitespace-pre-wrap bg-black/30 p-3 text-left text-xs text-dim;
+  }
 }
