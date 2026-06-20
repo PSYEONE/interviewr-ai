@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from .config import _ENV_FILE, Settings
+from .llm.base import effective_system_prompt
 
 # Fields the wizard / settings page may change. Deliberately excludes transport/security
 # fields (host, port, enable_remote_viewer) which are not part of the setup flow.
@@ -27,6 +28,7 @@ _WRITABLE: frozenset[str] = frozenset(
         "llm_model",
         "ollama_base_url",
         "llm_keep_alive",
+        "system_prompt",
         "anthropic_api_key",
         "openai_api_key",
         "gemini_api_key",
@@ -55,6 +57,7 @@ class ConfigView(BaseModel):
     rag_enabled: bool
     rag_top_k: int
     history_enabled: bool
+    system_prompt: str  # resolved: the override if set, else the built-in default
     auth_token_set: bool
     anthropic_api_key_set: bool
     openai_api_key_set: bool
@@ -76,6 +79,7 @@ def current_config(settings: Settings) -> ConfigView:
         rag_enabled=settings.rag_enabled,
         rag_top_k=settings.rag_top_k,
         history_enabled=settings.history_enabled,
+        system_prompt=effective_system_prompt(settings),
         auth_token_set=bool(settings.auth_token),
         anthropic_api_key_set=bool(settings.anthropic_api_key),
         openai_api_key_set=bool(settings.openai_api_key),

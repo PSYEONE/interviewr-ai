@@ -70,11 +70,36 @@ export interface ConfigView {
   embed_model: string;
   rag_enabled: boolean;
   rag_top_k: number;
+  history_enabled: boolean;
+  system_prompt: string; // resolved: override if set, else the built-in default
   auth_token_set: boolean;
   anthropic_api_key_set: boolean;
   openai_api_key_set: boolean;
   gemini_api_key_set: boolean;
   groq_api_key_set: boolean;
+}
+
+// Conversation history (mirrors backend/app/history/store.py).
+export interface TurnRecord {
+  id: number;
+  asked_at: string;
+  question: string;
+  answer: string;
+}
+
+export interface ConversationRecord {
+  id: number;
+  started_at: string;
+  title: string | null;
+  turn_count: number;
+  preview: string; // first question; list-UI fallback label
+}
+
+export interface ConversationDetail {
+  id: number;
+  started_at: string;
+  title: string | null;
+  turns: TurnRecord[];
 }
 
 export interface PullProgress {

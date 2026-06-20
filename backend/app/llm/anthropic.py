@@ -18,12 +18,15 @@ if TYPE_CHECKING:
 
 
 class AnthropicClient:
-    def __init__(self, api_key: str, model: str, max_tokens: int = 1024) -> None:
+    def __init__(
+        self, api_key: str, model: str, max_tokens: int = 1024, system_prompt: str = SYSTEM_PROMPT
+    ) -> None:
         from anthropic import AsyncAnthropic  # lazy: cloud extra, only when provider=anthropic
 
         self._client: AsyncAnthropic = AsyncAnthropic(api_key=api_key)
         self._model = model
         self._max_tokens = max_tokens
+        self._system_prompt = system_prompt
 
     async def check_health(self) -> bool:
         # Cheap metadata fetch: validates the key and model without spending generation tokens.
@@ -40,11 +43,11 @@ class AnthropicClient:
         return None
 
     async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens. SYSTEM_PROMPT goes in `system`; `messages` carries only turns."""
+        """Stream tokens. The system prompt goes in `system`; `messages` carries only turns."""
         async with self._client.messages.stream(
             model=self._model,
             max_tokens=self._max_tokens,
-            system=SYSTEM_PROMPT,
+            system=self._system_prompt,
             messages=cast(Any, list(messages)),
         ) as stream:
             async for token in stream.text_stream:
