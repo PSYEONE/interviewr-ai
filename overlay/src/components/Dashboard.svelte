@@ -11,11 +11,19 @@
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
   import ContextView from "./dashboard/ContextView.svelte";
   import ModelsView from "./dashboard/ModelsView.svelte";
+  import SettingsView from "./dashboard/SettingsView.svelte";
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
   import WindowButtons from "./WindowButtons.svelte";
 
-  type View = "home" | "interview" | "conversation" | "models" | "context" | "advanced";
+  type View =
+    | "home"
+    | "interview"
+    | "conversation"
+    | "models"
+    | "context"
+    | "advanced"
+    | "settings";
   let view = $state<View>("home");
 
   let conversations = $state<ConversationRecord[]>([]);
@@ -116,6 +124,7 @@
             <button class="flex-1" onclick={() => (view = "context")}>Change context</button>
             <button class="flex-1" onclick={() => (view = "models")}>Change models</button>
             <button class="flex-1" onclick={() => (view = "advanced")}>Change system prompt</button>
+            <button class="flex-1" onclick={() => (view = "settings")}>Settings</button>
             <button class="primary flex-1" onclick={() => (view = "interview")}>
               Start interview
             </button>
@@ -193,6 +202,8 @@
       <ContextView back={goHome} />
     {:else if view === "advanced"}
       <SystemPromptView back={goHome} />
+    {:else if view === "settings"}
+      <SettingsView back={goHome} />
     {/if}
   </div>
 {/if}

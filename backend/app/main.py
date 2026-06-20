@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session = None
     app.state.retriever = None
     app.state.history = None
+    app.state.llm = None  # the live LLM client, for cheap live-reload (e.g. keep-alive)
     app.state.configured = bool(settings.llm_model)
     app.state.ready = False
 
@@ -106,6 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 history_enabled=settings.history_enabled,
             )
             app.state.session = session
+            app.state.llm = llm
             app.state.ready = True
             # Warm the LLM in the background. Live transcription must not wait on the model
             # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
@@ -403,6 +405,28 @@ async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bo
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return {"restart_required": True}
+
+
+@app.post("/settings/reload")
+async def reload_settings(request: Request) -> dict[str, bool]:
+    """Apply already-persisted *cheap* settings to the running engine with no restart: refresh the
+    config cache and poke the live retriever / session / LLM. Heavy changes (providers, models,
+    keys, audio) still need a restart, which the caller decides by diffing the changed fields."""
+    _require_auth(request)
+    get_settings.cache_clear()
+    fresh = get_settings()
+    request.app.state.settings = fresh
+
+    retriever: Retriever | None = request.app.state.retriever
+    if retriever is not None:
+        retriever.set_top_k(fresh.rag_top_k)
+    session: Session | None = request.app.state.session
+    if session is not None:
+        session.set_history_enabled(fresh.history_enabled)
+    set_keep_alive = getattr(request.app.state.llm, "set_keep_alive", None)
+    if callable(set_keep_alive):
+        set_keep_alive(fresh.llm_keep_alive)
+    return {"reloaded": True}
 
 
 def _get_history(request: Request) -> HistoryStore:

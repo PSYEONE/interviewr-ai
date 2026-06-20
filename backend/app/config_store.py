@@ -52,6 +52,7 @@ class ConfigView(BaseModel):
     llm_provider: str
     llm_model: str
     ollama_base_url: str
+    llm_keep_alive: str
     embed_provider: str
     embed_model: str
     rag_enabled: bool
@@ -74,6 +75,7 @@ def current_config(settings: Settings) -> ConfigView:
         llm_provider=settings.llm_provider,
         llm_model=settings.llm_model,
         ollama_base_url=settings.ollama_base_url,
+        llm_keep_alive=settings.llm_keep_alive,
         embed_provider=settings.embed_provider,
         embed_model=settings.embed_model,
         rag_enabled=settings.rag_enabled,

@@ -21,6 +21,10 @@ class OllamaClient:
         self._keep_alive = keep_alive
         self._system_prompt = system_prompt
 
+    def set_keep_alive(self, keep_alive: str) -> None:
+        """Live-update how long Ollama keeps the model warm (POST /settings/reload, no restart)."""
+        self._keep_alive = keep_alive
+
     async def check_health(self) -> bool:
         try:
             resp = await self._client.get("/api/version")

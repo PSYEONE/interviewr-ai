@@ -26,6 +26,11 @@ def test_current_config_redacts_secrets() -> None:
     assert "sk-secret" not in view.model_dump_json()
 
 
+def test_current_config_exposes_keep_alive() -> None:
+    view = current_config(_settings(llm_keep_alive="45m"))
+    assert view.llm_keep_alive == "45m"
+
+
 def test_apply_rejects_unknown_field(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="non-writable"):
         apply_config(_settings(), {"host": "0.0.0.0"}, env_path=tmp_path / ".env")
