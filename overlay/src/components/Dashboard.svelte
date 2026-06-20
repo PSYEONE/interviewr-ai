@@ -20,6 +20,7 @@
   let conversations = $state<ConversationRecord[]>([]);
   let historyError = $state<string | null>(null);
   let selected = $state<ConversationDetail | null>(null);
+  let confirmId = $state<number | null>(null); // row pending a delete confirmation
 
   function label(c: { title: string | null; preview: string; id: number }): string {
     return c.title || c.preview || `Conversation ${c.id}`;
@@ -27,6 +28,9 @@
   function when(iso: string): string {
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  }
+  function turns(n: number): string {
+    return `${n} turn${n === 1 ? "" : "s"}`;
   }
 
   async function loadHistory(): Promise<void> {
@@ -48,6 +52,7 @@
   }
 
   async function remove(id: number): Promise<void> {
+    confirmId = null;
     try {
       await deleteConversation(id);
       await loadHistory();
@@ -63,6 +68,7 @@
   // Returning from a live interview: turns/titles may have changed, so refresh.
   function goHome(): void {
     view = "home";
+    confirmId = null;
     void loadHistory();
   }
 
@@ -74,14 +80,29 @@
   onMount(loadHistory);
 </script>
 
+{#snippet downloadIcon()}
+  <svg
+    viewBox="0 0 24 24"
+    width="15"
+    height="15"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3v12" />
+    <path d="M7 11l5 5 5-5" />
+    <path d="M5 21h14" />
+  </svg>
+{/snippet}
+
 {#if view === "interview"}
   <Panel onBack={goHome} />
 {:else}
   <div class="wizard-shell">
     <div id="wizbar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
-      {#if view !== "home"}
-        <button class="icon" title="Back" onclick={goHome}>&#8592;</button>
-      {/if}
       <span id="brand">interviewr</span>
       <span class="flex-1"></span>
       <button class="icon" title="Minimize" onclick={() => void minimizeWindow()}>&#8211;</button>
@@ -89,51 +110,69 @@
     </div>
 
     {#if view === "home"}
-      <div class="wiz">
-        <button class="primary" onclick={() => (view = "interview")}>Start interview</button>
-        <button onclick={() => (view = "context")}>Change context</button>
-        <button onclick={() => (view = "models")}>Change models</button>
-        <button onclick={() => (view = "advanced")}>Advanced</button>
-
-        <h2>History</h2>
-        {#if historyError}
-          <p class="text-warn">{historyError}</p>
-        {/if}
-        {#if conversations.length === 0}
-          <p class="text-dim text-sm">No conversations yet. Start an interview to build history.</p>
-        {:else}
-          {#each conversations as c (c.id)}
-            <div class="card flex items-center gap-2">
-              <button
-                class="row flex-1 text-left"
-                onclick={() => void openConversation(c.id)}
-                title="Open conversation"
-              >
-                <span class="block truncate">{label(c)}</span>
-                <span class="text-dim text-xs">{when(c.started_at)} · {c.turn_count} turns</span>
-              </button>
-              <button class="icon" title="Download (.md)" onclick={() => download(c.id)}>&#8595;</button>
-              <button class="icon" title="Delete" onclick={() => void remove(c.id)}>&#10005;</button>
-            </div>
-          {/each}
-        {/if}
+      <div class="dash">
+        <div class="dash-head">
+          <button class="primary" onclick={() => (view = "interview")}>Start interview</button>
+          <button onclick={() => (view = "context")}>Change context</button>
+          <button onclick={() => (view = "models")}>Change models</button>
+          <button onclick={() => (view = "advanced")}>Advanced</button>
+          <h2>History</h2>
+        </div>
+        <div class="dash-body">
+          {#if historyError}
+            <p class="text-warn">{historyError}</p>
+          {/if}
+          {#if conversations.length === 0}
+            <p class="text-dim text-sm">No conversations yet. Start an interview to build history.</p>
+          {:else}
+            {#each conversations as c (c.id)}
+              <div class="card flex items-center gap-2">
+                <button
+                  class="row flex-1 text-left"
+                  onclick={() => void openConversation(c.id)}
+                  title="Open conversation"
+                >
+                  <span class="block truncate">{label(c)}</span>
+                  <span class="text-dim text-xs">{when(c.started_at)} · {turns(c.turn_count)}</span>
+                </button>
+                {#if confirmId === c.id}
+                  <span class="text-warn text-xs">Delete?</span>
+                  <button class="icon" onclick={() => void remove(c.id)}>Yes</button>
+                  <button class="icon" onclick={() => (confirmId = null)}>No</button>
+                {:else}
+                  <button class="icon" title="Download (.md)" onclick={() => download(c.id)}>
+                    {@render downloadIcon()}
+                  </button>
+                  <button class="icon" title="Delete" onclick={() => (confirmId = c.id)}>
+                    &#10005;
+                  </button>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
       </div>
     {:else if view === "conversation" && selected}
-      <div class="wiz">
-        <div class="flex items-center gap-2">
-          <h1 class="flex-1 truncate">{label({ ...selected, preview: "" })}</h1>
-          <button onclick={() => download(selected!.id)}>Download</button>
+      <div class="dash">
+        <div class="dash-head flex-row items-center gap-2">
+          <button onclick={goHome}>Back</button>
+          <span class="flex-1 truncate font-semibold">{label({ ...selected, preview: "" })}</span>
+          <button class="icon" title="Download (.md)" onclick={() => download(selected!.id)}>
+            {@render downloadIcon()}
+          </button>
         </div>
-        <p class="text-dim text-xs">{when(selected.started_at)}</p>
-        {#each selected.turns as t (t.id)}
-          <div class="card flex flex-col gap-1">
-            <strong>Q: {t.question}</strong>
-            <p class="text-ok whitespace-pre-wrap">{t.answer}</p>
-          </div>
-        {/each}
-        {#if selected.turns.length === 0}
-          <p class="text-dim text-sm">This conversation has no turns.</p>
-        {/if}
+        <div class="dash-body">
+          <p class="text-dim text-xs">{when(selected.started_at)}</p>
+          {#each selected.turns as t (t.id)}
+            <div class="card flex flex-col gap-1">
+              <strong>Q: {t.question}</strong>
+              <p class="text-ok whitespace-pre-wrap">{t.answer}</p>
+            </div>
+          {/each}
+          {#if selected.turns.length === 0}
+            <p class="text-dim text-sm">This conversation has no turns.</p>
+          {/if}
+        </div>
       </div>
     {:else if view === "models"}
       <ModelsView back={goHome} />

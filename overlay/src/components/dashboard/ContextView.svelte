@@ -99,5 +99,5 @@
   {#if busy}<p class="text-dim text-xs">uploading…</p>{/if}
 
   <div class="flex-1"></div>
-  <div class="flex justify-end"><button onclick={back}>Back</button></div>
+  <div class="flex"><button onclick={back}>Back</button></div>
 </div>

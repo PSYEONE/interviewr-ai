@@ -54,7 +54,7 @@
     <button class="primary" onclick={chooseLocal}>Local model (Ollama)</button>
     <button onclick={() => (stage = "cloud")}>Cloud model (bring your own key)</button>
     <div class="flex-1"></div>
-    <div class="flex justify-end"><button onclick={back}>Back</button></div>
+    <div class="flex"><button onclick={back}>Back</button></div>
   </div>
 {:else if stage === "local" && report}
   <LocalSetup {report} complete={apply} back={() => (stage = "choose")} />
@@ -66,9 +66,9 @@
   <div class="wiz">
     {#if error}<p class="text-warn">{error}</p>{/if}
     <div class="flex-1"></div>
-    <div class="flex justify-end gap-2">
+    <div class="flex items-center gap-2">
+      <button class="mr-auto" onclick={back}>Back</button>
       <button onclick={() => (stage = "choose")}>Try again</button>
-      <button onclick={back}>Back</button>
     </div>
   </div>
 {/if}
