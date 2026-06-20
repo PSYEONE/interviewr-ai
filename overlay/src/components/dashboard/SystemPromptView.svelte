@@ -59,8 +59,7 @@
   <div class="wiz">
     <h1>System prompt</h1>
     <p class="text-xs">
-      Controls how the model answers. Edit freely; the engine restarts to apply. Reset restores
-      the built-in default.
+      Controls how the model answers.
     </p>
     {#if error}<p class="text-warn">{error}</p>{/if}
 
