@@ -59,6 +59,17 @@ export interface DocumentRecord {
   chunk_count: number;
 }
 
+export const listDocuments = (): Promise<DocumentRecord[]> =>
+  getJSON<DocumentRecord[]>("/documents");
+
+export async function deleteDocument(id: number): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/documents/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /documents/${id} -> ${resp.status}`);
+}
+
 // Upload a resume / job-description (or pasted text) for RAG grounding. Multipart, so the
 // browser sets the content-type + boundary itself. Returns 503 when RAG isn't available yet.
 export async function uploadDocument(kind: string, file: File): Promise<DocumentRecord> {

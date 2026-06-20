@@ -9,6 +9,9 @@
   } from "../lib/api";
   import { minimizeWindow, quit, startDragging } from "../lib/tauri";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
+  import AdvancedView from "./dashboard/AdvancedView.svelte";
+  import ContextView from "./dashboard/ContextView.svelte";
+  import ModelsView from "./dashboard/ModelsView.svelte";
   import Panel from "./Panel.svelte";
 
   type View = "home" | "interview" | "conversation" | "models" | "context" | "advanced";
@@ -88,13 +91,9 @@
     {#if view === "home"}
       <div class="wiz">
         <button class="primary" onclick={() => (view = "interview")}>Start interview</button>
-        <button disabled title="Coming soon" onclick={() => (view = "context")}>
-          Change context
-        </button>
-        <button disabled title="Coming soon" onclick={() => (view = "models")}>
-          Change models
-        </button>
-        <button disabled title="Coming soon" onclick={() => (view = "advanced")}>Advanced</button>
+        <button onclick={() => (view = "context")}>Change context</button>
+        <button onclick={() => (view = "models")}>Change models</button>
+        <button onclick={() => (view = "advanced")}>Advanced</button>
 
         <h2>History</h2>
         {#if historyError}
@@ -136,10 +135,12 @@
           <p class="text-dim text-sm">This conversation has no turns.</p>
         {/if}
       </div>
-    {:else}
-      <div class="wiz">
-        <p class="text-dim">Coming soon.</p>
-      </div>
+    {:else if view === "models"}
+      <ModelsView back={goHome} />
+    {:else if view === "context"}
+      <ContextView back={goHome} />
+    {:else if view === "advanced"}
+      <AdvancedView back={goHome} />
     {/if}
   </div>
 {/if}
