@@ -10,9 +10,8 @@ import type { Connection } from "./types";
 export const getConnection = (): Promise<Connection> => invoke<Connection>("get_connection");
 export const getPin = (): Promise<boolean> => invoke<boolean>("get_pin");
 export const setPin = (on: boolean): Promise<boolean> => invoke<boolean>("set_pin", { on });
-export const getCaptureHidden = (): Promise<boolean> => invoke<boolean>("get_capture_hidden");
-export const setCaptureHidden = (on: boolean): Promise<boolean> =>
-  invoke<boolean>("set_capture_hidden", { on });
+export const getStealth = (): Promise<boolean> => invoke<boolean>("get_stealth");
+export const setStealth = (on: boolean): Promise<boolean> => invoke<boolean>("set_stealth", { on });
 export const getCaptureSupported = (): Promise<boolean> =>
   invoke<boolean>("get_capture_supported");
 export const quit = (): Promise<void> => invoke("quit");
