@@ -9,9 +9,9 @@
   } from "../lib/api";
   import { minimizeWindow, quit, startDragging } from "../lib/tauri";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
-  import AdvancedView from "./dashboard/AdvancedView.svelte";
   import ContextView from "./dashboard/ContextView.svelte";
   import ModelsView from "./dashboard/ModelsView.svelte";
+  import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
 
   type View = "home" | "interview" | "conversation" | "models" | "context" | "advanced";
@@ -20,7 +20,7 @@
   let conversations = $state<ConversationRecord[]>([]);
   let historyError = $state<string | null>(null);
   let selected = $state<ConversationDetail | null>(null);
-  let confirmId = $state<number | null>(null); // row pending a delete confirmation
+  let armedId = $state<number | null>(null); // row whose delete is "armed" (click again to confirm)
 
   function label(c: { title: string | null; preview: string; id: number }): string {
     return c.title || c.preview || `Conversation ${c.id}`;
@@ -52,7 +52,7 @@
   }
 
   async function remove(id: number): Promise<void> {
-    confirmId = null;
+    armedId = null;
     try {
       await deleteConversation(id);
       await loadHistory();
@@ -68,7 +68,7 @@
   // Returning from a live interview: turns/titles may have changed, so refresh.
   function goHome(): void {
     view = "home";
-    confirmId = null;
+    armedId = null;
     void loadHistory();
   }
 
@@ -83,8 +83,8 @@
 {#snippet downloadIcon()}
   <svg
     viewBox="0 0 24 24"
-    width="15"
-    height="15"
+    width="24"
+    height="24"
     fill="none"
     stroke="currentColor"
     stroke-width="2"
@@ -112,13 +112,17 @@
     {#if view === "home"}
       <div class="dash">
         <div class="dash-head">
-          <button class="primary" onclick={() => (view = "interview")}>Start interview</button>
-          <button onclick={() => (view = "context")}>Change context</button>
-          <button onclick={() => (view = "models")}>Change models</button>
-          <button onclick={() => (view = "advanced")}>Advanced</button>
-          <h2>History</h2>
+          <div class="flex gap-2">
+            <button class="flex-1" onclick={() => (view = "context")}>Change context</button>
+            <button class="flex-1" onclick={() => (view = "models")}>Change models</button>
+            <button class="flex-1" onclick={() => (view = "advanced")}>Change system prompt</button>
+            <button class="primary flex-1" onclick={() => (view = "interview")}>
+              Start interview
+            </button>
+          </div>
         </div>
-        <div class="dash-body">
+        <div class="dash-body !pt-0">
+          <h2 class="dash-sticky">History</h2>
           {#if historyError}
             <p class="text-warn">{historyError}</p>
           {/if}
@@ -126,27 +130,32 @@
             <p class="text-dim text-sm">No conversations yet. Start an interview to build history.</p>
           {:else}
             {#each conversations as c (c.id)}
-              <div class="card flex items-center gap-2">
+              <div class="card flex gap-2 !py-0">
                 <button
-                  class="row flex-1 text-left"
+                  class="row flex-1 py-2.5 text-left"
                   onclick={() => void openConversation(c.id)}
                   title="Open conversation"
                 >
-                  <span class="block truncate">{label(c)}</span>
-                  <span class="text-dim text-xs">{when(c.started_at)} · {turns(c.turn_count)}</span>
+                  <span class="block truncate text-base">{label(c)}</span>
+                  <span class="text-dim text-sm">{when(c.started_at)} · {turns(c.turn_count)}</span>
                 </button>
-                {#if confirmId === c.id}
-                  <span class="text-warn text-xs">Delete?</span>
-                  <button class="icon" onclick={() => void remove(c.id)}>Yes</button>
-                  <button class="icon" onclick={() => (confirmId = null)}>No</button>
-                {:else}
-                  <button class="icon" title="Download (.md)" onclick={() => download(c.id)}>
-                    {@render downloadIcon()}
-                  </button>
-                  <button class="icon" title="Delete" onclick={() => (confirmId = c.id)}>
-                    &#10005;
-                  </button>
-                {/if}
+                <button class="row-icon" title="Download (.md)" onclick={() => download(c.id)}>
+                  {@render downloadIcon()}
+                </button>
+                <button
+                  class="row-icon text-2xl"
+                  class:armed={armedId === c.id}
+                  title={armedId === c.id ? "Click again to delete" : "Delete"}
+                  onclick={() => {
+                    if (armedId === c.id) void remove(c.id);
+                    else armedId = c.id;
+                  }}
+                  onmouseleave={() => {
+                    if (armedId === c.id) armedId = null;
+                  }}
+                >
+                  &#10005;
+                </button>
               </div>
             {/each}
           {/if}
@@ -154,15 +163,19 @@
       </div>
     {:else if view === "conversation" && selected}
       <div class="dash">
-        <div class="dash-head flex-row items-center gap-2">
-          <button onclick={goHome}>Back</button>
-          <span class="flex-1 truncate font-semibold">{label({ ...selected, preview: "" })}</span>
-          <button class="icon" title="Download (.md)" onclick={() => download(selected!.id)}>
-            {@render downloadIcon()}
-          </button>
+        <div class="dash-head">
+          <div class="flex items-stretch gap-2">
+            <button onclick={goHome}>Back</button>
+            <div class="min-w-0 flex-1 self-center">
+              <div class="truncate font-semibold">{label({ ...selected, preview: "" })}</div>
+              <div class="text-dim text-sm">{when(selected.started_at)}</div>
+            </div>
+            <button class="row-icon" title="Download (.md)" onclick={() => download(selected!.id)}>
+              {@render downloadIcon()}
+            </button>
+          </div>
         </div>
         <div class="dash-body">
-          <p class="text-dim text-xs">{when(selected.started_at)}</p>
           {#each selected.turns as t (t.id)}
             <div class="card flex flex-col gap-1">
               <strong>Q: {t.question}</strong>
@@ -179,7 +192,7 @@
     {:else if view === "context"}
       <ContextView back={goHome} />
     {:else if view === "advanced"}
-      <AdvancedView back={goHome} />
+      <SystemPromptView back={goHome} />
     {/if}
   </div>
 {/if}

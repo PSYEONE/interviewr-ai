@@ -65,7 +65,8 @@
 <div class="wiz">
   <h1>Context</h1>
   <p class="text-xs">
-    Ground answers in your background. Files stay on this machine; changes apply live (no restart).
+    Upload your CV and the job description to ground answers in your background, all kept on this
+    machine.
   </p>
 
   {#if error}<p class="text-warn">{error}</p>{/if}
