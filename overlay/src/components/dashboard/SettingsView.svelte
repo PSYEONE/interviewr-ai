@@ -3,6 +3,12 @@
 
   import { getSettings, getSystemInfo, postSettings, reloadSettings } from "../../lib/api";
   import { applyAndRestart } from "../../lib/apply";
+  import {
+    HOTKEY_ACTIONS,
+    HOTKEY_LABELS,
+    hotkeys,
+    type HotkeyAction,
+  } from "../../lib/hotkeys.svelte";
   import type { ConfigView, GpuInfo } from "../../lib/types";
 
   let { back }: { back: () => void } = $props();
@@ -79,6 +85,48 @@
     }
   });
 
+  // --- Global hotkey capture (applies immediately, independent of Save) ---
+  let recording = $state<HotkeyAction | null>(null);
+
+  function codeToKey(code: string): string | null {
+    if (code.startsWith("Key")) return code.slice(3); // KeyA -> A
+    if (code.startsWith("Digit")) return code.slice(5); // Digit1 -> 1
+    if (/^F\d{1,2}$/.test(code)) return code; // F1..F12
+    if (code === "Space") return "Space";
+    const map: Record<string, string> = {
+      ArrowUp: "Up",
+      ArrowDown: "Down",
+      ArrowLeft: "Left",
+      ArrowRight: "Right",
+      Enter: "Enter",
+    };
+    return map[code] ?? null;
+  }
+
+  function toAccelerator(e: KeyboardEvent): string | null {
+    const mods: string[] = [];
+    if (e.ctrlKey || e.metaKey) mods.push("CmdOrCtrl");
+    if (e.altKey) mods.push("Alt");
+    if (e.shiftKey) mods.push("Shift");
+    if (mods.length === 0) return null; // require a modifier so it can't clash with typing
+    const key = codeToKey(e.code);
+    return key ? [...mods, key].join("+") : null;
+  }
+
+  function onKeydown(e: KeyboardEvent): void {
+    if (!recording) return;
+    e.preventDefault();
+    if (e.code === "Escape") {
+      recording = null;
+      return;
+    }
+    const accel = toAccelerator(e);
+    if (!accel) return; // wait for a modifier + a real key
+    const action = recording;
+    recording = null;
+    void hotkeys.setBinding(action, accel);
+  }
+
   async function save(): Promise<void> {
     if (!form || !original) return;
     const updates: Record<string, unknown> = {};
@@ -111,6 +159,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="dash">
   <div class="flex items-center gap-2 border-b border-white/10 p-4">
@@ -191,5 +241,24 @@
         <input id="keep" type="text" bind:value={form.llm_keep_alive} />
       </div>
     {/if}
+
+    <h2>Shortcuts</h2>
+    <p class="text-xs">
+      Global hotkeys, active even when the overlay isn't focused. Unbound by default; changes apply
+      immediately (no Save needed).
+    </p>
+    {#if hotkeys.error}<p class="text-warn">{hotkeys.error}</p>{/if}
+    {#each HOTKEY_ACTIONS as a (a)}
+      <div class="card flex items-center gap-2">
+        <span class="flex-1">{HOTKEY_LABELS[a]}</span>
+        <span class="text-dim text-sm">
+          {recording === a ? "Press keys…" : (hotkeys.bindings[a] ?? "Unbound")}
+        </span>
+        <button onclick={() => (recording = a)}>{recording === a ? "…" : "Record"}</button>
+        {#if hotkeys.bindings[a]}
+          <button onclick={() => void hotkeys.clearBinding(a)}>Clear</button>
+        {/if}
+      </div>
+    {/each}
   </div>
 </div>
