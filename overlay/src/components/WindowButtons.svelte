@@ -2,19 +2,19 @@
   import { onMount } from "svelte";
 
   import {
-    getCaptureHidden,
     getCaptureSupported,
     getPin,
+    getStealth,
     minimizeWindow,
     quit,
-    setCaptureHidden,
     setPin,
+    setStealth,
   } from "../lib/tauri";
 
   // Window-level controls shared by the live panel bar and the dashboard bar: pin (always-on-top)
-  // and hide-from-capture toggles, then a gap, then minimize + quit.
+  // and stealth (hide from screen capture) toggles, then a gap, then minimize + quit.
   let pinned = $state(false);
-  let hidden = $state(false);
+  let stealth = $state(false);
   let captureSupported = $state(true);
 
   async function togglePin(): Promise<void> {
@@ -26,10 +26,10 @@
     }
   }
 
-  async function toggleHide(): Promise<void> {
-    hidden = !hidden;
+  async function toggleStealth(): Promise<void> {
+    stealth = !stealth;
     try {
-      await setCaptureHidden(hidden);
+      await setStealth(stealth);
     } catch {
       /* ignore */
     }
@@ -45,9 +45,9 @@
     try {
       captureSupported = await getCaptureSupported();
       if (captureSupported) {
-        hidden = await getCaptureHidden();
+        stealth = await getStealth();
         // On KWin 6.6 the runtime property is lost on restart; re-apply the stored choice now.
-        if (hidden) await setCaptureHidden(true);
+        if (stealth) await setStealth(true);
       }
     } catch {
       captureSupported = false;
@@ -57,14 +57,14 @@
 
 <button class:on={pinned} title="Toggle always-on-top" onclick={togglePin}>Pin</button>
 <button
-  class:on={hidden}
+  class:on={stealth}
   disabled={!captureSupported}
   title={captureSupported
-    ? "Hide overlay from screen recording (KDE Plasma 6.6+)"
-    : "Hide from screen recording (requires KDE Plasma 6.6+)"}
-  onclick={toggleHide}
+    ? "Stealth: keep the overlay out of screen recordings (KDE Plasma 6.6+)"
+    : "Stealth: keep out of screen recordings (requires KDE Plasma 6.6+)"}
+  onclick={toggleStealth}
 >
-  Hide
+  Stealth
 </button>
 <button class="icon ml-3" title="Minimize" onclick={() => void minimizeWindow()}>&#8211;</button>
 <button class="icon" title="Quit" onclick={() => void quit()}>&#10005;</button>
