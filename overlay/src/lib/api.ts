@@ -2,7 +2,15 @@
 // are therefore CORS-gated (the backend allows local + Tauri origins); the WS is separate.
 
 import { authHeaders, httpBase } from "./connection";
-import type { ConfigView, Health, PullProgress, SystemReport } from "./types";
+import { saveText } from "./tauri";
+import type {
+  ConfigView,
+  ConversationDetail,
+  ConversationRecord,
+  Health,
+  PullProgress,
+  SystemReport,
+} from "./types";
 
 async function getJSON<T>(path: string): Promise<T> {
   const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
@@ -52,6 +60,17 @@ export interface DocumentRecord {
   chunk_count: number;
 }
 
+export const listDocuments = (): Promise<DocumentRecord[]> =>
+  getJSON<DocumentRecord[]>("/documents");
+
+export async function deleteDocument(id: number): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/documents/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /documents/${id} -> ${resp.status}`);
+}
+
 // Upload a resume / job-description (or pasted text) for RAG grounding. Multipart, so the
 // browser sets the content-type + boundary itself. Returns 503 when RAG isn't available yet.
 export async function uploadDocument(kind: string, file: File): Promise<DocumentRecord> {
@@ -65,6 +84,37 @@ export async function uploadDocument(kind: string, file: File): Promise<Document
   });
   if (!resp.ok) throw new Error((await resp.text()) || `upload -> ${resp.status}`);
   return (await resp.json()) as DocumentRecord;
+}
+
+// Conversation history.
+export const listHistory = (): Promise<ConversationRecord[]> =>
+  getJSON<ConversationRecord[]>("/history");
+export const getConversation = (id: number): Promise<ConversationDetail> =>
+  getJSON<ConversationDetail>(`/history/${id}`);
+
+export async function deleteConversation(id: number): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/history/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /history/${id} -> ${resp.status}`);
+}
+
+export async function clearHistory(): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/history`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /history -> ${resp.status}`);
+}
+
+// Fetch an export endpoint (auth header attached) and save it through the native Save dialog.
+// Resolves false if the user cancels. Uses the Rust save_text command, not a webview download,
+// which is unreliable on WebKitGTK.
+export async function downloadExport(path: string, filename: string): Promise<boolean> {
+  const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
+  if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+  return saveText(filename, await resp.text());
 }
 
 export async function postSettings(updates: Record<string, unknown>): Promise<void> {

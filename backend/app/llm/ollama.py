@@ -13,10 +13,13 @@ from .base import SYSTEM_PROMPT, Message
 class OllamaClient:
     """Stateless Ollama client. Conversation history lives in the Session."""
 
-    def __init__(self, base_url: str, model: str, keep_alive: str = "30m") -> None:
+    def __init__(
+        self, base_url: str, model: str, keep_alive: str = "30m", system_prompt: str = SYSTEM_PROMPT
+    ) -> None:
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
         self._model = model
         self._keep_alive = keep_alive
+        self._system_prompt = system_prompt
 
     async def check_health(self) -> bool:
         try:
@@ -39,8 +42,8 @@ class OllamaClient:
         resp.raise_for_status()
 
     async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens for the given conversation. SYSTEM_PROMPT is prepended."""
-        payload: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        """Stream tokens for the given conversation. The system prompt is prepended."""
+        payload: list[Message] = [{"role": "system", "content": self._system_prompt}]
         payload.extend(messages)
         async with self._client.stream(
             "POST",

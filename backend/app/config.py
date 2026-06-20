@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     groq_base_url: str = "https://api.groq.com/openai/v1"  # OpenAI-compatible endpoint
     ollama_base_url: str = "http://127.0.0.1:11434"
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
+    system_prompt: str = ""  # empty = built-in default (llm/base.py SYSTEM_PROMPT)
 
     # rag (retrieval over resume + job description)
     rag_enabled: bool = True
