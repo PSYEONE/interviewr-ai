@@ -7,12 +7,13 @@
     getConversation,
     listHistory,
   } from "../lib/api";
-  import { minimizeWindow, quit, startDragging } from "../lib/tauri";
+  import { startDragging } from "../lib/tauri";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
   import ContextView from "./dashboard/ContextView.svelte";
   import ModelsView from "./dashboard/ModelsView.svelte";
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
+  import WindowButtons from "./WindowButtons.svelte";
 
   type View = "home" | "interview" | "conversation" | "models" | "context" | "advanced";
   let view = $state<View>("home");
@@ -105,8 +106,7 @@
     <div id="wizbar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
       <span id="brand">interviewr</span>
       <span class="flex-1"></span>
-      <button class="icon" title="Minimize" onclick={() => void minimizeWindow()}>&#8211;</button>
-      <button class="icon" title="Quit" onclick={() => void quit()}>&#10005;</button>
+      <WindowButtons />
     </div>
 
     {#if view === "home"}
