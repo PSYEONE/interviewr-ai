@@ -136,7 +136,9 @@
   .wiz ul { @apply list-disc pl-5 text-dim; }
   .wiz label { @apply mb-1 block text-xs text-dim; }
   .wiz input[type="text"],
-  .wiz input[type="password"] {
+  .wiz input[type="password"],
+  .wiz input[type="number"],
+  .wiz select {
     @apply w-full rounded-none border border-white/10 bg-white/5 px-2 py-1.5 text-fg;
   }
   .wiz textarea {

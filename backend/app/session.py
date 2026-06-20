@@ -56,6 +56,10 @@ class Session:
         # In-flight best-effort title-generation tasks (one per finalized conversation).
         self._title_tasks: set[asyncio.Task[None]] = set()
 
+    def set_history_enabled(self, enabled: bool) -> None:
+        """Live-toggle history persistence (applied by POST /settings/reload, no restart)."""
+        self._history_enabled = enabled
+
     def add_transcript(self, text: str) -> None:
         """Append a transcript chunk and broadcast it. Called by the producer loop."""
         self._parts.append(text)
