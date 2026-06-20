@@ -148,6 +148,14 @@
     background: var(--solid);
   }
 
+  /* Dashboard sub-views: a fixed header (actions / title) over a single scrolling body. */
+  .dash { @apply flex min-h-0 flex-1 flex-col; }
+  .dash-head { @apply flex flex-col gap-2 border-b border-white/10 p-4; }
+  .dash-head button:not(.icon) { @apply px-4 py-2 text-base; }
+  .dash-body { @apply flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4; }
+  .dash h1 { @apply text-lg font-semibold; }
+  .dash h2 { @apply text-sm font-semibold text-dim; }
+
   .card { @apply rounded-none border border-white/10 bg-white/5 px-3 py-2.5; }
   .card.selected { @apply border-accent; }
   .card.disabled { @apply opacity-50; }

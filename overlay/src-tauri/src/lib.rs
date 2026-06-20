@@ -318,6 +318,24 @@ fn engine_managed(state: State<'_, EngineState>) -> bool {
     state.manage_engine.load(Ordering::SeqCst)
 }
 
+/// Save text to a user-chosen file via a native Save dialog. Returns false if the user cancels.
+/// The webview's own `<a download>` is unreliable on WebKitGTK, so downloads go through here.
+#[tauri::command]
+async fn save_text(app: AppHandle, name: String, contents: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let chosen = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_file_name(&name).blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(file) = chosen else {
+        return Ok(false); // user cancelled the dialog
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// Last fatal engine failure, if any. Lets the frontend recover a failure emitted before its
 /// `engine://failed` listener was attached (e.g. an initial-spawn error at startup).
 #[tauri::command]
@@ -606,6 +624,7 @@ pub fn run() {
     // normal window management. See scripts/install-kwin-rule.sh.
     load_env();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(EngineState::default())
         .invoke_handler(tauri::generate_handler![
             get_connection,
@@ -617,6 +636,7 @@ pub fn run() {
             restart_engine,
             engine_managed,
             engine_error,
+            save_text,
             quit
         ])
         .setup(|app| {
