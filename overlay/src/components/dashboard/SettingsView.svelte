@@ -10,6 +10,7 @@
     type HotkeyAction,
   } from "../../lib/hotkeys.svelte";
   import type { ConfigView, GpuInfo } from "../../lib/types";
+  import Info from "../Info.svelte";
 
   let { back }: { back: () => void } = $props();
 
@@ -163,12 +164,14 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="dash">
-  <div class="flex items-center gap-2 border-b border-white/10 p-4">
-    <button onclick={back} disabled={saving}>Back</button>
-    <h1 class="flex-1 text-lg font-semibold">Settings</h1>
-    <button class="primary" onclick={save} disabled={saving || !form}>
-      {saving ? status || "Saving…" : "Save"}
-    </button>
+  <div class="dash-head">
+    <div class="flex items-stretch gap-2">
+      <button onclick={back} disabled={saving}>Back</button>
+      <h1 class="flex-1 self-center text-lg font-semibold">Settings</h1>
+      <button class="primary" onclick={save} disabled={saving || !form}>
+        {saving ? status || "Saving…" : "Save"}
+      </button>
+    </div>
   </div>
 
   <div class="wiz">
@@ -181,7 +184,10 @@
 
       <h2>Speech-to-text</h2>
       <div>
-        <label for="stt">Provider</label>
+        <label for="stt">
+          Provider
+          <Info text="Engine that transcribes audio. whisper.cpp runs locally on your GPU; Groq and Deepgram are cloud services (need an API key)." />
+        </label>
         <select id="stt" bind:value={form.stt_provider}>
           <option value="whisper_cpp">whisper.cpp (local)</option>
           <option value="groq">Groq (cloud)</option>
@@ -189,14 +195,21 @@
         </select>
       </div>
       <div>
-        <label for="wmodel">Whisper model</label>
+        <label for="wmodel">
+          Whisper model
+          <Info text="Whisper model size. Larger is more accurate but slower and uses more VRAM (e.g. tiny.en, base.en, small.en, medium.en)." />
+        </label>
         <input id="wmodel" type="text" bind:value={form.whisper_model} />
       </div>
       <label class="flex items-center gap-2">
         <input type="checkbox" bind:checked={form.whisper_use_gpu} /> Use GPU for transcription
+        <Info text="Transcribe on the GPU (Vulkan) instead of the CPU. Much faster; turn off only if the GPU build misbehaves." />
       </label>
       <div>
-        <label for="gpu">Transcription GPU</label>
+        <label for="gpu">
+          Transcription GPU
+          <Info text="Which GPU transcribes. Auto picks the best discrete card; set this on multi-GPU machines to pin the dGPU." />
+        </label>
         <select id="gpu" bind:value={form.whisper_gpu_device}>
           <option value={-1}>Auto</option>
           {#each gpus as g (g.index)}
@@ -205,16 +218,24 @@
         </select>
       </div>
 
+      <hr class="sep" />
       <h2>Retrieval (RAG)</h2>
       <label class="flex items-center gap-2">
         <input type="checkbox" bind:checked={form.rag_enabled} /> Enable RAG grounding
+        <Info text="Ground answers in your uploaded resume and job description (added under Change context)." />
       </label>
       <div>
-        <label for="topk">Chunks per answer (top-k)</label>
+        <label for="topk">
+          Chunks per answer (top-k)
+          <Info text="How many of the most relevant document chunks to feed the model with each question. Higher = more context, more tokens." />
+        </label>
         <input id="topk" type="number" min="0" max="20" bind:value={form.rag_top_k} />
       </div>
       <div>
-        <label for="eprov">Embedding provider</label>
+        <label for="eprov">
+          Embedding provider
+          <Info text="Model that turns documents and questions into vectors for retrieval. Ollama is local; OpenAI/Gemini are cloud (need a key)." />
+        </label>
         <select id="eprov" bind:value={form.embed_provider}>
           <option value="ollama">Ollama (local)</option>
           <option value="openai">OpenAI</option>
@@ -222,26 +243,39 @@
         </select>
       </div>
       <div>
-        <label for="emodel">Embedding model</label>
+        <label for="emodel">
+          Embedding model
+          <Info text="The embedding model name for the chosen provider (e.g. nomic-embed-text for Ollama). Changing it means re-uploading documents." />
+        </label>
         <input id="emodel" type="text" bind:value={form.embed_model} />
       </div>
 
+      <hr class="sep" />
       <h2>History</h2>
       <label class="flex items-center gap-2">
         <input type="checkbox" bind:checked={form.history_enabled} /> Save conversation history
+        <Info text="Save each answered question and its answer to a local history file you can review and export. Off = nothing is written." />
       </label>
 
+      <hr class="sep" />
       <h2>Connection</h2>
       <div>
-        <label for="ourl">Ollama URL</label>
+        <label for="ourl">
+          Ollama URL
+          <Info text="Where the Ollama server is reachable. Default http://127.0.0.1:11434 for a local install." />
+        </label>
         <input id="ourl" type="text" bind:value={form.ollama_base_url} />
       </div>
       <div>
-        <label for="keep">Model keep-alive</label>
+        <label for="keep">
+          Model keep-alive
+          <Info text="How long Ollama keeps the model loaded in VRAM after the last request (e.g. 30m, 1h, 0 = unload now, -1 = forever). Ollama only." />
+        </label>
         <input id="keep" type="text" bind:value={form.llm_keep_alive} />
       </div>
     {/if}
 
+    <hr class="sep" />
     <h2>Shortcuts</h2>
     <p class="text-xs">
       Global hotkeys, active even when the overlay isn't focused. Unbound by default; changes apply
