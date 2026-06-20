@@ -13,6 +13,8 @@
     startDragging,
   } from "../lib/tauri";
 
+  let { onBack }: { onBack?: () => void } = $props();
+
   let pinned = $state(true);
   let hidden = $state(false);
   let captureSupported = $state(true);
@@ -62,6 +64,9 @@
 </script>
 
 <div id="bar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
+  {#if onBack}
+    <button class="icon" title="Back to dashboard" onclick={onBack}>&#8592;</button>
+  {/if}
   <span id="dot" data-state={session.status} title={session.status}></span>
   <span id="brand">interviewr</span>
   <span class="flex-1"></span>
