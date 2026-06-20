@@ -70,6 +70,8 @@ export interface ConfigView {
   embed_model: string;
   rag_enabled: boolean;
   rag_top_k: number;
+  history_enabled: boolean;
+  system_prompt: string; // resolved: override if set, else the built-in default
   auth_token_set: boolean;
   anthropic_api_key_set: boolean;
   openai_api_key_set: boolean;
