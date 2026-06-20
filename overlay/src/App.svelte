@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import Panel from "./components/Panel.svelte";
+  import Dashboard from "./components/Dashboard.svelte";
   import Wizard from "./components/wizard/Wizard.svelte";
   import { getHealth } from "./lib/api";
   import { engineError, onEngineFailed, restartEngine, setPin } from "./lib/tauri";
 
-  type View = "loading" | "wizard" | "panel" | "offline" | "error";
+  type View = "loading" | "wizard" | "dashboard" | "offline" | "error";
   let view = $state<View>("loading");
   let errorMsg = $state("");
 
@@ -16,9 +16,11 @@
     if (view === "error") return; // a hard engine failure takes precedence over polling
     try {
       const health = await getHealth();
-      view = health.configured ? "panel" : "wizard";
-      // The wizard has no pin control, so make sure it isn't stuck always-on-top.
-      if (view === "wizard") void setPin(false);
+      // Gated on `configured` only (not `ready`): a configured-but-unhealthy engine still lands
+      // on the dashboard, so a broken model can be fixed from there instead of being stuck.
+      view = health.configured ? "dashboard" : "wizard";
+      // Neither the wizard nor the dashboard home has a pin control; the live panel sets its own.
+      void setPin(false);
     } catch {
       // Engine unreachable. Recover a failure whose engine://failed event we may have missed
       // (e.g. a spawn error before this listener attached); otherwise keep waiting for boot.
@@ -69,5 +71,5 @@
 {:else if view === "wizard"}
   <Wizard recheck={decide} />
 {:else}
-  <Panel />
+  <Dashboard />
 {/if}

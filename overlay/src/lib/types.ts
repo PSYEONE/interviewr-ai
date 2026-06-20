@@ -77,6 +77,29 @@ export interface ConfigView {
   groq_api_key_set: boolean;
 }
 
+// Conversation history (mirrors backend/app/history/store.py).
+export interface TurnRecord {
+  id: number;
+  asked_at: string;
+  question: string;
+  answer: string;
+}
+
+export interface ConversationRecord {
+  id: number;
+  started_at: string;
+  title: string | null;
+  turn_count: number;
+  preview: string; // first question; list-UI fallback label
+}
+
+export interface ConversationDetail {
+  id: number;
+  started_at: string;
+  title: string | null;
+  turns: TurnRecord[];
+}
+
 export interface PullProgress {
   status: string;
   completed: number | null;

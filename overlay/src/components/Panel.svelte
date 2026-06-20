@@ -6,6 +6,8 @@
   import Bar from "./Bar.svelte";
   import Transcript from "./Transcript.svelte";
 
+  let { onBack }: { onBack?: () => void } = $props();
+
   onMount(() => {
     session.start();
   });
@@ -14,6 +16,6 @@
   });
 </script>
 
-<Bar />
+<Bar {onBack} />
 <Transcript />
 <Answer />

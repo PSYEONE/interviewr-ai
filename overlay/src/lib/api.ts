@@ -2,7 +2,14 @@
 // are therefore CORS-gated (the backend allows local + Tauri origins); the WS is separate.
 
 import { authHeaders, httpBase } from "./connection";
-import type { ConfigView, Health, PullProgress, SystemReport } from "./types";
+import type {
+  ConfigView,
+  ConversationDetail,
+  ConversationRecord,
+  Health,
+  PullProgress,
+  SystemReport,
+} from "./types";
 
 async function getJSON<T>(path: string): Promise<T> {
   const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
@@ -65,6 +72,44 @@ export async function uploadDocument(kind: string, file: File): Promise<Document
   });
   if (!resp.ok) throw new Error((await resp.text()) || `upload -> ${resp.status}`);
   return (await resp.json()) as DocumentRecord;
+}
+
+// Conversation history.
+export const listHistory = (): Promise<ConversationRecord[]> =>
+  getJSON<ConversationRecord[]>("/history");
+export const getConversation = (id: number): Promise<ConversationDetail> =>
+  getJSON<ConversationDetail>(`/history/${id}`);
+
+export async function deleteConversation(id: number): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/history/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /history/${id} -> ${resp.status}`);
+}
+
+export async function clearHistory(): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/history`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`DELETE /history -> ${resp.status}`);
+}
+
+// Download an export endpoint as a file. The webview's fetch carries the auth header; we turn the
+// response into a blob and trigger a save via a transient object-URL anchor (no Tauri fs plugin).
+export async function downloadExport(path: string, filename: string): Promise<void> {
+  const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
+  if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function postSettings(updates: Record<string, unknown>): Promise<void> {
