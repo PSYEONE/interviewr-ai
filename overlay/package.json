@@ -25,6 +25,7 @@
   "dependencies": {
     "@fontsource-variable/geist": "^5.0.0",
     "@fontsource-variable/geist-mono": "^5.0.0",
-    "@tauri-apps/api": "^2.1.0"
+    "@tauri-apps/api": "^2.1.0",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2"
   }
 }
