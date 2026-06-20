@@ -2,6 +2,7 @@
 // are therefore CORS-gated (the backend allows local + Tauri origins); the WS is separate.
 
 import { authHeaders, httpBase } from "./connection";
+import { saveText } from "./tauri";
 import type {
   ConfigView,
   ConversationDetail,
@@ -107,20 +108,13 @@ export async function clearHistory(): Promise<void> {
   if (!resp.ok) throw new Error(`DELETE /history -> ${resp.status}`);
 }
 
-// Download an export endpoint as a file. The webview's fetch carries the auth header; we turn the
-// response into a blob and trigger a save via a transient object-URL anchor (no Tauri fs plugin).
-export async function downloadExport(path: string, filename: string): Promise<void> {
+// Fetch an export endpoint (auth header attached) and save it through the native Save dialog.
+// Resolves false if the user cancels. Uses the Rust save_text command, not a webview download,
+// which is unreliable on WebKitGTK.
+export async function downloadExport(path: string, filename: string): Promise<boolean> {
   const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
   if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  return saveText(filename, await resp.text());
 }
 
 export async function postSettings(updates: Record<string, unknown>): Promise<void> {

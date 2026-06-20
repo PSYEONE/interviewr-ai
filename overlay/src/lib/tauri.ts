@@ -16,6 +16,11 @@ export const setCaptureHidden = (on: boolean): Promise<boolean> =>
 export const getCaptureSupported = (): Promise<boolean> =>
   invoke<boolean>("get_capture_supported");
 export const quit = (): Promise<void> => invoke("quit");
+
+// Save text to a user-chosen file via a native dialog (the webview's own download is unreliable
+// on WebKitGTK). Resolves false if the user cancels.
+export const saveText = (name: string, contents: string): Promise<boolean> =>
+  invoke<boolean>("save_text", { name, contents });
 export const startDragging = (): Promise<void> => getCurrentWindow().startDragging();
 export const minimizeWindow = (): Promise<void> => getCurrentWindow().minimize();
 
