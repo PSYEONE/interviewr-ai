@@ -39,6 +39,10 @@ class Retriever:
     def store(self) -> DocumentStore:
         return self._store
 
+    def set_top_k(self, top_k: int) -> None:
+        """Live-update the retrieval depth (applied by POST /settings/reload, no restart)."""
+        self._top_k = top_k
+
     async def check_health(self) -> bool:
         return await self._embedder.check_health()
 
