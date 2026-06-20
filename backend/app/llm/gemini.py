@@ -17,12 +17,19 @@ if TYPE_CHECKING:
 
 
 class GeminiClient:
-    def __init__(self, api_key: str, model: str, max_output_tokens: int = 1024) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        max_output_tokens: int = 1024,
+        system_prompt: str = SYSTEM_PROMPT,
+    ) -> None:
         from google import genai  # lazy: cloud extra, only when provider=gemini
 
         self._client: Client = genai.Client(api_key=api_key)
         self._model = model
         self._max_output_tokens = max_output_tokens
+        self._system_prompt = system_prompt
 
     async def check_health(self) -> bool:
         # Cheap metadata fetch: validates the key and model without spending generation tokens.
@@ -50,7 +57,7 @@ class GeminiClient:
             for m in messages
         ]
         config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=self._system_prompt,
             max_output_tokens=self._max_output_tokens,
         )
         stream = await self._client.aio.models.generate_content_stream(

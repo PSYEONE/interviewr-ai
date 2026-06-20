@@ -139,6 +139,9 @@
   .wiz input[type="password"] {
     @apply w-full rounded-none border border-white/10 bg-white/5 px-2 py-1.5 text-fg;
   }
+  .wiz textarea {
+    @apply w-full resize-y rounded-none border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-xs text-fg;
+  }
 
   .wizard-shell {
     @apply flex min-h-0 flex-1 flex-col;

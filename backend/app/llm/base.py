@@ -8,7 +8,10 @@ Message shape live here because every adapter prepends the former and consumes t
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Literal, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, runtime_checkable
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 SYSTEM_PROMPT = (
     "You are a real-time meeting and interview copilot. "
@@ -38,3 +41,8 @@ class LLMClient(Protocol):
     def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]: ...
 
     async def close(self) -> None: ...
+
+
+def effective_system_prompt(settings: Settings) -> str:
+    """The system prompt to use: the user's override if set, else the built-in default."""
+    return settings.system_prompt or SYSTEM_PROMPT

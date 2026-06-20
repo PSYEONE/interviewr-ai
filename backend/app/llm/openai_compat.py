@@ -23,6 +23,7 @@ class OpenAICompatClient:
         model: str,
         base_url: str | None = None,
         max_tokens: int = 1024,
+        system_prompt: str = SYSTEM_PROMPT,
     ) -> None:
         from openai import AsyncOpenAI  # lazy: cloud extra, only for openai-compatible providers
 
@@ -30,6 +31,7 @@ class OpenAICompatClient:
         self._client: AsyncOpenAI = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
         self._max_tokens = max_tokens
+        self._system_prompt = system_prompt
 
     async def check_health(self) -> bool:
         # Validates the key and model with a cheap metadata call, no generation tokens spent.
@@ -46,8 +48,8 @@ class OpenAICompatClient:
         return None
 
     async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens. SYSTEM_PROMPT is prepended; messages are already OpenAI-shaped."""
-        payload: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}, *messages]
+        """Stream tokens. The system prompt is prepended; messages are already OpenAI-shaped."""
+        payload: list[Message] = [{"role": "system", "content": self._system_prompt}, *messages]
         # Message is structurally OpenAI's chat param shape; cast bridges the per-role
         # TypedDict union the SDK declares (and keeps strict mypy happy with or without openai installed).
         stream = await self._client.chat.completions.create(
