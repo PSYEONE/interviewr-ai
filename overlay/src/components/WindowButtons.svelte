@@ -60,8 +60,8 @@
   class:on={stealth}
   disabled={!captureSupported}
   title={captureSupported
-    ? "Stealth: keep the overlay out of screen recordings (KDE Plasma 6.6+)"
-    : "Stealth: keep out of screen recordings (requires KDE Plasma 6.6+)"}
+    ? "Hide from screen recordings"
+    : "Hide from screen recordings (needs KDE Plasma 6.6+)"}
   onclick={toggleStealth}
 >
   Stealth
