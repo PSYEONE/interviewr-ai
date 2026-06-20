@@ -51,8 +51,12 @@
   <div class="wiz">
     <h1>Change model</h1>
     <p class="text-xs">Switch the answering model. The engine restarts to apply.</p>
-    <button class="primary" onclick={chooseLocal}>Local model (Ollama)</button>
-    <button onclick={() => (stage = "cloud")}>Cloud model (bring your own key)</button>
+    <div class="flex gap-2">
+      <button class="flex-1" onclick={chooseLocal}>Local model (Ollama)</button>
+      <button class="flex-1" onclick={() => (stage = "cloud")}>
+        Cloud model (bring your own key)
+      </button>
+    </div>
     <div class="flex-1"></div>
     <div class="flex"><button onclick={back}>Back</button></div>
   </div>

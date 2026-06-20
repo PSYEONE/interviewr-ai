@@ -139,7 +139,7 @@
             <p class="text-dim text-sm">No conversations yet. Start an interview to build history.</p>
           {:else}
             {#each conversations as c (c.id)}
-              <div class="card flex gap-2 !py-0">
+              <div class="flex gap-2">
                 <button
                   class="row flex-1 py-2.5 text-left"
                   onclick={() => void openConversation(c.id)}
@@ -186,7 +186,7 @@
         </div>
         <div class="dash-body">
           {#each selected.turns as t (t.id)}
-            <div class="card flex flex-col gap-1">
+            <div class="flex flex-col gap-1">
               <strong>Q: {t.question}</strong>
               <p class="text-ok whitespace-pre-wrap">{t.answer}</p>
             </div>
