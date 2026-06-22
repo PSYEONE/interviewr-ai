@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import {
     deleteConversation,
@@ -7,6 +7,7 @@
     getConversation,
     listHistory,
   } from "../lib/api";
+  import { session } from "../lib/session.svelte";
   import { startDragging } from "../lib/tauri";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
   import ContextView from "./dashboard/ContextView.svelte";
@@ -42,11 +43,17 @@
     return `${n} turn${n === 1 ? "" : "s"}`;
   }
 
+  let historyReq = 0; // monotonic id so an out-of-order response can't clobber a newer load
+
   async function loadHistory(): Promise<void> {
+    const req = ++historyReq;
     historyError = null;
     try {
-      conversations = await listHistory();
+      const data = await listHistory();
+      if (req !== historyReq) return; // a newer load superseded this one
+      conversations = data;
     } catch (e) {
+      if (req !== historyReq) return;
       historyError = e instanceof Error ? e.message : String(e);
     }
   }
@@ -86,7 +93,19 @@
     void startDragging();
   }
 
-  onMount(loadHistory);
+  // The WS subscription is owned here, at the dashboard level, so it stays open across both the
+  // home screen and the interview view and keeps receiving broadcast events on either.
+  onMount(() => {
+    session.start();
+    void loadHistory();
+  });
+  onDestroy(() => session.stop());
+
+  // Titles are generated server-side after a conversation is finalized and arrive over the WS.
+  // Reloading on each one reflects the new title and surfaces the now-finalized conversation.
+  $effect(() => {
+    if (session.lastTitled !== null) void loadHistory();
+  });
 </script>
 
 {#snippet downloadIcon()}
@@ -140,7 +159,7 @@
             {#each conversations as c (c.id)}
               <div class="flex gap-2">
                 <button
-                  class="row flex-1 py-2.5 text-left"
+                  class="row min-w-0 flex-1 py-2.5 text-left"
                   onclick={() => void openConversation(c.id)}
                   title="Open conversation"
                 >
