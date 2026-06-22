@@ -114,7 +114,7 @@
     <div id="wizbar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
       <span id="brand">interviewr</span>
       <span class="flex-1"></span>
-      <WindowButtons />
+      <WindowButtons onSettings={() => (view = "settings")} />
     </div>
 
     {#if view === "home"}
@@ -124,7 +124,6 @@
             <button class="flex-1" onclick={() => (view = "context")}>Change context</button>
             <button class="flex-1" onclick={() => (view = "models")}>Change models</button>
             <button class="flex-1" onclick={() => (view = "advanced")}>Change system prompt</button>
-            <button class="flex-1" onclick={() => (view = "settings")}>Settings</button>
             <button class="primary flex-1" onclick={() => (view = "interview")}>
               Start interview
             </button>
