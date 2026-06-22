@@ -15,6 +15,7 @@ from .events import (
     AnswerDoneEvent,
     AnswerStartEvent,
     AnswerTokenEvent,
+    ConversationTitledEvent,
     ErrorEvent,
     EventBus,
     StatusEvent,
@@ -55,6 +56,54 @@ class Session:
         self._conversation_id: int | None = None
         # In-flight best-effort title-generation tasks (one per finalized conversation).
         self._title_tasks: set[asyncio.Task[None]] = set()
+        # Conversations whose finalization (title generation) is in flight; hidden from the
+        # history list until the title lands so the raw first question is never shown as a title.
+        self._finalizing: set[int] = set()
+        # Capture gating. The producer captures system audio only while _capture_on is set.
+        # Capture runs when intent is set (inside an interview) AND a client is connected; the
+        # subscriber gate stops a manually-run backend from capturing once the last client goes.
+        self._capture_intent = False
+        self._capture_on = asyncio.Event()
+        self._capture_off = asyncio.Event()
+        self._recompute_capture()
+
+    def _recompute_capture(self) -> None:
+        active = self._capture_intent and self._bus.subscriber_count() > 0
+        if active:
+            self._capture_off.clear()
+            self._capture_on.set()
+        else:
+            self._capture_on.clear()
+            self._capture_off.set()
+
+    def resume_capture(self) -> None:
+        """Intend to capture system audio (sent when entering an interview)."""
+        self._capture_intent = True
+        self._recompute_capture()
+
+    def pause_capture(self) -> None:
+        """Stop intending to capture (sent when leaving/finishing an interview)."""
+        self._capture_intent = False
+        self._recompute_capture()
+
+    def notify_subscribers_changed(self) -> None:
+        """Re-evaluate capture after a client connects/disconnects (WS lifecycle)."""
+        self._recompute_capture()
+
+    async def wait_capture_start(self) -> None:
+        await self._capture_on.wait()
+
+    async def wait_capture_stop(self) -> None:
+        await self._capture_off.wait()
+
+    @property
+    def pending_conversation_ids(self) -> set[int]:
+        """Conversations the history list hides: the open (not-yet-finalized) one and any whose
+        title is still being generated. They appear once finalized and titled."""
+        ids = set(self._finalizing)
+        if self._conversation_id is not None:
+            ids.add(self._conversation_id)
+        return ids
 
     def set_history_enabled(self, enabled: bool) -> None:
         """Live-toggle history persistence (applied by POST /settings/reload, no restart)."""
@@ -172,6 +221,7 @@ class Session:
         conv_id = self._conversation_id
         if conv_id is None or self._history_store is None or not self._history_enabled:
             return
+        self._finalizing.add(conv_id)  # hide from history until the title lands
         task = asyncio.create_task(self._finalize_conversation(conv_id))
         self._title_tasks.add(task)
         task.add_done_callback(self._title_tasks.discard)
@@ -181,6 +231,7 @@ class Session:
         any failure the title stays NULL and the UI falls back to the first question."""
         if self._history_store is None:
             return
+        self._finalizing.add(conv_id)
         try:
             detail = self._history_store.get_conversation(conv_id)
             if detail is None or not detail["turns"] or detail["title"]:
@@ -190,8 +241,13 @@ class Session:
             )
             if title:
                 self._history_store.set_title(conv_id, title)
+                self._bus.publish(
+                    ConversationTitledEvent(conversation_id=conv_id, title=title)
+                )
         except Exception as exc:  # noqa: BLE001 - a title is a nicety; never disrupt the engine
             _log.warning("conversation title finalize failed: %s", exc)
+        finally:
+            self._finalizing.discard(conv_id)
 
     async def _generate_title(self, turns: list[TurnRecord]) -> str:
         """Ask the LLM for a short label from the conversation's questions. The adapter prepends

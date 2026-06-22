@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import re
-from collections.abc import AsyncIterator
+import signal
+import sys
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Literal
 
@@ -13,6 +16,20 @@ import numpy as np
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 4800  # 0.3s at 16kHz
 CHUNK_BYTES = CHUNK_SAMPLES * 4  # f32 = 4 bytes per sample
+
+_PR_SET_PDEATHSIG = 1  # linux/prctl.h
+
+
+def _die_with_parent() -> None:
+    """Child-side (post-fork) hook: ask the kernel to SIGTERM this process when the backend
+    dies, so pw-record can never outlive the engine even if the engine is SIGKILLed or crashes
+    and skips graceful teardown. Linux-only; a no-op (and best-effort) elsewhere."""
+    if sys.platform != "linux":
+        return
+    try:
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(_PR_SET_PDEATHSIG, signal.SIGTERM)
+    except Exception:  # noqa: BLE001 - hardening only; never block capture if prctl is unavailable
+        pass
 
 TargetKind = Literal["monitor", "mic", "app"]
 
@@ -86,7 +103,7 @@ async def capture_audio(
     device: str,
     rate: int = SAMPLE_RATE,
     chunk_samples: int = CHUNK_SAMPLES,
-) -> AsyncIterator[np.ndarray]:
+) -> AsyncGenerator[np.ndarray, None]:
     """Yield float32 numpy arrays of audio from a PipeWire source.
 
     For a sink monitor (``<sink>.monitor``) we must target the sink node and set
@@ -105,6 +122,7 @@ async def capture_audio(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        preexec_fn=_die_with_parent,  # reap pw-record if the engine dies ungracefully
     )
     assert proc.stdout is not None
     try:
