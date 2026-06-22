@@ -117,6 +117,7 @@ export type ServerEvent =
   | { type: "answer.token"; answer_id: string; token: string }
   | { type: "answer.done"; answer_id: string; cancelled: boolean }
   | { type: "status"; state: "idle" | "listening" | "thinking" | "unconfigured" }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  | { type: "conversation.titled"; conversation_id: number; title: string };
 
-export type CommandType = "answer" | "clear" | "reset" | "ping";
+export type CommandType = "answer" | "clear" | "reset" | "ping" | "pause" | "resume";

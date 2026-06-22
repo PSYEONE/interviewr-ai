@@ -14,7 +14,7 @@
 
 <div id="bar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
   {#if onBack}
-    <button class="icon" title="Back to dashboard" onclick={onBack}>&#8592;</button>
+    <button class="icon" title="Finalize and return to dashboard" onclick={onBack}>&#8592;</button>
   {/if}
   <span id="dot" data-state={session.status} title={session.status}></span>
   <span id="brand">interviewr</span>
@@ -23,6 +23,11 @@
     Answer
   </button>
   <button title="Clear pending buffer" onclick={() => session.send("clear")}>Clear</button>
-  <button title="Reset session" onclick={() => session.resetView()}>Reset</button>
+  <button
+    title="Finalize this conversation and start a fresh topic"
+    onclick={() => session.resetView()}
+  >
+    New conversation
+  </button>
   <WindowButtons />
 </div>
