@@ -33,8 +33,10 @@ from .events import (
     ClearCommand,
     ErrorEvent,
     EventBus,
+    PauseCommand,
     PingCommand,
     ResetCommand,
+    ResumeCommand,
     StatusEvent,
     Subscription,
     parse_command,
@@ -233,6 +235,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
 
     sub = bus.subscribe()
+    if session is not None:
+        session.notify_subscribers_changed()  # a client is present; capture may resume
     # In setup mode there is no session yet; tell clients to show the wizard, not "listening".
     bus.publish(StatusEvent(state="listening" if session is not None else "unconfigured"))
     reader = asyncio.create_task(_reader(ws, session))
@@ -248,6 +252,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 pass
     finally:
         bus.unsubscribe(sub)
+        if session is not None:
+            session.notify_subscribers_changed()  # last client gone -> capture pauses
 
 
 async def _writer(ws: WebSocket, sub: Subscription) -> None:
@@ -286,6 +292,10 @@ async def _reader(ws: WebSocket, session: Session | None) -> None:
                     session.clear()
                 case ResetCommand():
                     session.reset()
+                case PauseCommand():
+                    session.pause_capture()
+                case ResumeCommand():
+                    session.resume_capture()
                 case PingCommand():
                     pass
     except WebSocketDisconnect:
@@ -444,9 +454,15 @@ def _attachment(filename: str) -> dict[str, str]:
 
 @app.get("/history")
 async def list_history(request: Request) -> list[ConversationRecord]:
-    """Conversations newest-first, each with a turn count and first-question preview."""
+    """Conversations newest-first, each with a turn count and first-question preview. The open
+    (not-yet-finalized) conversation is hidden until reset() finalizes and titles it."""
     _require_auth(request)
-    return _get_history(request).list_conversations()
+    convs = _get_history(request).list_conversations()
+    session: Session | None = getattr(request.app.state, "session", None)
+    hidden = session.pending_conversation_ids if session is not None else set()
+    if hidden:
+        convs = [c for c in convs if c["id"] not in hidden]
+    return convs
 
 
 # Declared before /history/{conversation_id} so "export" is not parsed as a conversation id.
