@@ -30,6 +30,7 @@ from .config import Settings, get_settings
 from .config_store import ConfigView, apply_config, current_config
 from .events import (
     AnswerCommand,
+    AnswerStyleCommand,
     ClearCommand,
     ErrorEvent,
     EventBus,
@@ -115,7 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
             # for an answer, and keep_alive holds it warm after that.
             warmup_task = asyncio.create_task(_warm_llm(llm))
-            producer = asyncio.create_task(run_producer(settings, session, bus, retriever))
+            producer = asyncio.create_task(run_producer(settings, session, bus))
         else:
             _log.warning(
                 "LLM provider '%s' unhealthy; starting in setup mode", settings.llm_provider
@@ -296,6 +297,8 @@ async def _reader(ws: WebSocket, session: Session | None) -> None:
                     session.pause_capture()
                 case ResumeCommand():
                     session.resume_capture()
+                case AnswerStyleCommand():
+                    session.set_answer_style(cmd.style)
                 case PingCommand():
                     pass
     except WebSocketDisconnect:

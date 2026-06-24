@@ -7,14 +7,22 @@ import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 import { session } from "./session.svelte";
 import { windowControls } from "./windowControls.svelte";
 
-export type HotkeyAction = "answer" | "clear" | "reset" | "pin" | "stealth";
-export const HOTKEY_ACTIONS: HotkeyAction[] = ["answer", "clear", "reset", "pin", "stealth"];
+export type HotkeyAction = "answer" | "clear" | "reset" | "pin" | "stealth" | "answer_style";
+export const HOTKEY_ACTIONS: HotkeyAction[] = [
+  "answer",
+  "clear",
+  "reset",
+  "pin",
+  "stealth",
+  "answer_style",
+];
 export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
   answer: "Answer",
   clear: "Clear",
   reset: "Reset",
   pin: "Pin",
   stealth: "Stealth",
+  answer_style: "Toggle answer style",
 };
 
 const STORAGE_KEY = "interviewr.hotkeys";
@@ -36,6 +44,9 @@ function dispatch(action: HotkeyAction): void {
     case "stealth":
       void windowControls.toggleStealth();
       break;
+    case "answer_style":
+      session.toggleAnswerStyle();
+      break;
   }
 }
 
@@ -46,6 +57,7 @@ class Hotkeys {
     reset: null,
     pin: null,
     stealth: null,
+    answer_style: null,
   });
   error = $state<string | null>(null);
   #inited = false;

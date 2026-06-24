@@ -121,3 +121,5 @@ export type ServerEvent =
   | { type: "conversation.titled"; conversation_id: number; title: string };
 
 export type CommandType = "answer" | "clear" | "reset" | "ping" | "pause" | "resume";
+
+export type AnswerStyle = "script" | "bullets";

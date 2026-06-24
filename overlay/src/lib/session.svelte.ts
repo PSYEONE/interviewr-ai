@@ -3,7 +3,13 @@
 // reconnect, and a 20s keepalive ping.
 
 import { wsUrl } from "./connection";
-import type { CommandType, ServerEvent } from "./types";
+import type { AnswerStyle, CommandType, ServerEvent } from "./types";
+
+const _STYLE_KEY = "interviewr.answerStyle";
+
+function _loadStyle(): AnswerStyle {
+  return localStorage.getItem(_STYLE_KEY) === "bullets" ? "bullets" : "script";
+}
 
 export type Status =
   | "offline"
@@ -21,6 +27,8 @@ class Session {
   // Last conversation whose background-generated title landed; the dashboard watches this to
   // patch the title into the history list in place (titles arrive after the session ends).
   lastTitled = $state<{ id: number; title: string } | null>(null);
+  // Sticky answer formatting; persisted locally and re-sent to the engine on each connect.
+  answerStyle = $state<AnswerStyle>(_loadStyle());
 
   #ws: WebSocket | null = null;
   #backoff = 1000;
@@ -63,6 +71,18 @@ class Session {
     this.answer = "";
   }
 
+  setAnswerStyle(style: AnswerStyle): void {
+    this.answerStyle = style;
+    localStorage.setItem(_STYLE_KEY, style);
+    if (this.#ws && this.#ws.readyState === WebSocket.OPEN) {
+      this.#ws.send(JSON.stringify({ type: "answer_style", style }));
+    }
+  }
+
+  toggleAnswerStyle(): void {
+    this.setAnswerStyle(this.answerStyle === "script" ? "bullets" : "script");
+  }
+
   async #connect(): Promise<void> {
     const url = await wsUrl();
     this.status = "connecting";
@@ -71,6 +91,7 @@ class Session {
     ws.onopen = () => {
       this.#backoff = 1000;
       this.status = "listening";
+      this.setAnswerStyle(this.answerStyle); // re-assert the sticky style on the shared session
     };
     ws.onmessage = (e: MessageEvent<string>) => this.#handle(JSON.parse(e.data) as ServerEvent);
     ws.onclose = () => {

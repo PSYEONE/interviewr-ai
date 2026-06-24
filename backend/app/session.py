@@ -28,6 +28,18 @@ from .rag import Retriever, format_context
 _log = logging.getLogger(__name__)
 _TITLE_TIMEOUT_S = 15.0  # bound best-effort title generation so it can't hang shutdown
 
+# Form-only answer-style directives appended to the question (the client flips between them).
+_STYLE_DIRECTIVES = {
+    "script": (
+        "STYLE: Answer as a natural first-person spoken script, what the candidate would say "
+        "out loud. Conversational and flowing. No bullet points, lists, or headers."
+    ),
+    "bullets": (
+        "STYLE: Answer as 3 to 6 concise bullet points, each a single line to glance at and "
+        "expand on. No long paragraphs."
+    ),
+}
+
 
 class Session:
     def __init__(
@@ -66,6 +78,8 @@ class Session:
         self._capture_on = asyncio.Event()
         self._capture_off = asyncio.Event()
         self._recompute_capture()
+        # Answer formatting, flipped live by the client (sticky until changed).
+        self._answer_style = "script"
 
     def _recompute_capture(self) -> None:
         active = self._capture_intent and self._bus.subscriber_count() > 0
@@ -108,6 +122,15 @@ class Session:
     def set_history_enabled(self, enabled: bool) -> None:
         """Live-toggle history persistence (applied by POST /settings/reload, no restart)."""
         self._history_enabled = enabled
+
+    def set_answer_style(self, style: str) -> None:
+        """Flip how answers are formatted (sticky until changed); applied to the next answer."""
+        if style in _STYLE_DIRECTIVES:
+            self._answer_style = style
+
+    def _style_directive(self) -> str:
+        """Form-only instruction appended to the question for the LLM; never stored in history."""
+        return _STYLE_DIRECTIVES.get(self._answer_style, "")
 
     def add_transcript(self, text: str) -> None:
         """Append a transcript chunk and broadcast it. Called by the producer loop."""
@@ -160,8 +183,12 @@ class Session:
             AnswerStartEvent(answer_id=answer_id, source_chars=len(transcript))
         )
         # Retrieved RAG context augments only the message sent to the LLM; history keeps the
-        # raw transcript (below) so each turn retrieves fresh and context never accretes.
+        # raw transcript (below) so each turn retrieves fresh and context never accretes. The
+        # answer-style directive rides the same ephemeral message, never the stored history.
         prompt = await self._with_context(transcript)
+        directive = self._style_directive()
+        if directive:
+            prompt = f"{prompt}\n\n{directive}"
         messages: list[Message] = [*self._history, {"role": "user", "content": prompt}]
         tokens: list[str] = []
         cancelled = False
