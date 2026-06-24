@@ -115,7 +115,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
             # for an answer, and keep_alive holds it warm after that.
             warmup_task = asyncio.create_task(_warm_llm(llm))
-            producer = asyncio.create_task(run_producer(settings, session, bus))
+            producer = asyncio.create_task(run_producer(settings, session, bus, retriever))
         else:
             _log.warning(
                 "LLM provider '%s' unhealthy; starting in setup mode", settings.llm_provider

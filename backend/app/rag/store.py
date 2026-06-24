@@ -134,6 +134,16 @@ class DocumentStore:
             out.append(Retrieved(text=text, doc_name=doc_name, kind=kind, score=score))
         return out
 
+    def chunk_texts(self) -> list[str]:
+        """All chunk text, resume documents first then the rest, in document/ordinal order.
+        Used to derive the STT context-biasing vocab (resume-first front-loads the candidate's
+        own name and skills)."""
+        rows = self._conn.execute(
+            "SELECT c.text FROM chunks c JOIN documents d ON c.doc_id = d.id "
+            "ORDER BY (d.kind != 'resume'), d.id, c.ordinal"
+        ).fetchall()
+        return [cast(str, r["text"]) for r in rows]
+
     def list_documents(self) -> list[DocumentRecord]:
         rows = self._conn.execute(
             "SELECT id, name, kind, added_at, chunk_count FROM documents ORDER BY id"

@@ -26,6 +26,11 @@ class WhisperTranscriber:
         self._model = Model(
             model_name, print_realtime=False, print_progress=False, context_params=ctx
         )
+        self._initial_prompt = ""  # context-biasing vocab; set per interview, empty = off
+
+    def set_prompt(self, text: str) -> None:
+        """Set the context-biasing prompt applied to every transcribe (empty disables it)."""
+        self._initial_prompt = text
 
     def warmup(self) -> None:
         """Run one dummy inference up front. The first Vulkan transcribe pays a
@@ -41,6 +46,7 @@ class WhisperTranscriber:
             no_context=True,  # don't carry decoder state across calls (reduces drift)
             suppress_blank=True,
             suppress_nst=True,  # suppress non-speech tokens (music/sfx hallucinations)
+            initial_prompt=self._initial_prompt,  # bias vocab (resume/JD); "" = no biasing
         )
         text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
         return _clean(text)
