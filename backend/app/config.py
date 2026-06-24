@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     stt_emit_partials: bool = True  # stream a live tentative tail (off = commit-only, cheaper on CPU)
     stt_partial_interval_s: float = 0.4  # how often to re-transcribe for the live tail
     stt_commit_margin_words: int = 3  # hold back this many live-edge words before committing
+    stt_context_biasing: bool = True  # bias whisper toward resume/JD vocab (names, tech, acronyms)
+    stt_bias_max_chars: int = 600  # cap the biasing prompt (~200 whisper tokens of terms)
+    stt_bias_terms: str = ""  # extra comma-separated vocab to bias on (e.g. interviewer/company)
 
     # llm
     llm_provider: LLMProvider = LLMProvider.OLLAMA
