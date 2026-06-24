@@ -52,6 +52,12 @@ class ErrorEvent(BaseModel):
     message: str
 
 
+class ConversationTitledEvent(BaseModel):
+    type: Literal["conversation.titled"] = "conversation.titled"
+    conversation_id: int
+    title: str
+
+
 Event = Annotated[
     Union[
         TranscriptEvent,
@@ -60,6 +66,7 @@ Event = Annotated[
         AnswerDoneEvent,
         StatusEvent,
         ErrorEvent,
+        ConversationTitledEvent,
     ],
     Field(discriminator="type"),
 ]
@@ -83,8 +90,29 @@ class PingCommand(BaseModel):
     type: Literal["ping"] = "ping"
 
 
+class PauseCommand(BaseModel):
+    type: Literal["pause"] = "pause"
+
+
+class ResumeCommand(BaseModel):
+    type: Literal["resume"] = "resume"
+
+
+class AnswerStyleCommand(BaseModel):
+    type: Literal["answer_style"] = "answer_style"
+    style: Literal["script", "bullets"]
+
+
 Command = Annotated[
-    Union[AnswerCommand, ClearCommand, ResetCommand, PingCommand],
+    Union[
+        AnswerCommand,
+        ClearCommand,
+        ResetCommand,
+        PingCommand,
+        PauseCommand,
+        ResumeCommand,
+        AnswerStyleCommand,
+    ],
     Field(discriminator="type"),
 ]
 

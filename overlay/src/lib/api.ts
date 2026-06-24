@@ -126,6 +126,15 @@ export async function postSettings(updates: Record<string, unknown>): Promise<vo
   if (!resp.ok) throw new Error((await resp.text()) || `POST /settings -> ${resp.status}`);
 }
 
+// Apply already-persisted cheap settings to the running engine without a restart.
+export async function reloadSettings(): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/settings/reload`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!resp.ok) throw new Error((await resp.text()) || `POST /settings/reload -> ${resp.status}`);
+}
+
 // Pull an Ollama model, surfacing the backend's NDJSON progress stream frame by frame.
 export async function pullModel(
   model: string,

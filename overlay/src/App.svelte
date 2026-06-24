@@ -4,7 +4,9 @@
   import Dashboard from "./components/Dashboard.svelte";
   import Wizard from "./components/wizard/Wizard.svelte";
   import { getHealth } from "./lib/api";
+  import { hotkeys } from "./lib/hotkeys.svelte";
   import { engineError, onEngineFailed, restartEngine, setPin } from "./lib/tauri";
+  import { windowControls } from "./lib/windowControls.svelte";
 
   type View = "loading" | "wizard" | "dashboard" | "offline" | "error";
   let view = $state<View>("loading");
@@ -50,6 +52,9 @@
 
   onMount(() => {
     void decide();
+    // Window controls + global hotkeys are app-wide; init once regardless of the current view.
+    void windowControls.init();
+    void hotkeys.init();
     const unlisten = onEngineFailed((message) => {
       errorMsg = message;
       view = "error";
