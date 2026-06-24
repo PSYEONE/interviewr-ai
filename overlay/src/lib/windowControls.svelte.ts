@@ -14,6 +14,9 @@ class WindowControls {
     this.#inited = true;
     try {
       this.pinned = await getPin();
+      // The persisted KWin keep-above rule should auto-apply at window creation, but on Wayland a
+      // fresh window does not always pick it up; re-assert it so a pinned preference actually pins.
+      if (this.pinned) await setPin(true);
     } catch {
       /* keep default */
     }
