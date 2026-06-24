@@ -4,6 +4,7 @@
   import { session } from "../lib/session.svelte";
   import Answer from "./Answer.svelte";
   import Bar from "./Bar.svelte";
+  import Controls from "./Controls.svelte";
   import Transcript from "./Transcript.svelte";
 
   let { onBack }: { onBack?: () => void } = $props();
@@ -20,3 +21,4 @@
 <Bar {onBack} />
 <Transcript />
 <Answer />
+<Controls />
