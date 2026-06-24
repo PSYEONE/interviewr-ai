@@ -19,6 +19,12 @@
   <span id="dot" data-state={session.status} title={session.status}></span>
   <span id="brand">interviewr</span>
   <span class="flex-1"></span>
+  <button
+    title={`Answer style: ${session.answerStyle} (click to switch)`}
+    onclick={() => session.toggleAnswerStyle()}
+  >
+    {session.answerStyle === "bullets" ? "Bullets" : "Script"}
+  </button>
   <button title="Answer from current transcript" onclick={() => session.send("answer")}>
     Answer
   </button>

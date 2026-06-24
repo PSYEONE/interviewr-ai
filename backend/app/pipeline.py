@@ -8,15 +8,11 @@ from collections.abc import AsyncIterator
 from .audio.capture import capture_audio, get_default_monitor
 from .config import Settings
 from .events import EventBus, StatusEvent
-from .rag import Retriever
 from .session import Session
-from .stt.biasing import build_biasing_prompt
 from .stt.whisper import Hypothesis, WhisperTranscriber, transcribe_stream
 
 
-async def run_producer(
-    settings: Settings, session: Session, bus: EventBus, retriever: Retriever | None = None
-) -> None:
+async def run_producer(settings: Settings, session: Session, bus: EventBus) -> None:
     """Transcribe captured audio into the session, but only while capture is active.
 
     Capture runs only inside an interview: the session is paused on the dashboard and
@@ -35,18 +31,6 @@ async def run_producer(
     bus.publish(StatusEvent(state="idle"))
     while True:
         await session.wait_capture_start()
-        # Refresh context-biasing vocab from current docs on each interview start (cheap, picks
-        # up docs added via the wizard after boot); not per-chunk.
-        if settings.stt_context_biasing and retriever is not None:
-            transcriber.set_prompt(
-                build_biasing_prompt(
-                    retriever.store.chunk_texts(),
-                    settings.stt_bias_terms,
-                    settings.stt_bias_max_chars,
-                )
-            )
-        else:
-            transcriber.set_prompt("")
         bus.publish(StatusEvent(state="listening"))
         audio_stream = capture_audio(device)
         transcript_stream = transcribe_stream(

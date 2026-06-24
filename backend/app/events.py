@@ -98,8 +98,21 @@ class ResumeCommand(BaseModel):
     type: Literal["resume"] = "resume"
 
 
+class AnswerStyleCommand(BaseModel):
+    type: Literal["answer_style"] = "answer_style"
+    style: Literal["script", "bullets"]
+
+
 Command = Annotated[
-    Union[AnswerCommand, ClearCommand, ResetCommand, PingCommand, PauseCommand, ResumeCommand],
+    Union[
+        AnswerCommand,
+        ClearCommand,
+        ResetCommand,
+        PingCommand,
+        PauseCommand,
+        ResumeCommand,
+        AnswerStyleCommand,
+    ],
     Field(discriminator="type"),
 ]
 
