@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
 from .audio.capture import capture_audio, get_default_monitor
 from .config import Settings
 from .events import EventBus, StatusEvent
 from .session import Session
-from .stt.whisper import WhisperTranscriber, transcribe_stream
+from .stt.whisper import Hypothesis, WhisperTranscriber, transcribe_stream
 
 
 async def run_producer(settings: Settings, session: Session, bus: EventBus) -> None:
-    """Continuously transcribe captured audio and feed it into the session.
+    """Transcribe captured audio into the session, but only while capture is active.
 
-    No LLM call here: answers are generated on demand via a client command. This
-    runs as a background task for the lifetime of the server.
+    Capture runs only inside an interview: the session is paused on the dashboard and
+    resumed/paused as the user enters and leaves. Pausing tears the capture stream down so
+    pw-record actually stops, rather than reading and discarding audio. No LLM call here:
+    answers are generated on demand via a client command. Runs for the server's lifetime.
     """
     device = settings.audio_device or await get_default_monitor()
     transcriber = WhisperTranscriber(
@@ -25,8 +28,10 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     )
     # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
     await asyncio.get_event_loop().run_in_executor(None, transcriber.warmup)
-    bus.publish(StatusEvent(state="listening"))
-    try:
+    bus.publish(StatusEvent(state="idle"))
+    while True:
+        await session.wait_capture_start()
+        bus.publish(StatusEvent(state="listening"))
         audio_stream = capture_audio(device)
         transcript_stream = transcribe_stream(
             audio_stream,
@@ -38,14 +43,32 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
             commit_margin_words=settings.stt_commit_margin_words,
             emit_partials=settings.stt_emit_partials,
         )
-        async for item in transcript_stream:
-            if item.final:
-                if settings.debug_print:
-                    print(f"[FINAL] {item.text}")
-                session.add_transcript(item.text)
-            else:
-                session.publish_partial(item.text)
-    except asyncio.CancelledError:
-        raise
-    finally:
-        bus.publish(StatusEvent(state="idle"))
+        feed = asyncio.ensure_future(_feed(transcript_stream, session, settings))
+        stop = asyncio.ensure_future(session.wait_capture_stop())
+        try:
+            done, _ = await asyncio.wait({feed, stop}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            stop.cancel()
+            feed.cancel()
+            await asyncio.gather(stop, feed, return_exceptions=True)
+            # Close both: transcribe_stream does not finalize its source, so the capture stream
+            # is closed explicitly to run capture_audio's finally and terminate pw-record.
+            await transcript_stream.aclose()
+            await audio_stream.aclose()
+            bus.publish(StatusEvent(state="idle"))
+        # Feed ending while capture was never paused means pw-record died; back off so a
+        # persistent failure cannot spin this loop hot (wait_capture_start returns at once).
+        if feed in done and stop not in done:
+            await asyncio.sleep(1.0)
+
+
+async def _feed(
+    transcript_stream: AsyncIterator[Hypothesis], session: Session, settings: Settings
+) -> None:
+    async for item in transcript_stream:
+        if item.final:
+            if settings.debug_print:
+                print(f"[FINAL] {item.text}")
+            session.add_transcript(item.text)
+        else:
+            session.publish_partial(item.text)

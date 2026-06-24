@@ -8,11 +8,12 @@
 
   let { onBack }: { onBack?: () => void } = $props();
 
-  onMount(() => {
-    session.start();
-  });
+  // Audio capture runs only inside an interview, so resume on enter and pause on leave. The WS
+  // stays open (owned by the dashboard); leaving also finalizes the conversation via resetView.
+  onMount(() => session.send("resume"));
   onDestroy(() => {
-    session.stop();
+    session.resetView();
+    session.send("pause");
   });
 </script>
 

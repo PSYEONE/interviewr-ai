@@ -66,6 +66,7 @@ export interface ConfigView {
   llm_provider: string;
   llm_model: string;
   ollama_base_url: string;
+  llm_keep_alive: string;
   embed_provider: string;
   embed_model: string;
   rag_enabled: boolean;
@@ -116,6 +117,9 @@ export type ServerEvent =
   | { type: "answer.token"; answer_id: string; token: string }
   | { type: "answer.done"; answer_id: string; cancelled: boolean }
   | { type: "status"; state: "idle" | "listening" | "thinking" | "unconfigured" }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  | { type: "conversation.titled"; conversation_id: number; title: string };
 
-export type CommandType = "answer" | "clear" | "reset" | "ping";
+export type CommandType = "answer" | "clear" | "reset" | "ping" | "pause" | "resume";
+
+export type AnswerStyle = "script" | "bullets";

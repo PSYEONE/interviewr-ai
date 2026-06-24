@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   import {
     deleteConversation,
@@ -7,15 +7,24 @@
     getConversation,
     listHistory,
   } from "../lib/api";
+  import { session } from "../lib/session.svelte";
   import { startDragging } from "../lib/tauri";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
   import ContextView from "./dashboard/ContextView.svelte";
   import ModelsView from "./dashboard/ModelsView.svelte";
+  import SettingsView from "./dashboard/SettingsView.svelte";
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
   import WindowButtons from "./WindowButtons.svelte";
 
-  type View = "home" | "interview" | "conversation" | "models" | "context" | "advanced";
+  type View =
+    | "home"
+    | "interview"
+    | "conversation"
+    | "models"
+    | "context"
+    | "advanced"
+    | "settings";
   let view = $state<View>("home");
 
   let conversations = $state<ConversationRecord[]>([]);
@@ -34,11 +43,17 @@
     return `${n} turn${n === 1 ? "" : "s"}`;
   }
 
+  let historyReq = 0; // monotonic id so an out-of-order response can't clobber a newer load
+
   async function loadHistory(): Promise<void> {
+    const req = ++historyReq;
     historyError = null;
     try {
-      conversations = await listHistory();
+      const data = await listHistory();
+      if (req !== historyReq) return; // a newer load superseded this one
+      conversations = data;
     } catch (e) {
+      if (req !== historyReq) return;
       historyError = e instanceof Error ? e.message : String(e);
     }
   }
@@ -78,7 +93,19 @@
     void startDragging();
   }
 
-  onMount(loadHistory);
+  // The WS subscription is owned here, at the dashboard level, so it stays open across both the
+  // home screen and the interview view and keeps receiving broadcast events on either.
+  onMount(() => {
+    session.start();
+    void loadHistory();
+  });
+  onDestroy(() => session.stop());
+
+  // Titles are generated server-side after a conversation is finalized and arrive over the WS.
+  // Reloading on each one reflects the new title and surfaces the now-finalized conversation.
+  $effect(() => {
+    if (session.lastTitled !== null) void loadHistory();
+  });
 </script>
 
 {#snippet downloadIcon()}
@@ -106,7 +133,7 @@
     <div id="wizbar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
       <span id="brand">interviewr</span>
       <span class="flex-1"></span>
-      <WindowButtons />
+      <WindowButtons onSettings={() => (view = "settings")} />
     </div>
 
     {#if view === "home"}
@@ -130,9 +157,9 @@
             <p class="text-dim text-sm">No conversations yet. Start an interview to build history.</p>
           {:else}
             {#each conversations as c (c.id)}
-              <div class="card flex gap-2 !py-0">
+              <div class="flex gap-2">
                 <button
-                  class="row flex-1 py-2.5 text-left"
+                  class="row min-w-0 flex-1 py-2.5 text-left"
                   onclick={() => void openConversation(c.id)}
                   title="Open conversation"
                 >
@@ -177,7 +204,7 @@
         </div>
         <div class="dash-body">
           {#each selected.turns as t (t.id)}
-            <div class="card flex flex-col gap-1">
+            <div class="flex flex-col gap-1">
               <strong>Q: {t.question}</strong>
               <p class="text-ok whitespace-pre-wrap">{t.answer}</p>
             </div>
@@ -193,6 +220,8 @@
       <ContextView back={goHome} />
     {:else if view === "advanced"}
       <SystemPromptView back={goHome} />
+    {:else if view === "settings"}
+      <SettingsView back={goHome} />
     {/if}
   </div>
 {/if}

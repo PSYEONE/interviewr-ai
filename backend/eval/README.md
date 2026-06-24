@@ -45,9 +45,9 @@ Full per-file results are written to `eval/results/<timestamp>_<model>.json` (gi
 LibriSpeech is clean, read audiobook speech by native speakers. It is a **calibrated floor and
 a regression set**, not your real-world number. Live interview/Zoom audio (accents, spontaneous
 speech, crosstalk, mic quality, system-capture artifacts) will score worse. Gather 10-20 real
-clips and run them via `--data` for the number that actually predicts product quality. That
-domain set is also where a context-biasing `initial_prompt` (seeded from resume + job-description
-terms) would help with jargon and proper nouns, which LibriSpeech cannot show.
+clips and run them via `--data` for the number that actually predicts product quality. (A
+context-biasing `initial_prompt` seeded from resume/JD terms was tried and reverted: it helps
+on clean speech but amplifies whisper's repetition/silence hallucination on real pausey audio.)
 
 ## Suggested workflow
 
