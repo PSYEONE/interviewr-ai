@@ -28,6 +28,9 @@
     height: 100vh;
     background: transparent;
     color: var(--color-fg);
+    /* Render native controls (select popups, checkboxes, scrollbars) dark, so dropdown option
+       text isn't white-on-white. */
+    color-scheme: dark;
     /* Fixed px (main.ts sets it once per display); no viewport units, so resizing stays smooth. */
     font-size: 16px;
     line-height: 1.5;
@@ -136,8 +139,15 @@
   .wiz ul { @apply list-disc pl-5 text-dim; }
   .wiz label { @apply mb-1 block text-xs text-dim; }
   .wiz input[type="text"],
-  .wiz input[type="password"] {
+  .wiz input[type="password"],
+  .wiz input[type="number"],
+  .wiz select {
     @apply w-full rounded-none border border-white/10 bg-white/5 px-2 py-1.5 text-fg;
+  }
+  /* Fallback for webviews that ignore color-scheme on the popup: dark option rows. */
+  .wiz select option {
+    background: var(--solid);
+    color: var(--color-fg);
   }
   .wiz textarea {
     @apply w-full resize-y rounded-none border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-xs text-fg;
@@ -167,7 +177,26 @@
   .row-icon.armed,
   .row-icon.armed:hover { @apply border-bad bg-bad/15 text-bad; }
 
+  /* Info badge + hover pop-out (used next to settings labels). */
+  .info {
+    @apply relative ml-1 inline-flex h-4 w-4 cursor-help select-none items-center justify-center
+      rounded-full border border-white/30 text-[10px] font-semibold leading-none text-dim;
+  }
+  .info:hover { @apply border-accent text-accent; }
+  .info:hover::after {
+    content: attr(data-tip);
+    @apply absolute left-0 top-full z-20 mt-1 w-80 whitespace-normal rounded-none border
+      border-white/15 bg-black/95 px-2.5 py-1.5 text-left text-xs font-normal leading-snug text-fg;
+  }
 
+  /* Section divider between settings groups. */
+  .sep { @apply my-1 border-0 border-t border-white/10; }
+
+
+
+  .card { @apply rounded-none border border-white/10 bg-white/5 px-3 py-2.5; }
+  .card.selected { @apply border-accent; }
+  .card.disabled { @apply opacity-50; }
 
   .badge { @apply rounded-none border border-ok/40 px-1.5 text-[11px] text-ok; }
   .badge-muted { @apply rounded-none border border-white/20 px-1.5 text-[11px] text-dim; }

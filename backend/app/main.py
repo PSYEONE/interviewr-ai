@@ -30,11 +30,14 @@ from .config import Settings, get_settings
 from .config_store import ConfigView, apply_config, current_config
 from .events import (
     AnswerCommand,
+    AnswerStyleCommand,
     ClearCommand,
     ErrorEvent,
     EventBus,
+    PauseCommand,
     PingCommand,
     ResetCommand,
+    ResumeCommand,
     StatusEvent,
     Subscription,
     parse_command,
@@ -71,6 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session = None
     app.state.retriever = None
     app.state.history = None
+    app.state.llm = None  # the live LLM client, for cheap live-reload (e.g. keep-alive)
     app.state.configured = bool(settings.llm_model)
     app.state.ready = False
 
@@ -106,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 history_enabled=settings.history_enabled,
             )
             app.state.session = session
+            app.state.llm = llm
             app.state.ready = True
             # Warm the LLM in the background. Live transcription must not wait on the model
             # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
@@ -231,6 +236,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
 
     sub = bus.subscribe()
+    if session is not None:
+        session.notify_subscribers_changed()  # a client is present; capture may resume
     # In setup mode there is no session yet; tell clients to show the wizard, not "listening".
     bus.publish(StatusEvent(state="listening" if session is not None else "unconfigured"))
     reader = asyncio.create_task(_reader(ws, session))
@@ -246,6 +253,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 pass
     finally:
         bus.unsubscribe(sub)
+        if session is not None:
+            session.notify_subscribers_changed()  # last client gone -> capture pauses
 
 
 async def _writer(ws: WebSocket, sub: Subscription) -> None:
@@ -284,6 +293,12 @@ async def _reader(ws: WebSocket, session: Session | None) -> None:
                     session.clear()
                 case ResetCommand():
                     session.reset()
+                case PauseCommand():
+                    session.pause_capture()
+                case ResumeCommand():
+                    session.resume_capture()
+                case AnswerStyleCommand():
+                    session.set_answer_style(cmd.style)
                 case PingCommand():
                     pass
     except WebSocketDisconnect:
@@ -405,6 +420,28 @@ async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bo
     return {"restart_required": True}
 
 
+@app.post("/settings/reload")
+async def reload_settings(request: Request) -> dict[str, bool]:
+    """Apply already-persisted *cheap* settings to the running engine with no restart: refresh the
+    config cache and poke the live retriever / session / LLM. Heavy changes (providers, models,
+    keys, audio) still need a restart, which the caller decides by diffing the changed fields."""
+    _require_auth(request)
+    get_settings.cache_clear()
+    fresh = get_settings()
+    request.app.state.settings = fresh
+
+    retriever: Retriever | None = request.app.state.retriever
+    if retriever is not None:
+        retriever.set_top_k(fresh.rag_top_k)
+    session: Session | None = request.app.state.session
+    if session is not None:
+        session.set_history_enabled(fresh.history_enabled)
+    set_keep_alive = getattr(request.app.state.llm, "set_keep_alive", None)
+    if callable(set_keep_alive):
+        set_keep_alive(fresh.llm_keep_alive)
+    return {"reloaded": True}
+
+
 def _get_history(request: Request) -> HistoryStore:
     history: HistoryStore | None = request.app.state.history
     if history is None:
@@ -420,9 +457,15 @@ def _attachment(filename: str) -> dict[str, str]:
 
 @app.get("/history")
 async def list_history(request: Request) -> list[ConversationRecord]:
-    """Conversations newest-first, each with a turn count and first-question preview."""
+    """Conversations newest-first, each with a turn count and first-question preview. The open
+    (not-yet-finalized) conversation is hidden until reset() finalizes and titles it."""
     _require_auth(request)
-    return _get_history(request).list_conversations()
+    convs = _get_history(request).list_conversations()
+    session: Session | None = getattr(request.app.state, "session", None)
+    hidden = session.pending_conversation_ids if session is not None else set()
+    if hidden:
+        convs = [c for c in convs if c["id"] not in hidden]
+    return convs
 
 
 # Declared before /history/{conversation_id} so "export" is not parsed as a conversation id.

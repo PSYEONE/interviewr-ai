@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import NamedTuple
 
 import numpy as np
@@ -106,7 +106,7 @@ async def transcribe_stream(
     partial_interval_s: float = 0.4,
     commit_margin_words: int = 2,
     emit_partials: bool = True,
-) -> AsyncIterator[Hypothesis]:
+) -> AsyncGenerator[Hypothesis, None]:
     """Stream a live transcript using LocalAgreement-2.
 
     Audio is segmented by silence as before, but instead of transcribing each
