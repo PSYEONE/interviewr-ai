@@ -5,7 +5,7 @@
   import Wizard from "./components/wizard/Wizard.svelte";
   import { getHealth } from "./lib/api";
   import { hotkeys } from "./lib/hotkeys.svelte";
-  import { engineError, onEngineFailed, restartEngine, setPin } from "./lib/tauri";
+  import { engineError, onEngineFailed, restartEngine } from "./lib/tauri";
   import { windowControls } from "./lib/windowControls.svelte";
 
   type View = "loading" | "wizard" | "dashboard" | "offline" | "error";
@@ -21,8 +21,6 @@
       // Gated on `configured` only (not `ready`): a configured-but-unhealthy engine still lands
       // on the dashboard, so a broken model can be fixed from there instead of being stuck.
       view = health.configured ? "dashboard" : "wizard";
-      // Neither the wizard nor the dashboard home has a pin control; the live panel sets its own.
-      void setPin(false);
     } catch {
       // Engine unreachable. Recover a failure whose engine://failed event we may have missed
       // (e.g. a spawn error before this listener attached); otherwise keep waiting for boot.

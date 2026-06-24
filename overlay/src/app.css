@@ -60,7 +60,7 @@
     gap: 6px;
     padding: 6px 8px;
     background: var(--bar-bg);
-    cursor: move;
+    cursor: default;
   }
   #brand {
     font-weight: 600;
