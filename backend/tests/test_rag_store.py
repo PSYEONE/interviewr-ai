@@ -60,6 +60,14 @@ def test_delete_invalidates_search_cache(tmp_path: Path) -> None:
     assert store.delete_document(doc_id) is False
 
 
+def test_chunk_texts_resume_first(tmp_path: Path) -> None:
+    store = DocumentStore(tmp_path / "rag.sqlite3")
+    # Add the job description first to prove ordering is by kind, not insertion order.
+    store.add_document("jd.txt", "job_description", ["jd-a", "jd-b"], _VECS[:2], _MODEL)
+    store.add_document("resume.txt", "resume", ["cv-a", "cv-b"], _VECS[:2], _MODEL)
+    assert store.chunk_texts() == ["cv-a", "cv-b", "jd-a", "jd-b"]
+
+
 def test_persistence_across_reopen(tmp_path: Path) -> None:
     _store(tmp_path).close()
     reopened = DocumentStore(tmp_path / "rag.sqlite3")
