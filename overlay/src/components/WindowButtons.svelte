@@ -21,6 +21,31 @@
 >
   Stealth
 </button>
+{#if !onSettings}
+  <!-- Collapse-to-bar only exists in the interview view (it shrinks to the two bars); the
+       dashboard has no #controls bar to collapse to, and shows the settings cog in this slot. -->
+  <button
+    class="icon chevron ml-3"
+    class:up={!wc.collapsed}
+    title={wc.collapsed ? "Expand" : "Collapse to bar"}
+    aria-label={wc.collapsed ? "Expand" : "Collapse to bar"}
+    onclick={() => void wc.toggleCollapse()}
+  >
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  </button>
+{/if}
 <button
   class="icon ml-3"
   title={onSettings ? "Settings" : "Can't open during an interview"}
