@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
 import type { Connection } from "./types";
 
@@ -22,6 +22,19 @@ export const saveText = (name: string, contents: string): Promise<boolean> =>
   invoke<boolean>("save_text", { name, contents });
 export const startDragging = (): Promise<void> => getCurrentWindow().startDragging();
 export const minimizeWindow = (): Promise<void> => getCurrentWindow().minimize();
+
+// Window size in logical px (innerSize is physical; divide by the scale factor). Used by the
+// collapse-to-bar toggle to remember and restore the overlay's size.
+export async function getInnerSize(): Promise<{ width: number; height: number }> {
+  const win = getCurrentWindow();
+  const [size, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+  return { width: size.width / scale, height: size.height / scale };
+}
+export const setInnerSize = (width: number, height: number): Promise<void> =>
+  getCurrentWindow().setSize(new LogicalSize(width, height));
+// Lower the window's minimum size at runtime so a config minHeight can't clamp the collapse.
+export const setMinInnerSize = (width: number, height: number): Promise<void> =>
+  getCurrentWindow().setMinSize(new LogicalSize(width, height));
 
 // Engine sidecar. restartEngine rejects with "not_managed" when an external/manual backend
 // owns the port (dev), so callers can fall back to a manual-restart prompt.

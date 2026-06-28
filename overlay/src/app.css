@@ -92,6 +92,11 @@
   #dot[data-state="idle"],
   #dot[data-state="unconfigured"] { background: var(--color-bad); }
 
+  /* Collapsed to bar: hide the content but keep the components mounted, so transcript scroll
+     and the streaming answer survive an expand. The window is resized to the bars in JS. */
+  body.collapsed #transcript,
+  body.collapsed #answer { display: none; }
+
   #transcript {
     flex: 1;
     overflow-y: auto;
@@ -129,6 +134,10 @@
   button:disabled { @apply cursor-default opacity-40; }
   button:disabled:hover { @apply border-white/10 bg-white/5; }
   button.icon { @apply flex h-7 w-7 items-center justify-center p-0; }
+  /* Collapse chevron: base SVG points down (expand); rotate 180deg to point up (collapse).
+     Animating the swap keeps the toggle legible. */
+  .chevron svg { transition: transform 150ms ease; }
+  .chevron.up svg { transform: rotate(180deg); }
   button.on { @apply border-transparent bg-accent text-black; }
   button.primary {
     @apply border-transparent bg-accent px-4 py-2 text-base font-semibold text-black;
