@@ -47,7 +47,10 @@
 </button>
 <button
   class="icon"
-  title="Minimize"
+  disabled={wc.stealth}
+  title={wc.stealth
+    ? "Unavailable while stealthed (no taskbar entry to restore from)"
+    : "Minimize"}
   onclick={() => void minimizeWindow()}
 >
   &#8211;
