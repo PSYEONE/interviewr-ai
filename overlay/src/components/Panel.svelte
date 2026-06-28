@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
 
   import { session } from "../lib/session.svelte";
+  import { windowControls } from "../lib/windowControls.svelte";
   import Answer from "./Answer.svelte";
   import Bar from "./Bar.svelte";
   import Controls from "./Controls.svelte";
@@ -13,6 +14,7 @@
   // stays open (owned by the dashboard); leaving also finalizes the conversation via resetView.
   onMount(() => session.send("resume"));
   onDestroy(() => {
+    windowControls.resetCollapse(); // never leave the dashboard stranded at strip height
     session.resetView();
     session.send("pause");
   });
