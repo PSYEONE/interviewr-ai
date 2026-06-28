@@ -370,6 +370,10 @@ const OVERLAY_WMCLASS: &str = "interviewr-overlay";
 /// work and the frontend re-applies it at startup); on 6.7+ KWin honors it natively.
 #[cfg(target_os = "linux")]
 const KWIN_CAPTURE_KEY: &str = "excludefromcapture";
+/// Hide the overlay's taskbar/dock entry while stealth is on. A long-standing KWin rule key,
+/// honored natively (no runtime script needed), so it persists and applies across restarts.
+#[cfg(target_os = "linux")]
+const KWIN_TASKBAR_KEY: &str = "skiptaskbar";
 
 #[cfg(target_os = "linux")]
 fn kwin_write(args: &[&str]) -> bool {
@@ -561,13 +565,15 @@ fn get_pin() -> bool {
 
 /// Toggle stealth (hide from screen capture; KWin 6.6+, a no-op elsewhere). Persists the intent in
 /// the `excludefromcapture` rule (remembered on 6.6, honored natively on 6.7+) and applies it now
-/// via the runtime script for 6.6. Only PipeWire-portal capturers honor it; a privacy/accessibility
-/// convenience, not an undetectability guarantee.
+/// via the runtime script for 6.6. Also hides the taskbar/dock entry via the `skiptaskbar` rule.
+/// Only PipeWire-portal capturers honor the capture part; a privacy/accessibility convenience,
+/// not an undetectability guarantee.
 #[tauri::command]
 fn set_stealth(on: bool) -> Result<bool, String> {
     #[cfg(target_os = "linux")]
     {
         set_kwin_rule_bool(KWIN_CAPTURE_KEY, on)?; // persist intent (+ native effect on 6.7+)
+        set_kwin_rule_bool(KWIN_TASKBAR_KEY, on)?; // hide the dock/taskbar entry (honored natively)
         if capture_supported() {
             kwin_run_script(&exclude_capture_script(on))?; // runtime effect now (6.6)
         }
