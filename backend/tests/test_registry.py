@@ -6,27 +6,22 @@ import httpx
 
 from app.system.registry import manifest_layers, parse_hf_ref, parse_tag
 
-# A GGUF repo shaped like the real ones: flat quants at the root, and the biggest quant split
-# across parts inside its own subfolder (which a non-recursive listing would miss entirely).
-_HF_TREE = [
-    {"type": "file", "path": ".gitattributes", "size": 1_500},
-    {"path": "Model-Q4_K_M.gguf", "size": 807_694_464, "lfs": {"oid": "aaa", "size": 807_694_464}},
-    {"path": "Model-IQ3_M.gguf", "size": 657_000_000, "lfs": {"oid": "bbb", "size": 657_000_000}},
-    {"path": "Model-Q8_0.gguf", "size": 1_321_000_000},  # no lfs block: fall back to `size`
-    {
-        "path": "Model-Q5_K_L/Model-Q5_K_L-00001-of-00002.gguf",
-        "size": 39_850_000_000,
-        "lfs": {"oid": "ccc", "size": 39_850_000_000},
-    },
-    {
-        "path": "Model-Q5_K_L/Model-Q5_K_L-00002-of-00002.gguf",
-        "size": 10_740_000_000,
-        "lfs": {"oid": "ddd", "size": 10_740_000_000},
-    },
-]
+# Hugging Face serves the same manifest shape as registry.ollama.ai; digests here are the blob
+# names the daemon will use, which is why they compare directly against the local store.
+_HF_MANIFEST = {
+    "config": {"digest": "sha256:hfcfg", "size": 551},
+    "layers": [
+        {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:hfmod", "size": 807_694_464},
+        {"mediaType": "application/vnd.ollama.image.template", "digest": "sha256:hftpl", "size": 1_481},
+    ],
+}
 
-# A repo whose quants exist but include no Q4_K_M, so an untagged pull has no documented default.
-_HF_NO_DEFAULT = [{"path": "Other-Q6_K.gguf", "size": 5_000, "lfs": {"oid": "eee", "size": 5_000}}]
+_HF_IQ3_M = {
+    "config": {"digest": "sha256:hfcfg2", "size": 551},
+    "layers": [
+        {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:hfiq3", "size": 657_289_344},
+    ],
+}
 
 _MANIFEST = {
     "config": {"digest": "sha256:cfg", "size": 500},
@@ -43,12 +38,15 @@ def _transport(seen: list[httpx.Request] | None = None) -> httpx.MockTransport:
             seen.append(request)
         if request.url.path == "/v2/library/llama3.1/manifests/8b":
             return httpx.Response(200, json=_MANIFEST)
-        if request.url.path == "/api/models/someone/gguf-repo/tree/main":
-            return httpx.Response(200, json=_HF_TREE)
-        if request.url.path == "/api/models/someone/no-default/tree/main":
-            return httpx.Response(200, json=_HF_NO_DEFAULT)
-        if request.url.path.startswith("/api/models/"):
-            return httpx.Response(404, json={"error": "Repo not found"})
+        if request.url.path == "/v2/someone/gguf-repo/manifests/latest":
+            return httpx.Response(200, json=_HF_MANIFEST)
+        if request.url.path == "/v2/someone/gguf-repo/manifests/IQ3_M":
+            return httpx.Response(200, json=_HF_IQ3_M)
+        # HF's real replies: 400 for a quant it can't serve, 401 for a missing or private repo.
+        if request.url.path == "/v2/someone/gguf-repo/manifests/Q2_K":
+            return httpx.Response(400, json={"error": "not a valid quantization scheme"})
+        if request.url.host == "huggingface.co":
+            return httpx.Response(401, json={"error": "Invalid username or password."})
         # What the real registry returns for a name it doesn't have: 200 with an errors body.
         return httpx.Response(200, json={"errors": [{"code": "MANIFEST_UNKNOWN"}]})
 
@@ -101,9 +99,9 @@ async def test_manifest_layers_is_none_when_the_registry_is_unreachable() -> Non
 # --- Hugging Face -----------------------------------------------------------------------------
 
 
-def test_parse_hf_ref_accepts_both_hosts_and_an_optional_quant() -> None:
-    assert parse_hf_ref("hf.co/user/repo") == ("user/repo", None)
-    assert parse_hf_ref("huggingface.co/user/repo") == ("user/repo", None)
+def test_parse_hf_ref_accepts_both_hosts_and_defaults_to_latest() -> None:
+    assert parse_hf_ref("hf.co/user/repo") == ("user/repo", "latest")
+    assert parse_hf_ref("huggingface.co/user/repo") == ("user/repo", "latest")
     assert parse_hf_ref("hf.co/user/repo:Q8_0") == ("user/repo", "Q8_0")
     assert parse_hf_ref("HF.CO/user/repo:Q8_0") == ("user/repo", "Q8_0")
 
@@ -115,44 +113,36 @@ def test_parse_hf_ref_declines_anything_else() -> None:
     assert parse_hf_ref("") is None
 
 
-async def test_hf_untagged_uses_the_documented_q4_k_m_default() -> None:
+async def test_hf_untagged_resolves_latest_server_side() -> None:
+    """The registry picks the default quant, so we never guess which file a bare repo means."""
     layers = await manifest_layers("hf.co/someone/gguf-repo", transport=_transport())
-    assert layers == [("sha256:aaa", 807_694_464)]
-
-
-async def test_hf_quant_tag_is_case_insensitive() -> None:
-    for tag in ("hf.co/someone/gguf-repo:IQ3_M", "hf.co/someone/gguf-repo:iq3_m"):
-        assert await manifest_layers(tag, transport=_transport()) == [("sha256:bbb", 657_000_000)]
-
-
-async def test_hf_falls_back_to_plain_size_without_an_lfs_block() -> None:
-    layers = await manifest_layers("hf.co/someone/gguf-repo:Q8_0", transport=_transport())
-    assert layers == [("hf:Model-Q8_0.gguf", 1_321_000_000)]
-
-
-async def test_hf_full_filename_works_as_a_tag() -> None:
-    layers = await manifest_layers(
-        "hf.co/someone/gguf-repo:Model-IQ3_M.gguf", transport=_transport()
-    )
-    assert layers == [("sha256:bbb", 657_000_000)]
-
-
-async def test_hf_sums_every_part_of_a_split_quant() -> None:
-    """The parts live in a subfolder; missing them would under-count a 50 GB pull by 10 GB."""
-    layers = await manifest_layers("hf.co/someone/gguf-repo:Q5_K_L", transport=_transport())
     assert layers is not None
-    assert len(layers) == 2
-    assert sum(size for _digest, size in layers) == 50_590_000_000
+    assert sum(size for _digest, size in layers) == 807_696_496
 
 
-async def test_hf_unknown_quant_falls_open() -> None:
+async def test_hf_quant_tag_selects_that_manifest() -> None:
+    layers = await manifest_layers("hf.co/someone/gguf-repo:IQ3_M", transport=_transport())
+    assert layers == [("sha256:hfiq3", 657_289_344), ("sha256:hfcfg2", 551)]
+
+
+async def test_hf_digests_are_blob_names_so_dedup_works() -> None:
+    """Verified against the live API: the model layer digest is the file's sha256 (HF lfs.oid)."""
+    layers = await manifest_layers("hf.co/someone/gguf-repo", transport=_transport())
+    assert layers is not None
+    assert ("sha256:hfmod", 807_694_464) in layers
+
+
+async def test_hf_both_host_spellings_work() -> None:
+    for host in ("hf.co", "huggingface.co"):
+        layers = await manifest_layers(f"{host}/someone/gguf-repo:IQ3_M", transport=_transport())
+        assert layers is not None
+
+
+async def test_hf_unservable_quant_falls_open() -> None:
+    """HF 400s a quant it has no manifest for, including subfolder split quants."""
     assert await manifest_layers("hf.co/someone/gguf-repo:Q2_K", transport=_transport()) is None
 
 
-async def test_hf_untagged_repo_without_the_default_quant_falls_open() -> None:
-    """Ollama picks 'a reasonable quant' here; guessing it wrong would refuse over a made-up size."""
-    assert await manifest_layers("hf.co/someone/no-default", transport=_transport()) is None
-
-
 async def test_hf_missing_or_private_repo_falls_open() -> None:
+    """HF answers 401 for both, so a typo and a private repo are indistinguishable."""
     assert await manifest_layers("hf.co/someone/private", transport=_transport()) is None
