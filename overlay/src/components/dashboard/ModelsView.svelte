@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { getSystemInfo } from "../../lib/api";
+  import { onMount } from "svelte";
+
+  import { getSettings, getSystemInfo } from "../../lib/api";
   import { applyAndRestart } from "../../lib/apply";
-  import type { SystemReport } from "../../lib/types";
+  import type { ConfigView, SystemReport } from "../../lib/types";
   import CloudSetup from "../wizard/CloudSetup.svelte";
   import LocalSetup from "../wizard/LocalSetup.svelte";
 
@@ -12,6 +14,19 @@
   let status = $state("");
   let error = $state<string | null>(null);
   let report = $state<SystemReport | null>(null);
+  // The running config, so the setup screens can mark what's already in use. A failed load leaves
+  // it null, which degrades them to their first-run behaviour rather than blocking the screen.
+  let config = $state<ConfigView | null>(null);
+
+  let localIsCurrent = $derived(config?.llm_provider === "ollama");
+
+  onMount(async () => {
+    try {
+      config = await getSettings();
+    } catch {
+      config = null;
+    }
+  });
 
   function msg(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -51,19 +66,34 @@
   <div class="wiz">
     <h1>Change model</h1>
     <p class="text-xs">Switch the answering model. The engine restarts to apply.</p>
-    <div class="flex gap-2">
-      <button class="flex-1" onclick={chooseLocal}>Local model (Ollama)</button>
-      <button class="flex-1" onclick={() => (stage = "cloud")}>
-        Cloud model (bring your own key)
+    <div class="flex flex-wrap items-stretch gap-3">
+      <button class="choice" onclick={chooseLocal}>
+        <span class="flex w-full items-center gap-2">
+          <span class="choice-title flex-1">Local model (Ollama)</span>
+          {#if config && localIsCurrent}<span class="badge">current</span>{/if}
+        </span>
+        <span class="choice-desc">
+          Run on your own GPU. Private, offline, no API key or usage cost.
+        </span>
+      </button>
+
+      <button class="choice" onclick={() => (stage = "cloud")}>
+        <span class="flex w-full items-center gap-2">
+          <span class="choice-title flex-1">Cloud model</span>
+          {#if config && !localIsCurrent}<span class="badge">current</span>{/if}
+        </span>
+        <span class="choice-desc">
+          Bring your own key for Claude, GPT, Gemini or Groq. Works on any hardware.
+        </span>
       </button>
     </div>
     <div class="flex-1"></div>
     <div class="flex"><button onclick={back}>Back</button></div>
   </div>
 {:else if stage === "local" && report}
-  <LocalSetup {report} complete={apply} back={() => (stage = "choose")} />
+  <LocalSetup {report} current={config} complete={apply} back={() => (stage = "choose")} />
 {:else if stage === "cloud"}
-  <CloudSetup complete={apply} back={() => (stage = "choose")} />
+  <CloudSetup current={config} complete={apply} back={() => (stage = "choose")} />
 {:else if stage === "applying"}
   <div class="splash">{status || "Applying…"}</div>
 {:else}

@@ -40,11 +40,23 @@ export interface OllamaStatus {
   install_command: string | null;
 }
 
+// One curated catalog model, fit-labelled against the detected VRAM (mirrors backend RankedModel).
+export interface RankedModel {
+  name: string; // ollama tag
+  label: string;
+  params: string; // "14B"
+  min_vram_mb: number;
+  family: string;
+  blurb: string;
+  fit: string; // fits | tight | too_big | cpu
+}
+
 export interface Recommendation {
   can_run_local: boolean;
   tier: string; // large | medium | small | none
   vram_mb: number | null;
-  suggested_models: string[];
+  suggested_models: string[]; // default preselection (largest fitting first)
+  catalog: RankedModel[]; // full curated catalog, ranked + fit-labelled for this machine
   discrete_gpu_index: number | null;
   reason: string;
 }

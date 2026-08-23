@@ -27,10 +27,72 @@ _DEVICE_TYPES: dict[str, str] = {
     "PHYSICAL_DEVICE_TYPE_CPU": "cpu",
 }
 
-# Suggested Ollama tags per capability tier (real, currently-published tags).
-_MODELS_LARGE: list[str] = ["qwen2.5:14b", "llama3.1:8b"]
-_MODELS_MEDIUM: list[str] = ["llama3.1:8b", "qwen2.5:7b"]
-_MODELS_SMALL: list[str] = ["llama3.2:3b", "phi3.5"]
+class CatalogModel(BaseModel):
+    name: str  # ollama tag, e.g. "qwen2.5:14b"
+    label: str  # friendly name shown in the picker
+    params: str  # "14B"
+    min_vram_mb: int  # approx VRAM to run the Q4 build responsively (weights + KV/context headroom)
+    family: str  # qwen | llama | phi | gemma | mistral ...
+    blurb: str  # one-line use-case note
+
+
+class RankedModel(CatalogModel):
+    fit: str  # fits | tight | too_big | cpu, relative to the detected VRAM
+
+
+# Curated Ollama chat models spanning 3B..70B (real, currently-published tags). min_vram_mb is
+# deliberately generous so "fits" means comfortable with context headroom, not the bare weights.
+# Verified against ollama.com/library (June 2026).
+_CATALOG: list[CatalogModel] = [
+    CatalogModel(
+        name="llama3.2:3b", label="Llama 3.2 3B", params="3B", min_vram_mb=3000, family="llama",
+        blurb="Tiny and fast. Runs almost anywhere; weakest reasoning.",
+    ),
+    CatalogModel(
+        name="phi4-mini", label="Phi-4 mini", params="3.8B", min_vram_mb=3500, family="phi",
+        blurb="Small reasoning model that punches above its size.",
+    ),
+    CatalogModel(
+        name="gemma3:4b", label="Gemma 3 4B", params="4B", min_vram_mb=4000, family="gemma",
+        blurb="Compact chat with a long 128K context.",
+    ),
+    CatalogModel(
+        name="qwen2.5:7b", label="Qwen2.5 7B", params="7B", min_vram_mb=6000, family="qwen",
+        blurb="Solid all-rounder with strong instruction following.",
+    ),
+    CatalogModel(
+        name="qwen3:8b", label="Qwen3 8B", params="8B", min_vram_mb=6500, family="qwen",
+        blurb="Newer Qwen; strong reasoning for the size.",
+    ),
+    CatalogModel(
+        name="llama3.1:8b", label="Llama 3.1 8B", params="8B", min_vram_mb=6500, family="llama",
+        blurb="Reliable general chat with good tool use.",
+    ),
+    CatalogModel(
+        name="mistral-nemo:12b", label="Mistral Nemo 12B", params="12B", min_vram_mb=9000,
+        family="mistral", blurb="12B with long context; fast for its size.",
+    ),
+    CatalogModel(
+        name="phi4", label="Phi-4 14B", params="14B", min_vram_mb=10000, family="phi",
+        blurb="14B reasoning model that rivals much larger ones.",
+    ),
+    CatalogModel(
+        name="qwen2.5:14b", label="Qwen2.5 14B", params="14B", min_vram_mb=10500, family="qwen",
+        blurb="Great quality/size balance; a strong default.",
+    ),
+    CatalogModel(
+        name="gemma3:27b", label="Gemma 3 27B", params="27B", min_vram_mb=21000, family="gemma",
+        blurb="High-quality 27B; wants a 24GB+ card.",
+    ),
+    CatalogModel(
+        name="qwen2.5:32b", label="Qwen2.5 32B", params="32B", min_vram_mb=24000, family="qwen",
+        blurb="Top local quality; needs 24GB+ VRAM.",
+    ),
+    CatalogModel(
+        name="llama3.3:70b", label="Llama 3.3 70B", params="70B", min_vram_mb=44000, family="llama",
+        blurb="Flagship quality; needs 48GB+ or multiple GPUs.",
+    ),
+]
 
 
 class GpuInfo(BaseModel):
@@ -52,7 +114,8 @@ class Recommendation(BaseModel):
     can_run_local: bool
     tier: str  # large | medium | small | none
     vram_mb: int | None  # the discrete VRAM the verdict is based on
-    suggested_models: list[str]
+    suggested_models: list[str]  # default picks (largest fitting first), drives the preselection
+    catalog: list[RankedModel]  # full curated catalog ranked + fit-labelled for this machine
     discrete_gpu_index: int | None  # Vulkan index to pin for whisper on iGPU+dGPU machines
     reason: str
 
@@ -222,16 +285,55 @@ def detect_system() -> SystemInfo:
     )
 
 
+def rank_catalog(vram_mb: int | None) -> list[RankedModel]:
+    """Fit-label and order the curated catalog for a machine with ``vram_mb`` of VRAM.
+
+    ``None`` means no usable discrete GPU: everything is CPU-only ("cpu"), smallest first since
+    those are the only ones tolerable on CPU. With a GPU: "fits" when the card meets the model's
+    generous footprint, "tight" within 20% under it, else "too_big". Fitting models come first,
+    biggest-that-fits at the top (best quality), then tight, then too_big.
+    """
+    ranked: list[RankedModel] = []
+    for m in _CATALOG:
+        if vram_mb is None:
+            fit = "cpu"
+        elif vram_mb >= m.min_vram_mb:
+            fit = "fits"
+        elif vram_mb >= int(m.min_vram_mb * 0.8):
+            fit = "tight"
+        else:
+            fit = "too_big"
+        ranked.append(RankedModel(**m.model_dump(), fit=fit))
+    if vram_mb is None:
+        ranked.sort(key=lambda r: r.min_vram_mb)
+        return ranked
+    order = {"fits": 0, "tight": 1, "too_big": 2}
+    ranked.sort(key=lambda r: (order[r.fit], -r.min_vram_mb))
+    return ranked
+
+
+def _suggested_from(ranked: list[RankedModel]) -> list[str]:
+    """Default preselection: the largest fitting models, else the smallest as a fallback."""
+    fits = [r.name for r in ranked if r.fit == "fits"]
+    if fits:
+        return fits[:2]
+    return [r.name for r in sorted(ranked, key=lambda r: r.min_vram_mb)[:2]]
+
+
 def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) -> Recommendation:
     """Verdict on running a decent local LLM, based on the best discrete GPU's VRAM.
 
     Integrated GPUs share system RAM and CPU fallback is slow, so "can run local" keys off a
     discrete card with enough VRAM for a responsive 7B+ model. Thresholds are deliberately
     conservative (a 7-8B Q4 model needs ~5-6 GB plus headroom). gpu_error, when set, means a
-    GPU exists but its driver is unreachable, so we say that rather than "no GPU".
+    GPU exists but its driver is unreachable, so we say that rather than "no GPU". The full curated
+    catalog is always returned, fit-labelled against the detected VRAM, so the picker can show
+    every model and let the user knowingly pick a bigger (slower) one.
     """
     discrete = [g for g in gpus if g.kind == "discrete" and g.vram_mb is not None]
     best = max(discrete, key=lambda g: g.vram_mb or 0, default=None)
+    catalog = rank_catalog(best.vram_mb if best else None)
+    suggested = _suggested_from(catalog)
     if best is None or best.vram_mb is None:
         reason = (
             f"GPU driver error: {gpu_error}. The card is installed but unusable until the "
@@ -245,23 +347,25 @@ def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) ->
             can_run_local=False,
             tier="none",
             vram_mb=None,
-            suggested_models=_MODELS_SMALL,
+            suggested_models=suggested,
+            catalog=catalog,
             discrete_gpu_index=None,
             reason=reason,
         )
     vram = best.vram_mb
     if vram >= 15000:
-        tier, models = "large", _MODELS_LARGE
+        tier = "large"
     elif vram >= 7500:
-        tier, models = "medium", _MODELS_MEDIUM
+        tier = "medium"
     elif vram >= 5500:
-        tier, models = "small", _MODELS_SMALL
+        tier = "small"
     else:
         return Recommendation(
             can_run_local=False,
             tier="none",
             vram_mb=vram,
-            suggested_models=_MODELS_SMALL,
+            suggested_models=suggested,
+            catalog=catalog,
             discrete_gpu_index=best.index,
             reason=f"{best.name} has only {vram} MB VRAM, too little for a responsive 7B+ "
             "model. Consider cloud, or a tiny local model.",
@@ -270,7 +374,8 @@ def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) ->
         can_run_local=True,
         tier=tier,
         vram_mb=vram,
-        suggested_models=models,
+        suggested_models=suggested,
+        catalog=catalog,
         discrete_gpu_index=best.index,
         reason=f"{best.name} with {vram} MB VRAM can run {tier} local models.",
     )

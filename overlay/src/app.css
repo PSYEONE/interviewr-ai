@@ -219,6 +219,9 @@
 
   .badge { @apply rounded-none border border-ok/40 px-1.5 text-[11px] text-ok; }
   .badge-muted { @apply rounded-none border border-white/20 px-1.5 text-[11px] text-dim; }
+  /* Hardware-fit badges for the model picker: tight = caution, too-big = won't fit comfortably. */
+  .badge-warn { @apply rounded-none border border-warn/40 px-1.5 text-[11px] text-warn; }
+  .badge-bad { @apply rounded-none border border-bad/40 px-1.5 text-[11px] text-bad; }
 
   /* Equal-weight choice boxes (local / cloud / rent): same color, recommendation via badge. */
   .choice {
