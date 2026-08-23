@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .disk import DiskInfo, probe_disk
 from .hardware import GpuInfo, Recommendation, detect_system, recommend
 from .ollama_admin import INSTALL_COMMAND, ModelInfo, OllamaAdmin
 
@@ -30,6 +31,7 @@ class SystemReport(BaseModel):
     cpu_count: int
     ram_mb: int
     gpu_error: str | None  # GPU present but driver unreachable; lets the UI say so
+    disk: DiskInfo | None  # None when Ollama's model store can't be located (e.g. remote)
     ollama: OllamaStatus
     recommendation: Recommendation
 
@@ -38,6 +40,7 @@ async def collect_system_report(settings: Settings) -> SystemReport:
     """Gather hardware + Ollama status. Hardware probes are blocking subprocesses, so they
     run in a thread; Ollama calls are async httpx."""
     info = await asyncio.to_thread(detect_system)
+    disk = await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
     admin = OllamaAdmin(settings.ollama_base_url)
     try:
         version = await admin.version()
@@ -57,12 +60,14 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         cpu_count=info.cpu_count,
         ram_mb=info.ram_mb,
         gpu_error=info.gpu_error,
+        disk=disk,
         ollama=ollama,
         recommendation=recommend(info.gpus, info.ram_mb, info.gpu_error),
     )
 
 
 __all__ = [
+    "DiskInfo",
     "GpuInfo",
     "ModelInfo",
     "OllamaStatus",
