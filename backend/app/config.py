@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"  # OpenAI-compatible endpoint
     ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_models_dir: str = ""  # empty = auto-detect (~/.ollama, then the systemd install path)
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
     system_prompt: str = ""  # empty = built-in default (llm/base.py SYSTEM_PROMPT)
 
@@ -153,6 +154,10 @@ class Settings(BaseSettings):
                 f"INTERVIEWR_EMBED_PROVIDER={self.embed_provider} requires {required_key[0]}."
             )
         return self
+
+    def resolved_ollama_models_dir(self) -> Path | None:
+        """Explicit override, or None meaning "probe the default locations"."""
+        return Path(self.ollama_models_dir) if self.ollama_models_dir else None
 
     def resolved_rag_db_path(self) -> Path:
         return Path(self.rag_db_path) if self.rag_db_path else _BACKEND_DIR / "data" / "rag.sqlite3"

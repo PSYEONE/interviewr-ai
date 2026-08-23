@@ -18,6 +18,19 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await resp.json()) as T;
 }
 
+// The backend's 409 bodies are user-facing guidance (a model in use, a pull that won't fit), so
+// unwrap FastAPI's {"detail": ...} envelope rather than showing raw JSON or a bare status code.
+async function failure(resp: Response, what: string): Promise<string> {
+  const body = await resp.text();
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail) return detail;
+  } catch {
+    /* not JSON; fall through to the raw body */
+  }
+  return body || `${what} -> ${resp.status}`;
+}
+
 export const getHealth = (): Promise<Health> => getJSON<Health>("/health");
 export const getSettings = (): Promise<ConfigView> => getJSON<ConfigView>("/settings");
 
@@ -144,17 +157,7 @@ export async function deleteOllamaModel(model: string): Promise<void> {
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ model }),
   });
-  if (resp.ok) return;
-  // The 409 body is user-facing guidance, so unwrap FastAPI's {"detail": ...} envelope.
-  const body = await resp.text();
-  let message = body;
-  try {
-    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
-    if (typeof detail === "string") message = detail;
-  } catch {
-    /* not JSON; use the raw body */
-  }
-  throw new Error(message || `delete ${model} -> ${resp.status}`);
+  if (!resp.ok) throw new Error(await failure(resp, `delete ${model}`));
 }
 
 // Pull an Ollama model, surfacing the backend's NDJSON progress stream frame by frame.
@@ -167,7 +170,8 @@ export async function pullModel(
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ model }),
   });
-  if (!resp.ok || !resp.body) throw new Error(`pull ${model} -> ${resp.status}`);
+  if (!resp.ok) throw new Error(await failure(resp, `pull ${model}`));
+  if (!resp.body) throw new Error(`pull ${model} -> no response body`);
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
