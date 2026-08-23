@@ -37,3 +37,7 @@ backend/data/
 # Local agent state
 .git.broken*
 .env.bak
+
+# Personal scratch notes
+ideas.txt
+project_guidelines_not_final.md
