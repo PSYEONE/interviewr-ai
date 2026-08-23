@@ -38,3 +38,7 @@ backend/data/
 .claude/
 .git.broken*
 .env.bak
+
+# Personal scratch notes
+ideas.txt
+project_guidelines_not_final.md
