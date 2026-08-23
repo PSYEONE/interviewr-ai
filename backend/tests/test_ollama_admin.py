@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 
 import httpx
 import pytest
 
-from app.system.ollama_admin import OllamaAdmin
+from app.system.ollama_admin import OllamaAdmin, normalize_tag
 
 _TAGS = {
     "models": [
@@ -30,8 +31,10 @@ _PULL_NDJSON = (
 )
 
 
-def _transport() -> httpx.MockTransport:
+def _transport(seen: list[httpx.Request] | None = None) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
         path = request.url.path
         if path == "/api/version":
             return httpx.Response(200, json={"version": "0.13.0"})
@@ -39,6 +42,10 @@ def _transport() -> httpx.MockTransport:
             return httpx.Response(200, json=_TAGS)
         if path == "/api/pull":
             return httpx.Response(200, content=_PULL_NDJSON)
+        if path == "/api/delete":
+            # Ollama 404s a tag it doesn't have; anything else here is a real success.
+            known = json.loads(request.content)["model"] == "llama3.1:8b"
+            return httpx.Response(200 if known else 404)
         return httpx.Response(404)
 
     return httpx.MockTransport(handler)
@@ -76,6 +83,25 @@ async def test_pull_model_streams_progress() -> None:
     assert events[-1].status == "success"
 
 
+async def test_delete_model_sends_delete_with_body() -> None:
+    seen: list[httpx.Request] = []
+    admin = OllamaAdmin("http://ollama", transport=_transport(seen))
+    try:
+        assert await admin.delete_model("llama3.1:8b") is True
+    finally:
+        await admin.close()
+    assert seen[-1].method == "DELETE"
+    assert json.loads(seen[-1].content) == {"model": "llama3.1:8b"}
+
+
+async def test_delete_missing_model_is_false_not_an_error() -> None:
+    admin = OllamaAdmin("http://ollama", transport=_transport())
+    try:
+        assert await admin.delete_model("never-pulled:1b") is False
+    finally:
+        await admin.close()
+
+
 async def test_unreachable_daemon_is_soft() -> None:
     def fail(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
@@ -84,8 +110,17 @@ async def test_unreachable_daemon_is_soft() -> None:
     try:
         assert await admin.version() is None
         assert await admin.list_models() == []
+        # Mutations stay hard: the caller must see that the delete never happened.
+        with pytest.raises(httpx.HTTPError):
+            await admin.delete_model("llama3.1:8b")
     finally:
         await admin.close()
+
+
+def test_normalize_tag_strips_only_latest() -> None:
+    assert normalize_tag("llama3.1:latest") == "llama3.1"
+    assert normalize_tag("llama3.1:8b") == "llama3.1:8b"
+    assert normalize_tag("llama3.1") == "llama3.1"
 
 
 def test_is_installed_uses_which(monkeypatch: pytest.MonkeyPatch) -> None:

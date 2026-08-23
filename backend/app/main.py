@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import (
     FastAPI,
     File,
@@ -57,7 +58,7 @@ from .rag.base import DocKind
 from .rag.store import DocumentRecord
 from .session import Session
 from .system import SystemReport, collect_system_report
-from .system.ollama_admin import OllamaAdmin
+from .system.ollama_admin import OllamaAdmin, normalize_tag
 
 _log = logging.getLogger(__name__)
 
@@ -372,8 +373,35 @@ class PullRequest(BaseModel):
     model: str
 
 
+class DeleteRequest(BaseModel):
+    model: str
+
+
 class SettingsUpdate(BaseModel):
     updates: dict[str, object]
+
+
+def _guard_model_in_use(settings: Settings, model: str) -> None:
+    """Refuse to delete a model the engine is wired to; removing it breaks the live pipeline.
+
+    Enforced here, not just in the overlay: the engine serves any number of clients and
+    can't assume the Tauri UI is the only caller.
+    """
+    tag = normalize_tag(model)
+    if settings.llm_provider == "ollama" and normalize_tag(settings.llm_model) == tag:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="that model is answering right now; switch to another one first",
+        )
+    if (
+        settings.rag_enabled
+        and settings.embed_provider == "ollama"
+        and normalize_tag(settings.embed_model) == tag
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="that model powers retrieval; turn RAG off first",
+        )
 
 
 @app.get("/system/info")
@@ -399,6 +427,27 @@ async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
             await admin.close()
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@app.post("/ollama/delete")
+async def ollama_delete(request: Request, body: DeleteRequest) -> dict[str, bool]:
+    """Remove a pulled Ollama model. POST, not DELETE: tags carry ':' and can carry '/'."""
+    _require_auth(request)
+    settings: Settings = request.app.state.settings
+    _guard_model_in_use(settings, body.model)
+
+    admin = OllamaAdmin(settings.ollama_base_url)
+    try:
+        deleted = await admin.delete_model(body.model)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"ollama unreachable: {exc}"
+        ) from exc
+    finally:
+        await admin.close()
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such model")
+    return {"deleted": True}
 
 
 @app.get("/settings")

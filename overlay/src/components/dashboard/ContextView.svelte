@@ -23,7 +23,7 @@
   function hint(e: unknown): string {
     const m = e instanceof Error ? e.message : String(e);
     return m.includes("503")
-      ? "Needs a local embed model (nomic-embed-text). Add it under Change models, then retry."
+      ? "Needs a local embed model (nomic-embed-text). Add it under Manage models, then retry."
       : m;
   }
 
@@ -65,7 +65,7 @@
 <div class="wiz">
   <h1>Context</h1>
   <p class="text-xs">
-    Upload your CV and the job description to ground answers in your background, all kept on this
+    Upload your CV and the job description as context for your answers, all kept on this
     machine.
   </p>
 

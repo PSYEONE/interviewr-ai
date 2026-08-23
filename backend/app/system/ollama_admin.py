@@ -19,6 +19,11 @@ from pydantic import BaseModel
 INSTALL_COMMAND = "curl -fsSL https://ollama.com/install.sh | sh"
 
 
+def normalize_tag(name: str) -> str:
+    """Ollama reports a bare tag as `name:latest`; config may store it either way."""
+    return name[: -len(":latest")] if name.endswith(":latest") else name
+
+
 class ModelInfo(BaseModel):
     name: str
     size: int
@@ -105,6 +110,18 @@ class OllamaAdmin:
                     total=total,
                     percent=percent,
                 )
+
+    async def delete_model(self, model: str) -> bool:
+        """Remove a pulled model. False when Ollama doesn't have it.
+
+        Mutating, so transport errors propagate (same contract as pull_model). A 404 is a
+        normal answer here, not a failure. Note httpx's .delete() takes no json= kwarg.
+        """
+        resp = await self._client.request("DELETE", "/api/delete", json={"model": model})
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        return True
 
     async def close(self) -> None:
         await self._client.aclose()

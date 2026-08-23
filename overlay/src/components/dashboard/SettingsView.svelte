@@ -221,8 +221,8 @@
       <hr class="sep" />
       <h2>Retrieval (RAG)</h2>
       <label class="flex items-center gap-2">
-        <input type="checkbox" bind:checked={form.rag_enabled} /> Enable RAG grounding
-        <Info text="Ground answers in your uploaded resume and job description (added under Change context)." />
+        <input type="checkbox" bind:checked={form.rag_enabled} /> Enable RAG context
+        <Info text="Use your uploaded resume and job description as context for answers (added under Change context)." />
       </label>
       <div>
         <label for="topk">

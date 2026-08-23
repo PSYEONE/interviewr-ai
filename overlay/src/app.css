@@ -192,9 +192,10 @@
   /* History-row action button: a square that stretches to the row (title box) height, so the
      padding around the icon scales with the row. */
   .row-icon { @apply flex w-16 shrink-0 items-center justify-center p-0; }
-  /* Delete armed: first click highlights red, second click (in handler) deletes. */
-  .row-icon.armed,
-  .row-icon.armed:hover { @apply border-bad bg-bad/15 text-bad; }
+  /* Delete armed: first click highlights red, second click (in handler) deletes. Not scoped to
+     .row-icon so the model picker's text buttons can arm the same way. */
+  button.armed,
+  button.armed:hover { @apply border-bad bg-bad/15 text-bad; }
 
   /* Info badge + hover pop-out (used next to settings labels). */
   .info {
