@@ -64,8 +64,11 @@
 
 {#if stage === "choose"}
   <div class="wiz">
-    <h1>Change model</h1>
-    <p class="text-xs">Switch the answering model. The engine restarts to apply.</p>
+    <h1>Manage models</h1>
+    <p class="text-xs">
+      Switch, download or remove local models. Downloads and deletions apply straight away;
+      switching the answering model restarts the engine.
+    </p>
     <div class="flex flex-wrap items-stretch gap-3">
       <button class="choice" onclick={chooseLocal}>
         <span class="flex w-full items-center gap-2">
@@ -91,7 +94,7 @@
     <div class="flex"><button onclick={back}>Back</button></div>
   </div>
 {:else if stage === "local" && report}
-  <LocalSetup {report} current={config} complete={apply} back={() => (stage = "choose")} />
+  <LocalSetup {report} current={config} manage complete={apply} back={() => (stage = "choose")} />
 {:else if stage === "cloud"}
   <CloudSetup current={config} complete={apply} back={() => (stage = "choose")} />
 {:else if stage === "applying"}

@@ -141,7 +141,7 @@
         <div class="dash-head">
           <div class="flex gap-2">
             <button class="flex-1" onclick={() => (view = "context")}>Change context</button>
-            <button class="flex-1" onclick={() => (view = "models")}>Change models</button>
+            <button class="flex-1" onclick={() => (view = "models")}>Manage models</button>
             <button class="flex-1" onclick={() => (view = "advanced")}>Change system prompt</button>
             <button class="primary flex-1" onclick={() => (view = "interview")}>
               Start interview

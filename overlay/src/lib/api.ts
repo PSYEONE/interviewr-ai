@@ -135,6 +135,28 @@ export async function reloadSettings(): Promise<void> {
   if (!resp.ok) throw new Error((await resp.text()) || `POST /settings/reload -> ${resp.status}`);
 }
 
+// Remove a pulled Ollama model. POST rather than DELETE because tags carry ':' and can carry '/'.
+// The backend refuses (409) models the engine is wired to, so surface its detail verbatim.
+// Callers should follow with getSystemInfo(true) to refresh the cached report.
+export async function deleteOllamaModel(model: string): Promise<void> {
+  const resp = await fetch(`${await httpBase()}/ollama/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ model }),
+  });
+  if (resp.ok) return;
+  // The 409 body is user-facing guidance, so unwrap FastAPI's {"detail": ...} envelope.
+  const body = await resp.text();
+  let message = body;
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
+    if (typeof detail === "string") message = detail;
+  } catch {
+    /* not JSON; use the raw body */
+  }
+  throw new Error(message || `delete ${model} -> ${resp.status}`);
+}
+
 // Pull an Ollama model, surfacing the backend's NDJSON progress stream frame by frame.
 export async function pullModel(
   model: string,
