@@ -8,6 +8,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import (
@@ -58,7 +59,9 @@ from .rag.base import DocKind
 from .rag.store import DocumentRecord
 from .session import Session
 from .system import SystemReport, collect_system_report
+from .system.disk import missing_bytes, present_blobs, probe_disk
 from .system.ollama_admin import OllamaAdmin, normalize_tag
+from .system.registry import manifest_layers
 
 _log = logging.getLogger(__name__)
 
@@ -381,6 +384,41 @@ class SettingsUpdate(BaseModel):
     updates: dict[str, object]
 
 
+_PULL_HEADROOM_MB = 1024  # leave room for the daemon's temp files and the rest of the system
+
+
+def _local_ollama(base_url: str) -> bool:
+    """Whether Ollama runs on this machine, i.e. whether our disk is the one that fills."""
+    host = urlparse(base_url).hostname or ""
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+async def _guard_disk_space(settings: Settings, model: str) -> None:
+    """Refuse a pull that can't fit, before a byte moves.
+
+    Fails open on every unknown (remote daemon, unlocatable model store, a registry that won't
+    answer): a lookup failure must never block a download that would have worked.
+    """
+    if not _local_ollama(settings.ollama_base_url):
+        return
+    disk = await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
+    layers = await manifest_layers(model)
+    if disk is None or layers is None:
+        return
+    models_dir = Path(disk.path)
+    present = await asyncio.to_thread(present_blobs, models_dir)
+    needed_mb = missing_bytes(layers, present) // (1024 * 1024)
+    if needed_mb + _PULL_HEADROOM_MB <= disk.free_mb:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"{model} needs {needed_mb / 1024:.1f} GB but only "
+            f"{disk.free_mb / 1024:.1f} GB is free on {disk.path}"
+        ),
+    )
+
+
 def _guard_model_in_use(settings: Settings, model: str) -> None:
     """Refuse to delete a model the engine is wired to; removing it breaks the live pipeline.
 
@@ -417,6 +455,7 @@ async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
     """Pull an Ollama model, streaming progress as newline-delimited JSON (PullProgress)."""
     _require_auth(request)
     settings: Settings = request.app.state.settings
+    await _guard_disk_space(settings, body.model)
 
     async def stream() -> AsyncIterator[str]:
         admin = OllamaAdmin(settings.ollama_base_url)

@@ -131,6 +131,26 @@
     return bytes > 0 ? `${(bytes / 1e9).toFixed(1)} GB on disk` : "";
   }
 
+  function gb(mb: number): string {
+    return `${(mb / 1024).toFixed(mb < 10240 ? 1 : 0)} GB`;
+  }
+
+  // Disk split into "your models" and "everything else"; the rest of the track reads as free.
+  let disk = $derived.by(() => {
+    const d = info.disk;
+    if (!d || d.total_mb <= 0) return null;
+    const models = d.models_mb ?? 0;
+    const other = Math.max(0, d.total_mb - d.free_mb - models);
+    return {
+      models,
+      hasModels: d.models_mb !== null,
+      free: d.free_mb,
+      total: d.total_mb,
+      modelsPct: (models / d.total_mb) * 100,
+      otherPct: (other / d.total_mb) * 100,
+    };
+  });
+
   async function remove(model: string): Promise<void> {
     armed = null;
     deleting = true;
@@ -202,165 +222,196 @@
   }
 </script>
 
-{#snippet armLabel(isArmed: boolean)}
-  <!-- Both labels share one grid cell, so the wider of the two ("Confirm") sets the button's
-       width up front and arming swaps the text without resizing anything or nudging the row. -->
+{#snippet rowAction(text: string)}
+  <!-- Every row button reserves the width of the longest label ("Download") in a shared grid
+       cell, so Delete/Confirm/Download all match and arming swaps text without moving anything. -->
   <span class="grid">
-    <span class="invisible col-start-1 row-start-1">Confirm</span>
-    <span class="col-start-1 row-start-1">{isArmed ? "Confirm" : "Delete"}</span>
+    <span class="invisible col-start-1 row-start-1">Download</span>
+    <span class="col-start-1 row-start-1">{text}</span>
   </span>
 {/snippet}
 
-<div class="wiz">
-  <h1>Local model</h1>
-
-  {#if !info.ollama.installed}
-    <div class="card">
-      <strong>Ollama isn't installed</strong>
-      <p class="text-xs">Run this in a terminal, then re-check:</p>
-      <pre class="card font-mono text-xs whitespace-pre-wrap break-all"><code
-        >{info.ollama.install_command}</code></pre>
-      <div class="flex items-center justify-end gap-2">
-        <button onclick={refresh}>Re-check</button>
-      </div>
-    </div>
-  {:else}
-    {#if !info.ollama.running}
-      <p class="text-warn">Ollama is installed but not running. Start it, then re-check.</p>
-      <div class="flex items-center gap-2"><button onclick={refresh}>Re-check</button></div>
-    {/if}
-
-    <p class="text-xs">
-      {currentModel ? "Pick a different model to run locally" : "Pick a model to run locally"}
-      {#if info.recommendation.vram_mb}
-        <span class="text-dim">({(info.recommendation.vram_mb / 1000).toFixed(0)}GB VRAM)</span>
-      {:else}
-        <span class="text-dim">(no GPU detected; CPU only)</span>
-      {/if}:
-    </p>
-    {#each rows as m (m.name)}
-      {@const isCurrent = sameTag(m.name, currentModel)}
-      <label
-        class="card flex items-center gap-2"
-        class:cursor-pointer={!isCurrent}
-        class:selected={selected === m.name}
-      >
-        {#if isCurrent}
-          <!-- Its own radio group: a disabled radio sharing name="model" would be unchecked the
-               moment another row is picked, and this one is only here to hold the column. -->
-          <input type="radio" name="model-current" checked disabled />
+<div class="wiz split">
+  <div class="wiz-head">
+    <div class="flex items-baseline justify-between gap-3">
+      <h1 class="shrink-0">Local model</h1>
+      <!-- Title size, but the label stays light and dim so only the number reads as a headline.
+           Truncates rather than pushing the title off on a narrow window. -->
+      <span class="min-w-0 truncate text-2xl font-normal">
+        {#if info.recommendation.vram_mb}
+          <span class="text-dim">Available VRAM:</span>
+          <span class="font-semibold">{(info.recommendation.vram_mb / 1000).toFixed(0)}GB</span>
         {:else}
-          <input type="radio" name="model" value={m.name} bind:group={selected} />
+          <span class="text-dim">No GPU detected; CPU only</span>
         {/if}
-        <span class="flex-1">
-          <span>{m.label}</span>
-          {#if m.params}<span class="text-dim text-xs"> · {m.params}</span>{/if}
-          {#if installed(m.name)}
-            <span class="text-dim text-xs"> · {diskSize(m.name)}</span>
-          {:else if m.minVramMb}
-            <span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>
+      </span>
+    </div>
+    {#if info.ollama.installed}
+      <p class="text-dim text-xs">
+        {currentModel ? "Pick a different model to run locally" : "Pick a model to run locally"}
+      </p>
+    {/if}
+  </div>
+
+  <div class="wiz-body">
+    {#if !info.ollama.installed}
+      <div class="card">
+        <strong>Ollama isn't installed</strong>
+        <p class="text-xs">Run this in a terminal, then re-check:</p>
+        <pre class="card font-mono text-xs whitespace-pre-wrap break-all"><code
+          >{info.ollama.install_command}</code></pre>
+        <div class="flex items-center justify-end gap-2">
+          <button onclick={refresh}>Re-check</button>
+        </div>
+      </div>
+    {:else}
+      {#if !info.ollama.running}
+        <p class="text-warn">Ollama is installed but not running. Start it, then re-check.</p>
+        <div class="flex items-center gap-2"><button onclick={refresh}>Re-check</button></div>
+      {/if}
+
+      <div class="card flex items-center gap-2">
+        <span class="text-dim shrink-0 text-xs">Pull any model:</span>
+        <input
+          class="flex-1"
+          type="text"
+          placeholder="e.g. gemma3:4b"
+          bind:value={customModel}
+          onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), pullCustom())}
+        />
+        <button disabled={pulling || !customModel.trim()} onclick={pullCustom}>Download</button>
+      </div>
+
+      {#each rows as m (m.name)}
+        {@const isCurrent = sameTag(m.name, currentModel)}
+        <label
+          class="card flex items-center gap-2"
+          class:cursor-pointer={!isCurrent}
+          class:selected={selected === m.name}
+        >
+          {#if isCurrent}
+            <!-- Its own radio group: a disabled radio sharing name="model" would be unchecked the
+                 moment another row is picked, and this one is only here to hold the column. -->
+            <input type="radio" name="model-current" checked disabled />
+          {:else}
+            <input type="radio" name="model" value={m.name} bind:group={selected} />
           {/if}
-          {#if m.blurb}<span class="text-dim block text-[11px]">{m.blurb}</span>{/if}
-        </span>
-        {#if isCurrent}
-          <span class="badge">current</span>
-        {/if}
-        {#if m.fit && FIT[m.fit]}
-          <span class={FIT[m.fit].cls}>{FIT[m.fit].text}</span>
-        {/if}
-        {#if installed(m.name)}
-          <span class="badge">installed</span>
-          {#if manage && !isCurrent}
-            <!-- preventDefault: this button sits inside the row's <label>, which would
-                 otherwise also select the radio on the way past. -->
+          <span class="flex-1">
+            <span>{m.label}</span>
+            {#if m.params}<span class="text-dim text-xs"> · {m.params}</span>{/if}
+            {#if installed(m.name)}
+              <span class="text-dim text-xs"> · {diskSize(m.name)}</span>
+            {:else if m.minVramMb}
+              <span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>
+            {/if}
+            {#if m.blurb}<span class="text-dim block text-[11px]">{m.blurb}</span>{/if}
+          </span>
+          {#if isCurrent}
+            <span class="badge">current</span>
+          {/if}
+          {#if m.fit && FIT[m.fit]}
+            <span class={FIT[m.fit].cls}>{FIT[m.fit].text}</span>
+          {/if}
+          {#if installed(m.name)}
+            <span class="badge">installed</span>
+            {#if manage && !isCurrent}
+              <!-- preventDefault: this button sits inside the row's <label>, which would
+                   otherwise also select the radio on the way past. -->
+              <button
+                class:armed={armed === m.name}
+                disabled={pulling || deleting}
+                title={armed === m.name ? "Click again to delete" : "Delete from disk"}
+                onclick={(e) => {
+                  e.preventDefault();
+                  if (armed === m.name) void remove(m.name);
+                  else armed = m.name;
+                }}
+                onmouseleave={() => {
+                  if (armed === m.name) armed = null;
+                }}
+              >
+                {@render rowAction(armed === m.name ? "Confirm" : "Delete")}
+              </button>
+            {/if}
+          {:else}
             <button
-              class:armed={armed === m.name}
-              disabled={pulling || deleting}
-              title={armed === m.name ? "Click again to delete" : "Delete from disk"}
+              disabled={pulling}
               onclick={(e) => {
                 e.preventDefault();
-                if (armed === m.name) void remove(m.name);
-                else armed = m.name;
-              }}
-              onmouseleave={() => {
-                if (armed === m.name) armed = null;
+                void (isCurrent ? download(m.name) : pullAndSelect(m.name));
               }}
             >
-              {@render armLabel(armed === m.name)}
+              {@render rowAction("Download")}
             </button>
           {/if}
-        {:else}
-          <button
-            disabled={pulling}
-            onclick={(e) => {
-              e.preventDefault();
-              void (isCurrent ? download(m.name) : pullAndSelect(m.name));
-            }}
-          >
-            Download
-          </button>
-        {/if}
-      </label>
-    {/each}
+        </label>
+      {/each}
 
-    <div class="card flex items-center gap-2">
-      <span class="text-dim shrink-0 text-xs">Or pull any model:</span>
-      <input
-        class="flex-1"
-        type="text"
-        placeholder="e.g. gemma3:4b"
-        bind:value={customModel}
-        onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), pullCustom())}
-      />
-      <button disabled={pulling || !customModel.trim()} onclick={pullCustom}>Download</button>
-    </div>
-
-    {#if pulling}
-      <div class="bar-track"><div class="bar-fill" style="width:{pullPct}%"></div></div>
-      <p class="text-xs">{pullStatus} {pullPct.toFixed(0)}%</p>
-    {/if}
-
-    <div class="card">
-      <div class="flex items-center gap-2">
-        <span class="flex-1">
-          RAG (resume / job-description context)
+      <div class="card">
+        <div class="flex items-center gap-2">
+          <span class="flex-1">
+            RAG (resume / job-description context)
+            {#if embedInstalled}
+              <span class="text-dim text-xs"> · {diskSize(EMBED_MODEL)}</span>
+            {/if}
+          </span>
           {#if embedInstalled}
-            <span class="text-dim text-xs"> · {diskSize(EMBED_MODEL)}</span>
-          {/if}
-        </span>
-        {#if embedInstalled}
-          <span class="badge">ready</span>
-          <!-- Only offer to reclaim it once RAG is off; the backend refuses (409) either way. -->
-          {#if manage && current && !current.rag_enabled}
-            <button
-              class:armed={armed === EMBED_MODEL}
-              disabled={pulling || deleting}
-              title={armed === EMBED_MODEL ? "Click again to delete" : "Delete from disk"}
-              onclick={() => {
-                if (armed === EMBED_MODEL) void remove(EMBED_MODEL);
-                else armed = EMBED_MODEL;
-              }}
-              onmouseleave={() => {
-                if (armed === EMBED_MODEL) armed = null;
-              }}
-            >
-              {@render armLabel(armed === EMBED_MODEL)}
+            <span class="badge">ready</span>
+            <!-- Only offer to reclaim it once RAG is off; the backend refuses (409) either way. -->
+            {#if manage && current && !current.rag_enabled}
+              <button
+                class:armed={armed === EMBED_MODEL}
+                disabled={pulling || deleting}
+                title={armed === EMBED_MODEL ? "Click again to delete" : "Delete from disk"}
+                onclick={() => {
+                  if (armed === EMBED_MODEL) void remove(EMBED_MODEL);
+                  else armed = EMBED_MODEL;
+                }}
+                onmouseleave={() => {
+                  if (armed === EMBED_MODEL) armed = null;
+                }}
+              >
+                {@render rowAction(armed === EMBED_MODEL ? "Confirm" : "Delete")}
+              </button>
+            {/if}
+          {:else}
+            <button disabled={pulling} onclick={() => download(EMBED_MODEL)}>
+              Download {EMBED_MODEL}
             </button>
           {/if}
-        {:else}
-          <button disabled={pulling} onclick={() => download(EMBED_MODEL)}>
-            Download {EMBED_MODEL}
-          </button>
-        {/if}
+        </div>
       </div>
+
+    {/if}
+  </div>
+
+  {#if error || pulling}
+    <div class="wiz-status">
+      {#if error}<p class="text-warn text-xs">{error}</p>{/if}
+      {#if pulling}
+        <div class="bar-track"><div class="bar-fill" style="width:{pullPct}%"></div></div>
+        <p class="text-xs">{pullStatus} {pullPct.toFixed(0)}%</p>
+      {/if}
     </div>
   {/if}
 
-  {#if error}<p class="text-warn">{error}</p>{/if}
-
-  <div class="flex-1"></div>
-  <div class="flex items-center justify-end gap-2">
-    <button class="mr-auto" onclick={back}>Back</button>
+  <div class="wiz-foot">
+    <button onclick={back}>Back</button>
+    {#if disk}
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <div class="bar-track flex">
+          <div class="h-full bg-white/25" style="width:{disk.otherPct}%"></div>
+          <div class="bar-fill" style="width:{disk.modelsPct}%"></div>
+        </div>
+        <p class="text-dim truncate text-[11px]">
+          {#if disk.hasModels}<span class="text-accent">&#9632;</span> {gb(disk.models)} of models ·
+          {/if}
+          {gb(disk.free)} free of {gb(disk.total)}
+        </p>
+      </div>
+    {:else}
+      <div class="flex-1"></div>
+    {/if}
     <button class="primary" disabled={!canContinue} onclick={finish}>Continue</button>
   </div>
 </div>

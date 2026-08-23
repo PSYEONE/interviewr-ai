@@ -149,6 +149,16 @@
   .wiz {
     @apply flex flex-1 flex-col gap-4 overflow-y-auto p-8;
   }
+  /* Opt-in variant for steps with a long list: the body scrolls under a pinned action row, so
+     Back/Continue never scroll away. Short single-screen steps keep the plain .wiz behaviour. */
+  .wiz.split { @apply min-h-0 gap-0 overflow-hidden p-0; }
+  /* Pinned title row: the step name on the left, a hardware fact on the right. */
+  .wiz-head { @apply flex shrink-0 flex-col gap-1 border-b border-white/10 px-8 py-5; }
+  .wiz-body { @apply flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-8; }
+  .wiz-foot { @apply flex shrink-0 items-center gap-4 border-t border-white/10 px-8 py-4; }
+  /* Transient status (errors, pull progress) sits above the footer, outside the scroll area,
+     so a failure can't be hidden below a long list. */
+  .wiz-status { @apply flex shrink-0 flex-col gap-1 px-8 pt-3; }
   /* All wizard buttons share the primary size (dark "secondary" + accent "primary" match). */
   .wiz button:not(.icon):not(.choice) { @apply px-4 py-2 text-base; }
   .wiz h1 { @apply text-2xl font-semibold; }

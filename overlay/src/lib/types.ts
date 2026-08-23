@@ -61,11 +61,20 @@ export interface Recommendation {
   reason: string;
 }
 
+// Capacity of the filesystem holding Ollama's model store (mirrors backend DiskInfo).
+export interface DiskInfo {
+  path: string; // the directory the figures were measured against
+  total_mb: number;
+  free_mb: number;
+  models_mb: number | null; // size of Ollama's model store; null when it isn't readable
+}
+
 export interface SystemReport {
   gpus: GpuInfo[];
   cpu_count: number;
   ram_mb: number;
   gpu_error: string | null; // GPU present but driver unreachable (e.g. NVIDIA mismatch)
+  disk: DiskInfo | null; // null when Ollama's model store can't be located (e.g. remote)
   ollama: OllamaStatus;
   recommendation: Recommendation;
 }
