@@ -1,45 +1,121 @@
 <script lang="ts">
   import { getSystemInfo, pullModel } from "../../lib/api";
-  import type { SystemReport } from "../../lib/types";
+  import type { ConfigView, RankedModel, SystemReport } from "../../lib/types";
 
   let {
     report,
     complete,
     back,
+    current = null,
   }: {
     report: SystemReport;
     complete: (delta: Record<string, unknown>) => void;
     back: () => void;
+    current?: ConfigView | null;
   } = $props();
 
   const EMBED_MODEL = "nomic-embed-text";
 
+  // Ollama reports a bare tag as `name:latest` while .env stores it either way, so compare on the
+  // normalized tag everywhere a config value meets an /api/tags value.
+  function baseTag(name: string): string {
+    return name.endsWith(":latest") ? name.slice(0, -":latest".length) : name;
+  }
+  function sameTag(a: string, b: string | null): boolean {
+    return b !== null && baseTag(a) === baseTag(b);
+  }
+
+  // The model the engine is actually answering with, when it's running locally. Null in the wizard.
+  let currentModel = $derived(
+    current?.llm_provider === "ollama" && current.llm_model ? current.llm_model : null,
+  );
+
   // `report` is set once by the Wizard before this screen mounts, so seeding from it is correct.
   // svelte-ignore state_referenced_locally
   let info = $state<SystemReport>(report);
+  // Nothing is pre-picked when a model is already running: that row isn't selectable, so Continue
+  // stays disabled until a genuinely different model is chosen. First run keeps the recommendation.
   // svelte-ignore state_referenced_locally
-  let selected = $state<string>(report.recommendation.suggested_models[0] ?? "");
+  let selected = $state<string>(
+    current?.llm_provider === "ollama" && current.llm_model
+      ? ""
+      : (report.recommendation.suggested_models[0] ?? ""),
+  );
+  let customModel = $state("");
   let pulling = $state(false);
   let pullPct = $state(0);
   let pullStatus = $state("");
   let error = $state<string | null>(null);
 
-  // Suggested models first, then any other already-installed ones, de-duplicated.
-  let candidates = $derived.by(() => {
-    const names = new Set(report.recommendation.suggested_models);
+  type Row = {
+    name: string;
+    label: string;
+    params: string | null;
+    minVramMb: number | null;
+    fit: string | null;
+    blurb: string | null;
+  };
+
+  // Hardware-fit badge styling per fit label (backend RankedModel.fit).
+  const FIT: Record<string, { text: string; cls: string }> = {
+    fits: { text: "fits", cls: "badge" },
+    tight: { text: "tight", cls: "badge-warn" },
+    too_big: { text: "too big", cls: "badge-bad" },
+    cpu: { text: "cpu", cls: "badge-muted" },
+  };
+
+  function isEmbed(name: string): boolean {
+    return name === EMBED_MODEL || name.startsWith(`${EMBED_MODEL}:`);
+  }
+  function installed(name: string): boolean {
+    return info.ollama.models.some((m) => sameTag(m.name, name));
+  }
+
+  // Curated catalog (ranked + fit-labelled) first, then any other installed model not in it, so a
+  // previously-pulled or custom tag stays selectable. The embed model is excluded (it's not an LLM).
+  let rows = $derived.by<Row[]>(() => {
+    const catalog = info.recommendation.catalog;
+    const inCatalog = new Set(catalog.map((m) => m.name));
+    const out: Row[] = catalog.map((m: RankedModel) => ({
+      name: m.name,
+      label: m.label,
+      params: m.params,
+      minVramMb: m.min_vram_mb,
+      fit: m.fit,
+      blurb: m.blurb,
+    }));
     for (const m of info.ollama.models) {
-      if (m.name !== EMBED_MODEL && !m.name.startsWith(`${EMBED_MODEL}:`)) names.add(m.name);
+      if (isEmbed(m.name) || inCatalog.has(m.name)) continue;
+      out.push({
+        name: m.name,
+        label: m.name,
+        params: m.parameter_size,
+        minVramMb: null,
+        fit: null,
+        blurb: null,
+      });
     }
-    return [...names];
+    // The configured model may have been removed from Ollama since. Keep a row for it so "current"
+    // always has somewhere to sit and the missing download is obvious.
+    if (currentModel && !out.some((r) => sameTag(r.name, currentModel))) {
+      out.unshift({
+        name: currentModel,
+        label: currentModel,
+        params: null,
+        minVramMb: null,
+        fit: null,
+        blurb: null,
+      });
+    }
+    return out;
   });
 
-  function installed(name: string): boolean {
-    return info.ollama.models.some((m) => m.name === name || m.name === `${name}:latest`);
-  }
-  let embedInstalled = $derived(
-    info.ollama.models.some((m) => m.name === EMBED_MODEL || m.name === `${EMBED_MODEL}:latest`),
-  );
+  let embedInstalled = $derived(installed(EMBED_MODEL));
   let canContinue = $derived(!pulling && !!selected && installed(selected));
+
+  function vramGb(mb: number | null): string {
+    return mb === null ? "" : `~${(mb / 1000).toFixed(mb >= 10000 ? 0 : 1)}GB`;
+  }
 
   async function refresh(): Promise<void> {
     try {
@@ -50,7 +126,7 @@
   }
 
   async function download(model: string): Promise<void> {
-    if (pulling) return;
+    if (pulling || !model) return;
     error = null;
     pulling = true;
     pullPct = 0;
@@ -68,12 +144,30 @@
     }
   }
 
+  // Pulling an answering model is an explicit choice, so select it once it lands. Re-pulling the
+  // model already in use is a repair, not a choice, so that row uses plain download().
+  async function pullAndSelect(model: string): Promise<void> {
+    await download(model);
+    if (installed(model)) selected = model;
+  }
+
+  async function pullCustom(): Promise<void> {
+    const tag = customModel.trim();
+    if (!tag) return;
+    if (sameTag(tag, currentModel)) {
+      await download(tag);
+      return;
+    }
+    await pullAndSelect(tag);
+    if (installed(tag)) customModel = "";
+  }
+
   function finish(): void {
     complete({
       llm_provider: "ollama",
       llm_model: selected,
       // Pin the discrete GPU for whisper on iGPU+dGPU machines.
-      whisper_gpu_device: report.recommendation.discrete_gpu_index ?? -1,
+      whisper_gpu_device: info.recommendation.discrete_gpu_index ?? -1,
     });
   }
 </script>
@@ -97,18 +191,64 @@
       <div class="flex items-center gap-2"><button onclick={refresh}>Re-check</button></div>
     {/if}
 
-    <p class="text-xs">Pick a model to run locally:</p>
-    {#each candidates as model (model)}
-      <label class="card flex cursor-pointer items-center gap-2" class:selected={selected === model}>
-        <input type="radio" name="model" value={model} bind:group={selected} />
-        <span class="flex-1">{model}</span>
-        {#if installed(model)}
+    <p class="text-xs">
+      {currentModel ? "Pick a different model to run locally" : "Pick a model to run locally"}
+      {#if info.recommendation.vram_mb}
+        <span class="text-dim">({(info.recommendation.vram_mb / 1000).toFixed(0)}GB VRAM)</span>
+      {:else}
+        <span class="text-dim">(no GPU detected; CPU only)</span>
+      {/if}:
+    </p>
+    {#each rows as m (m.name)}
+      {@const isCurrent = sameTag(m.name, currentModel)}
+      <label
+        class="card flex items-center gap-2"
+        class:cursor-pointer={!isCurrent}
+        class:selected={selected === m.name}
+      >
+        {#if isCurrent}
+          <!-- Its own radio group: a disabled radio sharing name="model" would be unchecked the
+               moment another row is picked, and this one is only here to hold the column. -->
+          <input type="radio" name="model-current" checked disabled />
+        {:else}
+          <input type="radio" name="model" value={m.name} bind:group={selected} />
+        {/if}
+        <span class="flex-1">
+          <span>{m.label}</span>
+          {#if m.params}<span class="text-dim text-xs"> · {m.params}</span>{/if}
+          {#if m.minVramMb}<span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>{/if}
+          {#if m.blurb}<span class="text-dim block text-[11px]">{m.blurb}</span>{/if}
+        </span>
+        {#if isCurrent}
+          <span class="badge">current</span>
+        {/if}
+        {#if m.fit && FIT[m.fit]}
+          <span class={FIT[m.fit].cls}>{FIT[m.fit].text}</span>
+        {/if}
+        {#if installed(m.name)}
           <span class="badge">installed</span>
         {:else}
-          <button disabled={pulling} onclick={() => download(model)}>Download</button>
+          <button
+            disabled={pulling}
+            onclick={() => (isCurrent ? download(m.name) : pullAndSelect(m.name))}
+          >
+            Download
+          </button>
         {/if}
       </label>
     {/each}
+
+    <div class="card flex items-center gap-2">
+      <span class="text-dim shrink-0 text-xs">Or pull any model:</span>
+      <input
+        class="flex-1"
+        type="text"
+        placeholder="e.g. gemma3:4b"
+        bind:value={customModel}
+        onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), pullCustom())}
+      />
+      <button disabled={pulling || !customModel.trim()} onclick={pullCustom}>Download</button>
+    </div>
 
     {#if pulling}
       <div class="bar-track"><div class="bar-fill" style="width:{pullPct}%"></div></div>

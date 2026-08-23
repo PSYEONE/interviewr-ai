@@ -619,7 +619,7 @@ fn size_to_screen(win: &WebviewWindow) {
     let logical_h = phys.height as f64 / scale;
     // Landscape: wider than tall.
     let w = (logical_w * 0.40).clamp(1000.0, 1200.0);
-    let h = (logical_h * 0.42).clamp(700.0, 760.0);
+    let h = (logical_h * 0.42).clamp(720.0, 760.0);
     let _ = win.set_size(tauri::LogicalSize::new(w, h));
     let _ = win.center();
 }
