@@ -40,7 +40,8 @@
 <div class="wiz">
   <h1>Add context (optional)</h1>
   <p class="text-xs">
-    Ground answers in your background. Your resume and the job description stay on this machine.
+    Give answers context from your background. Your resume and the job description stay on this
+    machine.
   </p>
 
   {#snippet slotCard(title: string, kind: "resume" | "job_description", slot: Slot)}

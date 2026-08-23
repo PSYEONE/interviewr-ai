@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getSystemInfo, pullModel } from "../../lib/api";
+  import { deleteOllamaModel, getSystemInfo, pullModel } from "../../lib/api";
   import type { ConfigView, RankedModel, SystemReport } from "../../lib/types";
 
   let {
@@ -7,11 +7,14 @@
     complete,
     back,
     current = null,
+    manage = false,
   }: {
     report: SystemReport;
     complete: (delta: Record<string, unknown>) => void;
     back: () => void;
     current?: ConfigView | null;
+    // Only the dashboard's manage screen offers deletes; the wizard stays a linear setup path.
+    manage?: boolean;
   } = $props();
 
   const EMBED_MODEL = "nomic-embed-text";
@@ -42,6 +45,9 @@
       : (report.recommendation.suggested_models[0] ?? ""),
   );
   let customModel = $state("");
+  // Model whose Delete is armed (click again to confirm), same shape as the history list.
+  let armed = $state<string | null>(null);
+  let deleting = $state(false);
   let pulling = $state(false);
   let pullPct = $state(0);
   let pullStatus = $state("");
@@ -117,6 +123,30 @@
     return mb === null ? "" : `~${(mb / 1000).toFixed(mb >= 10000 ? 0 : 1)}GB`;
   }
 
+  // ModelInfo.size is raw bytes, unlike the megabytes used elsewhere in the report. This is what
+  // Ollama reports for the tag; tags that share a blob each report the full size, so deleting one
+  // of them frees nothing. Stated as "on disk", never as "frees N GB".
+  function diskSize(name: string): string {
+    const bytes = info.ollama.models.find((m) => sameTag(m.name, name))?.size ?? 0;
+    return bytes > 0 ? `${(bytes / 1e9).toFixed(1)} GB on disk` : "";
+  }
+
+  async function remove(model: string): Promise<void> {
+    armed = null;
+    deleting = true;
+    error = null;
+    try {
+      await deleteOllamaModel(model);
+      await refresh();
+      // Continue would otherwise dead-end on a model that no longer exists.
+      if (sameTag(selected, model)) selected = "";
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      deleting = false;
+    }
+  }
+
   async function refresh(): Promise<void> {
     try {
       info = await getSystemInfo(true);
@@ -172,6 +202,15 @@
   }
 </script>
 
+{#snippet armLabel(isArmed: boolean)}
+  <!-- Both labels share one grid cell, so the wider of the two ("Confirm") sets the button's
+       width up front and arming swaps the text without resizing anything or nudging the row. -->
+  <span class="grid">
+    <span class="invisible col-start-1 row-start-1">Confirm</span>
+    <span class="col-start-1 row-start-1">{isArmed ? "Confirm" : "Delete"}</span>
+  </span>
+{/snippet}
+
 <div class="wiz">
   <h1>Local model</h1>
 
@@ -216,7 +255,11 @@
         <span class="flex-1">
           <span>{m.label}</span>
           {#if m.params}<span class="text-dim text-xs"> · {m.params}</span>{/if}
-          {#if m.minVramMb}<span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>{/if}
+          {#if installed(m.name)}
+            <span class="text-dim text-xs"> · {diskSize(m.name)}</span>
+          {:else if m.minVramMb}
+            <span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>
+          {/if}
           {#if m.blurb}<span class="text-dim block text-[11px]">{m.blurb}</span>{/if}
         </span>
         {#if isCurrent}
@@ -227,10 +270,32 @@
         {/if}
         {#if installed(m.name)}
           <span class="badge">installed</span>
+          {#if manage && !isCurrent}
+            <!-- preventDefault: this button sits inside the row's <label>, which would
+                 otherwise also select the radio on the way past. -->
+            <button
+              class:armed={armed === m.name}
+              disabled={pulling || deleting}
+              title={armed === m.name ? "Click again to delete" : "Delete from disk"}
+              onclick={(e) => {
+                e.preventDefault();
+                if (armed === m.name) void remove(m.name);
+                else armed = m.name;
+              }}
+              onmouseleave={() => {
+                if (armed === m.name) armed = null;
+              }}
+            >
+              {@render armLabel(armed === m.name)}
+            </button>
+          {/if}
         {:else}
           <button
             disabled={pulling}
-            onclick={() => (isCurrent ? download(m.name) : pullAndSelect(m.name))}
+            onclick={(e) => {
+              e.preventDefault();
+              void (isCurrent ? download(m.name) : pullAndSelect(m.name));
+            }}
           >
             Download
           </button>
@@ -257,9 +322,31 @@
 
     <div class="card">
       <div class="flex items-center gap-2">
-        <span class="flex-1">RAG (resume / job-description grounding)</span>
+        <span class="flex-1">
+          RAG (resume / job-description context)
+          {#if embedInstalled}
+            <span class="text-dim text-xs"> · {diskSize(EMBED_MODEL)}</span>
+          {/if}
+        </span>
         {#if embedInstalled}
           <span class="badge">ready</span>
+          <!-- Only offer to reclaim it once RAG is off; the backend refuses (409) either way. -->
+          {#if manage && current && !current.rag_enabled}
+            <button
+              class:armed={armed === EMBED_MODEL}
+              disabled={pulling || deleting}
+              title={armed === EMBED_MODEL ? "Click again to delete" : "Delete from disk"}
+              onclick={() => {
+                if (armed === EMBED_MODEL) void remove(EMBED_MODEL);
+                else armed = EMBED_MODEL;
+              }}
+              onmouseleave={() => {
+                if (armed === EMBED_MODEL) armed = null;
+              }}
+            >
+              {@render armLabel(armed === EMBED_MODEL)}
+            </button>
+          {/if}
         {:else}
           <button disabled={pulling} onclick={() => download(EMBED_MODEL)}>
             Download {EMBED_MODEL}
