@@ -65,10 +65,7 @@
 {#if stage === "choose"}
   <div class="wiz">
     <h1>Manage models</h1>
-    <p class="text-xs">
-      Switch, download or remove local models. Downloads and deletions apply straight away;
-      switching the answering model restarts the engine.
-    </p>
+    <p class="text-xs">Switch, download or remove local models.</p>
     <div class="flex flex-wrap items-stretch gap-3">
       <button class="choice" onclick={chooseLocal}>
         <span class="flex w-full items-center gap-2">
