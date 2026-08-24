@@ -38,7 +38,7 @@
       "family": "llama"
     },
     "phi4": {
-      "download_mb": 1234,
+      "download_mb": 8633,
       "params": "14.7B",
       "quant": "Q4_K_M",
       "family": "phi3"
