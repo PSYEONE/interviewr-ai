@@ -36,6 +36,9 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Default run stays offline and deterministic; -m network opts into the freshness checks.
+addopts = "-m 'not network'"
+markers = ["network: reaches the internet (catalog freshness); excluded by default"]
 
 [tool.ruff]
 target-version = "py312"

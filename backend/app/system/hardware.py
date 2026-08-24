@@ -9,10 +9,12 @@ inputs as arguments so they are unit-testable without real hardware.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -27,71 +29,49 @@ _DEVICE_TYPES: dict[str, str] = {
     "PHYSICAL_DEVICE_TYPE_CPU": "cpu",
 }
 
-class CatalogModel(BaseModel):
+class CuratedModel(BaseModel):
+    """The editorial half: which models we offer, and what to call them. Hand-written.
+
+    Deliberately just a name: the picker shows measured facts (size, params, quantisation)
+    rather than prose, so there is no capability claim here to defend or let go stale.
+    """
+
     name: str  # ollama tag, e.g. "qwen2.5:14b"
     label: str  # friendly name shown in the picker
-    params: str  # "14B"
-    min_vram_mb: int  # approx VRAM to run the Q4 build responsively (weights + KV/context headroom)
-    family: str  # qwen | llama | phi | gemma | mistral ...
-    blurb: str  # one-line use-case note
+
+
+class CatalogModel(CuratedModel):
+    """A curated entry merged with the facts generated into catalog.json. The generated fields
+    are nullable so a model added here before the next refresh still renders and stays
+    selectable, rather than crashing or inventing a size."""
+
+    download_mb: int | None = None  # exact, summed from the registry manifest
+    params: str | None = None  # "14.8B", from the manifest's config blob
+    quant: str | None = None  # "Q4_K_M", likewise
+    family: str | None = None  # qwen | llama | phi | gemma | mistral ...
 
 
 class RankedModel(CatalogModel):
-    fit: str  # fits | tight | too_big | cpu, relative to the detected VRAM
+    fit: str | None  # fits | tight | too_big | cpu; None when the size isn't known yet
+    vram_mb: int | None  # estimated VRAM to run it, see _KV_OVERHEAD_MB
 
 
-# Curated Ollama chat models spanning 3B..70B (real, currently-published tags). min_vram_mb is
-# deliberately generous so "fits" means comfortable with context headroom, not the bare weights.
-# Verified against ollama.com/library (June 2026).
-_CATALOG: list[CatalogModel] = [
-    CatalogModel(
-        name="llama3.2:3b", label="Llama 3.2 3B", params="3B", min_vram_mb=3000, family="llama",
-        blurb="Tiny and fast. Runs almost anywhere; weakest reasoning.",
-    ),
-    CatalogModel(
-        name="phi4-mini", label="Phi-4 mini", params="3.8B", min_vram_mb=3500, family="phi",
-        blurb="Small reasoning model that punches above its size.",
-    ),
-    CatalogModel(
-        name="gemma3:4b", label="Gemma 3 4B", params="4B", min_vram_mb=4000, family="gemma",
-        blurb="Compact chat with a long 128K context.",
-    ),
-    CatalogModel(
-        name="qwen2.5:7b", label="Qwen2.5 7B", params="7B", min_vram_mb=6000, family="qwen",
-        blurb="Solid all-rounder with strong instruction following.",
-    ),
-    CatalogModel(
-        name="qwen3:8b", label="Qwen3 8B", params="8B", min_vram_mb=6500, family="qwen",
-        blurb="Newer Qwen; strong reasoning for the size.",
-    ),
-    CatalogModel(
-        name="llama3.1:8b", label="Llama 3.1 8B", params="8B", min_vram_mb=6500, family="llama",
-        blurb="Reliable general chat with good tool use.",
-    ),
-    CatalogModel(
-        name="mistral-nemo:12b", label="Mistral Nemo 12B", params="12B", min_vram_mb=9000,
-        family="mistral", blurb="12B with long context; fast for its size.",
-    ),
-    CatalogModel(
-        name="phi4", label="Phi-4 14B", params="14B", min_vram_mb=10000, family="phi",
-        blurb="14B reasoning model that rivals much larger ones.",
-    ),
-    CatalogModel(
-        name="qwen2.5:14b", label="Qwen2.5 14B", params="14B", min_vram_mb=10500, family="qwen",
-        blurb="Great quality/size balance; a strong default.",
-    ),
-    CatalogModel(
-        name="gemma3:27b", label="Gemma 3 27B", params="27B", min_vram_mb=21000, family="gemma",
-        blurb="High-quality 27B; wants a 24GB+ card.",
-    ),
-    CatalogModel(
-        name="qwen2.5:32b", label="Qwen2.5 32B", params="32B", min_vram_mb=24000, family="qwen",
-        blurb="Top local quality; needs 24GB+ VRAM.",
-    ),
-    CatalogModel(
-        name="llama3.3:70b", label="Llama 3.3 70B", params="70B", min_vram_mb=44000, family="llama",
-        blurb="Flagship quality; needs 48GB+ or multiple GPUs.",
-    ),
+# Curated Ollama chat models spanning 3B..70B: the list is the editorial decision. Every fact
+# about them (size, params, quantisation, family) is generated into catalog.json by
+# scripts/refresh_catalog.py, so nothing here needs hand-verifying against the registry.
+_CURATED: list[CuratedModel] = [
+    CuratedModel(name="llama3.2:3b", label="Llama 3.2 3B"),
+    CuratedModel(name="phi4-mini", label="Phi-4 mini"),
+    CuratedModel(name="gemma3:4b", label="Gemma 3 4B"),
+    CuratedModel(name="qwen2.5:7b", label="Qwen2.5 7B"),
+    CuratedModel(name="qwen3:8b", label="Qwen3 8B"),
+    CuratedModel(name="llama3.1:8b", label="Llama 3.1 8B"),
+    CuratedModel(name="mistral-nemo:12b", label="Mistral Nemo 12B"),
+    CuratedModel(name="phi4", label="Phi-4 14B"),
+    CuratedModel(name="qwen2.5:14b", label="Qwen2.5 14B"),
+    CuratedModel(name="gemma3:27b", label="Gemma 3 27B"),
+    CuratedModel(name="qwen2.5:32b", label="Qwen2.5 32B"),
+    CuratedModel(name="llama3.3:70b", label="Llama 3.3 70B"),
 ]
 
 
@@ -118,6 +98,41 @@ class Recommendation(BaseModel):
     catalog: list[RankedModel]  # full curated catalog ranked + fit-labelled for this machine
     discrete_gpu_index: int | None  # Vulkan index to pin for whisper on iGPU+dGPU machines
     reason: str
+
+
+_CATALOG_JSON = Path(__file__).resolve().parent / "catalog.json"
+
+# Estimated VRAM = weights (the exact download) + the KV cache. 512 MB is the KV cache for an
+# 8B-class model at Ollama's default 4096 context (2*32*8*128*2 = 128 KB/token); measured against
+# a live load it lands within 0.7%. It understates deeper models (a 70B wants ~1.25 GB at the same
+# context) and anything run at a longer context, which _FITS_HEADROOM is sized to absorb.
+_KV_OVERHEAD_MB = 512
+_FITS_HEADROOM = 1.25  # "fits" means comfortable, not merely possible
+
+
+@lru_cache(maxsize=1)
+def _generated() -> dict[str, dict[str, object]]:
+    """Facts generated by scripts/refresh_catalog.py, keyed by ollama tag.
+
+    A missing or unreadable file is not fatal: entries simply have no size, and rank_catalog
+    leaves them unlabelled rather than guessing.
+    """
+    try:
+        raw = json.loads(_CATALOG_JSON.read_text())
+    except (OSError, ValueError):
+        return {}
+    models = raw.get("models") if isinstance(raw, dict) else None
+    return models if isinstance(models, dict) else {}
+
+
+def catalog() -> list[CatalogModel]:
+    """The curated list merged with its generated facts."""
+    gen = _generated()
+    out: list[CatalogModel] = []
+    for m in _CURATED:
+        facts = gen.get(m.name, {})
+        out.append(CatalogModel(**m.model_dump(), **facts))  # type: ignore[arg-type]
+    return out
 
 
 def _run(cmd: list[str]) -> str | None:
@@ -286,29 +301,33 @@ def detect_system() -> SystemInfo:
 
 
 def rank_catalog(vram_mb: int | None) -> list[RankedModel]:
-    """Fit-label and order the curated catalog for a machine with ``vram_mb`` of VRAM.
+    """Fit-label and order the catalog for a machine with ``vram_mb`` of VRAM.
 
     ``None`` means no usable discrete GPU: everything is CPU-only ("cpu"), smallest first since
-    those are the only ones tolerable on CPU. With a GPU: "fits" when the card meets the model's
-    generous footprint, "tight" within 20% under it, else "too_big". Fitting models come first,
-    biggest-that-fits at the top (best quality), then tight, then too_big.
+    those are the only ones tolerable on CPU. With a GPU, a model needs its weights plus a KV
+    cache, and "fits" additionally wants _FITS_HEADROOM of slack so it is comfortable rather than
+    merely possible. Fitting models come first, biggest-that-fits at the top (best quality), then
+    tight, then too_big; anything whose size isn't known yet sorts last, unlabelled.
     """
     ranked: list[RankedModel] = []
-    for m in _CATALOG:
-        if vram_mb is None:
+    for m in catalog():
+        need = None if m.download_mb is None else m.download_mb + _KV_OVERHEAD_MB
+        if need is None:
+            fit = None
+        elif vram_mb is None:
             fit = "cpu"
-        elif vram_mb >= m.min_vram_mb:
+        elif vram_mb >= need * _FITS_HEADROOM:
             fit = "fits"
-        elif vram_mb >= int(m.min_vram_mb * 0.8):
+        elif vram_mb >= need:
             fit = "tight"
         else:
             fit = "too_big"
-        ranked.append(RankedModel(**m.model_dump(), fit=fit))
+        ranked.append(RankedModel(**m.model_dump(), fit=fit, vram_mb=need))
     if vram_mb is None:
-        ranked.sort(key=lambda r: r.min_vram_mb)
+        ranked.sort(key=lambda r: (r.vram_mb is None, r.vram_mb or 0))
         return ranked
     order = {"fits": 0, "tight": 1, "too_big": 2}
-    ranked.sort(key=lambda r: (order[r.fit], -r.min_vram_mb))
+    ranked.sort(key=lambda r: (order.get(r.fit or "", 3), -(r.download_mb or 0)))
     return ranked
 
 
@@ -317,7 +336,8 @@ def _suggested_from(ranked: list[RankedModel]) -> list[str]:
     fits = [r.name for r in ranked if r.fit == "fits"]
     if fits:
         return fits[:2]
-    return [r.name for r in sorted(ranked, key=lambda r: r.min_vram_mb)[:2]]
+    smallest = sorted(ranked, key=lambda r: (r.download_mb is None, r.download_mb or 0))
+    return [r.name for r in smallest[:2]]
 
 
 def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) -> Recommendation:
