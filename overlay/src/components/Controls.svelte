@@ -3,14 +3,14 @@
 
   // New finalizes the conversation; gate it until there is content to save so it can't spam
   // empty/duplicate conversations. resetView() clears these, so it greys out again afterwards.
-  const canFinalize = $derived(!!session.committed || !!session.answer);
+  const canFinalize = $derived(session.turns.length > 0 || !!session.pending);
 </script>
 
 <div id="controls">
   <button title="Answer from current transcript" onclick={() => session.send("answer")}>
     Answer
   </button>
-  <button title="Clear pending buffer" onclick={() => session.send("clear")}>Clear</button>
+  <button title="Clear pending buffer" onclick={() => session.clearPending()}>Clear</button>
   <span class="text-dim text-sm ml-10">Style:</span>
   <button
     title={`Toggle between a script or bullet points`}

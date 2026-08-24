@@ -137,7 +137,7 @@ export interface PullProgress {
 // Server -> client WS events (discriminated on `type`).
 export type ServerEvent =
   | { type: "transcript"; text: string; final: boolean; seq: number }
-  | { type: "answer.start"; answer_id: string; source_chars: number }
+  | { type: "answer.start"; answer_id: string; question: string; source_chars: number }
   | { type: "answer.token"; answer_id: string; token: string }
   | { type: "answer.done"; answer_id: string; cancelled: boolean }
   | { type: "status"; state: "idle" | "listening" | "thinking" | "unconfigured" }

@@ -1,6 +1,7 @@
-// WS client as a Svelte 5 runes store. Ports the connect/handle/retry loop from the old
-// vanilla app.js: committed transcript + live tail, streamed answer, status, capped-exponential
-// reconnect, and a 20s keepalive ping.
+// WS client as a Svelte 5 runes store: the connect/handle/retry loop, plus the interview's turn
+// log. Transcript arrives as a pending buffer with a live tail; each answer.start consumes that
+// buffer into a Turn, so past questions and answers survive instead of being overwritten.
+// Capped-exponential reconnect and a 20s keepalive ping.
 
 import { wsUrl } from "./connection";
 import type { AnswerStyle, CommandType, ServerEvent } from "./types";
@@ -10,6 +11,10 @@ const _STYLE_KEY = "interviewr.answerStyle";
 function _loadStyle(): AnswerStyle {
   return localStorage.getItem(_STYLE_KEY) === "bullets" ? "bullets" : "script";
 }
+
+// One question and the answer generated for it. The question comes from the engine on
+// answer.start, so the pairing is authoritative rather than re-derived from the transcript.
+export type Turn = { id: string; question: string; answer: string; done: boolean };
 
 export type Status =
   | "offline"
@@ -21,9 +26,12 @@ export type Status =
 
 class Session {
   status = $state<Status>("offline");
-  committed = $state("");
-  live = $state("");
-  answer = $state("");
+  // Answered turns, oldest first: the scrollback the interview view renders.
+  turns = $state<Turn[]>([]);
+  // Final transcript heard since the last answer, i.e. the not-yet-asked buffer. Mirrors the
+  // engine's own _parts, and is consumed into a Turn when an answer starts.
+  pending = $state("");
+  live = $state(""); // in-flight partial tail, replaced rather than appended
   // Last conversation whose background-generated title landed; the dashboard watches this to
   // patch the title into the history list in place (titles arrive after the session ends).
   lastTitled = $state<{ id: number; title: string } | null>(null);
@@ -66,9 +74,17 @@ class Session {
 
   resetView(): void {
     this.send("reset");
-    this.committed = "";
+    this.turns = [];
+    this.pending = "";
     this.live = "";
-    this.answer = "";
+  }
+
+  // The engine drops its buffer on "clear"; drop ours too, or the screen keeps showing text the
+  // engine has already forgotten and the next answer silently excludes it.
+  clearPending(): void {
+    this.send("clear");
+    this.pending = "";
+    this.live = "";
   }
 
   setAnswerStyle(style: AnswerStyle): void {
@@ -112,11 +128,42 @@ class Session {
     this.#backoff = Math.min(this.#backoff * 1.6, 8000);
   }
 
+  // Turns are replaced rather than mutated in place so the $state proxy sees the change.
+  #patch(id: string, fn: (t: Turn) => Turn): void {
+    this.turns = this.turns.map((t) => (t.id === id ? fn(t) : t));
+  }
+
+  #appendAnswer(id: string, token: string): void {
+    this.#patch(id, (t) => ({ ...t, answer: t.answer + token }));
+  }
+
+  #finishAnswer(id: string, cancelled: boolean): void {
+    this.#patch(id, (t) => ({
+      ...t,
+      answer: cancelled ? t.answer + " [cancelled]" : t.answer,
+      done: true,
+    }));
+  }
+
+  // Errors attach to the turn in flight; with none (e.g. a failure before any answer) they get
+  // their own entry so the message is never swallowed.
+  #noteError(message: string): void {
+    const last = this.turns.at(-1);
+    if (last && !last.done) {
+      this.#patch(last.id, (t) => ({ ...t, answer: `${t.answer}\n[error: ${message}]` }));
+      return;
+    }
+    this.turns = [
+      ...this.turns,
+      { id: `err-${Date.now()}`, question: "", answer: `[error: ${message}]`, done: true },
+    ];
+  }
+
   #handle(ev: ServerEvent): void {
     switch (ev.type) {
       case "transcript":
         if (ev.final) {
-          if (ev.text) this.committed += ev.text + " ";
+          if (ev.text) this.pending += ev.text + " ";
           this.live = "";
         } else {
           this.live = ev.text;
@@ -124,19 +171,25 @@ class Session {
         break;
       case "answer.start":
         this.#curAnswer = ev.answer_id;
-        this.answer = "";
+        // The engine cleared its buffer to build this question, so ours goes with it. Anything
+        // spoken from here on arrives after this event and belongs to the next turn.
+        this.pending = "";
+        this.turns = [
+          ...this.turns,
+          { id: ev.answer_id, question: ev.question, answer: "", done: false },
+        ];
         break;
       case "answer.token":
-        if (ev.answer_id === this.#curAnswer) this.answer += ev.token;
+        if (ev.answer_id === this.#curAnswer) this.#appendAnswer(ev.answer_id, ev.token);
         break;
       case "answer.done":
-        if (ev.cancelled) this.answer += " [cancelled]";
+        this.#finishAnswer(ev.answer_id, ev.cancelled);
         break;
       case "status":
         this.status = ev.state;
         break;
       case "error":
-        this.answer += `\n[error: ${ev.message}]`;
+        this.#noteError(ev.message);
         break;
       case "conversation.titled":
         this.lastTitled = { id: ev.conversation_id, title: ev.title };
