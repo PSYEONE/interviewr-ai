@@ -57,9 +57,10 @@
     name: string;
     label: string;
     params: string | null;
-    minVramMb: number | null;
+    quant: string | null;
+    downloadMb: number | null;
+    vramMb: number | null;
     fit: string | null;
-    blurb: string | null;
   };
 
   // Hardware-fit badge styling per fit label (backend RankedModel.fit).
@@ -86,9 +87,10 @@
       name: m.name,
       label: m.label,
       params: m.params,
-      minVramMb: m.min_vram_mb,
+      quant: m.quant,
+      downloadMb: m.download_mb,
+      vramMb: m.vram_mb,
       fit: m.fit,
-      blurb: m.blurb,
     }));
     for (const m of info.ollama.models) {
       if (isEmbed(m.name) || inCatalog.has(m.name)) continue;
@@ -96,9 +98,10 @@
         name: m.name,
         label: m.name,
         params: m.parameter_size,
-        minVramMb: null,
+        quant: m.quantization,
+        downloadMb: null,
+        vramMb: null,
         fit: null,
-        blurb: null,
       });
     }
     // The configured model may have been removed from Ollama since. Keep a row for it so "current"
@@ -108,9 +111,10 @@
         name: currentModel,
         label: currentModel,
         params: null,
-        minVramMb: null,
+        quant: null,
+        downloadMb: null,
+        vramMb: null,
         fit: null,
-        blurb: null,
       });
     }
     return out;
@@ -119,8 +123,8 @@
   let embedInstalled = $derived(installed(EMBED_MODEL));
   let canContinue = $derived(!pulling && !!selected && installed(selected));
 
-  function vramGb(mb: number | null): string {
-    return mb === null ? "" : `~${(mb / 1000).toFixed(mb >= 10000 ? 0 : 1)}GB`;
+  function gbOf(mb: number): string {
+    return `${(mb / 1024).toFixed(mb < 10240 ? 1 : 0)} GB`;
   }
 
   // ModelInfo.size is raw bytes, unlike the megabytes used elsewhere in the report. This is what
@@ -128,7 +132,7 @@
   // of them frees nothing. Stated as "on disk", never as "frees N GB".
   function diskSize(name: string): string {
     const bytes = info.ollama.models.find((m) => sameTag(m.name, name))?.size ?? 0;
-    return bytes > 0 ? `${(bytes / 1e9).toFixed(1)} GB on disk` : "";
+    return bytes > 0 ? `${(bytes / 1024 ** 3).toFixed(1)} GB on disk` : "";
   }
 
   function gb(mb: number): string {
@@ -296,15 +300,22 @@
           {:else}
             <input type="radio" name="model" value={m.name} bind:group={selected} />
           {/if}
-          <span class="flex-1">
+          <span class="min-w-0 flex-1">
             <span>{m.label}</span>
-            {#if m.params}<span class="text-dim text-xs"> · {m.params}</span>{/if}
-            {#if installed(m.name)}
-              <span class="text-dim text-xs"> · {diskSize(m.name)}</span>
-            {:else if m.minVramMb}
-              <span class="text-dim text-xs"> · {vramGb(m.minVramMb)}</span>
-            {/if}
-            {#if m.blurb}<span class="text-dim block text-[11px]">{m.blurb}</span>{/if}
+            <!-- Measured facts only, under the name so the top line stays scannable. The size is
+                 exact (no tilde); the VRAM figure is an estimate and is marked as one. -->
+            <span class="text-dim block text-[11px]">
+              {#if m.params}<span>{m.params}</span>{/if}
+              {#if m.quant}<span> · {m.quant}</span>{/if}
+              {#if installed(m.name)}
+                <span> · {diskSize(m.name)}</span>
+              {:else if m.downloadMb}
+                <span> · {gbOf(m.downloadMb)} download</span>
+              {/if}
+              {#if m.vramMb}
+                <span> · ~{gbOf(m.vramMb)} VRAM</span>
+              {/if}
+            </span>
           </span>
           {#if isCurrent}
             <span class="badge">current</span>
