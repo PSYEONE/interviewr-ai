@@ -180,7 +180,9 @@ class Session:
         answer_id = uuid.uuid4().hex
         self._bus.publish(StatusEvent(state="thinking"))
         self._bus.publish(
-            AnswerStartEvent(answer_id=answer_id, source_chars=len(transcript))
+            AnswerStartEvent(
+                answer_id=answer_id, question=transcript, source_chars=len(transcript)
+            )
         )
         # Retrieved RAG context augments only the message sent to the LLM; history keeps the
         # raw transcript (below) so each turn retrieves fresh and context never accretes. The

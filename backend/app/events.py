@@ -26,6 +26,9 @@ class TranscriptEvent(BaseModel):
 class AnswerStartEvent(BaseModel):
     type: Literal["answer.start"] = "answer.start"
     answer_id: str
+    # The exact transcript snapshot this answer was generated from, so any client can pair the
+    # two into a turn without re-deriving the split from its own transcript stream.
+    question: str
     source_chars: int
 
 
