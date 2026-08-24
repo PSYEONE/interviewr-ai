@@ -65,3 +65,35 @@ def test_catalog_json_is_current() -> None:
     fresh = asyncio.run(build())
     current = json.loads(_CATALOG_JSON.read_text())
     assert current["models"] == fresh["models"], "run scripts/refresh_catalog.py"
+
+
+# --- the refresh script's stamp handling -------------------------------------------------------
+
+
+def _stamp_for() -> object:
+    import sys
+    from pathlib import Path as _P
+
+    sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "scripts"))
+    from refresh_catalog import stamp_for  # type: ignore[import-not-found]
+
+    return stamp_for
+
+
+def test_stamp_is_kept_when_the_facts_are_unchanged() -> None:
+    """Otherwise the scheduled workflow opens a PR every day containing only a new date."""
+    stamp_for = _stamp_for()
+    models = {"phi4": {"download_mb": 8633}}
+    current = {"generated_at": "2026-01-01", "models": models}
+    assert stamp_for(models, current, "2026-08-24") == "2026-01-01"
+
+
+def test_stamp_advances_when_a_model_changed() -> None:
+    stamp_for = _stamp_for()
+    current = {"generated_at": "2026-01-01", "models": {"phi4": {"download_mb": 8633}}}
+    assert stamp_for({"phi4": {"download_mb": 9000}}, current, "2026-08-24") == "2026-08-24"
+
+
+def test_stamp_advances_when_there_is_no_previous_file() -> None:
+    stamp_for = _stamp_for()
+    assert stamp_for({"phi4": {}}, {}, "2026-08-24") == "2026-08-24"
