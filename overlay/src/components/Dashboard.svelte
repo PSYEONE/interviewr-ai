@@ -40,6 +40,11 @@
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
   }
+  // The detail header used to blank the preview, which made an untitled conversation render as
+  // "Conversation 25". Fall back to its first question, exactly like the list does.
+  function firstQuestion(c: ConversationDetail): string {
+    return c.turns[0]?.question ?? "";
+  }
   function turns(n: number): string {
     return `${n} turn${n === 1 ? "" : "s"}`;
   }
@@ -195,7 +200,7 @@
           <div class="flex items-stretch gap-2">
             <button onclick={goHome}>Back</button>
             <div class="min-w-0 flex-1 self-center">
-              <div class="truncate font-semibold">{label({ ...selected, preview: "" })}</div>
+              <div class="truncate font-semibold">{label({ ...selected, preview: firstQuestion(selected) })}</div>
               <div class="text-dim text-sm">{when(selected.started_at)}</div>
             </div>
             <button class="row-icon" title="Download (.md)" onclick={() => download(selected!.id)}>

@@ -27,6 +27,22 @@ from .rag import Retriever, format_context
 
 _log = logging.getLogger(__name__)
 _TITLE_TIMEOUT_S = 15.0  # bound best-effort title generation so it can't hang shutdown
+_FALLBACK_TITLE_WORDS = 8
+
+
+def _fallback_title(turns: list[TurnRecord]) -> str:
+    """A deterministic label from the first question, used until (or instead of) an LLM title.
+
+    Written the moment a conversation is finalized so it is never left unlabelled: the LLM call
+    can time out, error, or be cancelled by shutdown, and any of those used to leave title NULL
+    and the UI showing "Conversation 25".
+    """
+    question = turns[0]["question"].strip() if turns else ""
+    if not question:
+        return ""
+    words = question.split()
+    title = " ".join(words[:_FALLBACK_TITLE_WORDS])
+    return (title + "...") if len(words) > _FALLBACK_TITLE_WORDS else title
 
 # Form-only answer-style directives appended to the question (the client flips between them).
 _STYLE_DIRECTIVES = {
@@ -265,6 +281,11 @@ class Session:
             detail = self._history_store.get_conversation(conv_id)
             if detail is None or not detail["turns"] or detail["title"]:
                 return
+            # Land a usable title before touching the LLM. Everything after this point is an
+            # upgrade, so a timeout or a cancelled task can no longer leave the row unlabelled.
+            fallback = _fallback_title(detail["turns"])
+            if fallback:
+                self._history_store.set_title(conv_id, fallback)
             title = await asyncio.wait_for(
                 self._generate_title(detail["turns"]), timeout=_TITLE_TIMEOUT_S
             )
