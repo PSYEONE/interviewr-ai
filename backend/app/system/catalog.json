@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-08-24",
+  "models": {
+    "gemma3:27b": {
+      "download_mb": 16591,
+      "params": "27.4B",
+      "quant": "Q4_K_M",
+      "family": "gemma3"
+    },
+    "gemma3:4b": {
+      "download_mb": 3184,
+      "params": "4.3B",
+      "quant": "Q4_K_M",
+      "family": "gemma3"
+    },
+    "llama3.1:8b": {
+      "download_mb": 4692,
+      "params": "8.0B",
+      "quant": "Q4_K_M",
+      "family": "llama"
+    },
+    "llama3.2:3b": {
+      "download_mb": 1925,
+      "params": "3.2B",
+      "quant": "Q4_K_M",
+      "family": "llama"
+    },
+    "llama3.3:70b": {
+      "download_mb": 40550,
+      "params": "70.6B",
+      "quant": "Q4_K_M",
+      "family": "llama"
+    },
+    "mistral-nemo:12b": {
+      "download_mb": 6744,
+      "params": "12.2B",
+      "quant": "Q4_0",
+      "family": "llama"
+    },
+    "phi4": {
+      "download_mb": 8633,
+      "params": "14.7B",
+      "quant": "Q4_K_M",
+      "family": "phi3"
+    },
+    "phi4-mini": {
+      "download_mb": 2376,
+      "params": "3.8B",
+      "quant": "Q4_K_M",
+      "family": "phi3"
+    },
+    "qwen2.5:14b": {
+      "download_mb": 8571,
+      "params": "14.8B",
+      "quant": "Q4_K_M",
+      "family": "qwen2"
+    },
+    "qwen2.5:32b": {
+      "download_mb": 18931,
+      "params": "32.8B",
+      "quant": "Q4_K_M",
+      "family": "qwen2"
+    },
+    "qwen2.5:7b": {
+      "download_mb": 4466,
+      "params": "7.6B",
+      "quant": "Q4_K_M",
+      "family": "qwen2"
+    },
+    "qwen3:8b": {
+      "download_mb": 4983,
+      "params": "8.2B",
+      "quant": "Q4_K_M",
+      "family": "qwen3"
+    }
+  }
+}

@@ -41,14 +41,17 @@ export interface OllamaStatus {
 }
 
 // One curated catalog model, fit-labelled against the detected VRAM (mirrors backend RankedModel).
+// Only the name and label are hand-written; the facts are generated into catalog.json, so they are
+// nullable until a newly-added model has been through scripts/refresh_catalog.py.
 export interface RankedModel {
   name: string; // ollama tag
   label: string;
-  params: string; // "14B"
-  min_vram_mb: number;
-  family: string;
-  blurb: string;
-  fit: string; // fits | tight | too_big | cpu
+  download_mb: number | null; // exact, summed from the registry manifest
+  params: string | null; // "14.8B"
+  quant: string | null; // "Q4_K_M"
+  family: string | null;
+  fit: string | null; // fits | tight | too_big | cpu; null when the size isn't known
+  vram_mb: number | null; // estimated weights + KV cache at the default 4096 context
 }
 
 export interface Recommendation {
