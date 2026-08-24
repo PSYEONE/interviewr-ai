@@ -83,8 +83,21 @@
     }
   }
 
-  function download(id: number): void {
-    void downloadExport(`/history/${id}/export`, `conversation-${id}.md`);
+  // Filesystem-safe slug so a saved export says what it contains, not just which row it was.
+  // Non-ASCII characters drop out entirely; an empty result falls back to the bare id.
+  function slug(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+/, "")
+      .slice(0, 60)
+      .replace(/-+$/, "");
+  }
+
+  function download(c: { id: number; title: string | null; preview: string }): void {
+    const name = slug(c.title || c.preview);
+    const file = name ? `conversation-${c.id}-${name}.md` : `conversation-${c.id}.md`;
+    void downloadExport(`/history/${c.id}/export`, file);
   }
 
   // Returning from a live interview: turns/titles may have changed, so refresh.
@@ -172,7 +185,7 @@
                   <span class="block truncate text-base">{label(c)}</span>
                   <span class="text-dim text-sm">{when(c.started_at)} · {turns(c.turn_count)}</span>
                 </button>
-                <button class="row-icon" title="Download (.md)" onclick={() => download(c.id)}>
+                <button class="row-icon" title="Download (.md)" onclick={() => download(c)}>
                   {@render downloadIcon()}
                 </button>
                 <button
@@ -203,7 +216,7 @@
               <div class="truncate font-semibold">{label({ ...selected, preview: firstQuestion(selected) })}</div>
               <div class="text-dim text-sm">{when(selected.started_at)}</div>
             </div>
-            <button class="row-icon" title="Download (.md)" onclick={() => download(selected!.id)}>
+            <button class="row-icon" title="Download (.md)" onclick={() => download({ ...selected!, preview: firstQuestion(selected!) })}>
               {@render downloadIcon()}
             </button>
           </div>
