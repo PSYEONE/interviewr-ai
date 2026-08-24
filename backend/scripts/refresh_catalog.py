@@ -79,25 +79,45 @@ def _serialize(data: dict[str, object]) -> str:
     return json.dumps(data, indent=2, sort_keys=False) + "\n"
 
 
+def stamp_for(fresh_models: object, current: dict[str, object], today: str) -> str:
+    """Today's date, or the previous stamp when the facts are unchanged.
+
+    Without this the date alone would differ on every run, so the scheduled workflow would open a
+    PR every single day containing nothing but a new timestamp.
+    """
+    previous = current.get("generated_at")
+    if current.get("models") == fresh_models and isinstance(previous, str) and previous:
+        return previous
+    return today
+
+
+def _current() -> dict[str, object]:
+    try:
+        loaded = json.loads(_CATALOG_JSON.read_text())
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true", help="fail if the committed file is stale")
     args = ap.parse_args()
 
     fresh = asyncio.run(build())
+    current = _current()
     if args.check:
-        try:
-            current = json.loads(_CATALOG_JSON.read_text())
-        except (OSError, ValueError):
+        if not current:
             print("catalog.json missing or unreadable", file=sys.stderr)
             return 1
-        # generated_at moves every run, so compare only the facts.
+        # Compare only the facts; the stamp is not part of what "up to date" means.
         if current.get("models") != fresh["models"]:
             print("catalog.json is out of date; run scripts/refresh_catalog.py", file=sys.stderr)
             return 1
         print("catalog.json is up to date")
         return 0
 
+    fresh["generated_at"] = stamp_for(fresh["models"], current, str(fresh["generated_at"]))
     _CATALOG_JSON.write_text(_serialize(fresh))
     print(f"\nwrote {_CATALOG_JSON} ({len(fresh['models'])} models)")  # type: ignore[arg-type]
     return 0
