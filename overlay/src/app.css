@@ -92,29 +92,92 @@
   #dot[data-state="idle"],
   #dot[data-state="unconfigured"] { background: var(--color-bad); }
 
-  /* Collapsed to bar: hide the content but keep the components mounted, so transcript scroll
-     and the streaming answer survive an expand. The window is resized to the bars in JS. */
-  body.collapsed #transcript,
-  body.collapsed #answer { display: none; }
+  /* Collapsed to bar: hide the content but keep the component mounted, so scroll position and
+     the streaming answer survive an expand. The window is resized to the bars in JS. */
+  body.collapsed #chat { display: none; }
 
-  #transcript {
+  /* Interview chat log: one scroller for every turn. */
+  #chat {
     flex: 1;
     overflow-y: auto;
+  }
+  /* Use the window: a narrow reading column left ~200px of dead gutter each side at 1200px. The
+     cap is high enough that it only bites on an ultra-wide window, where unbroken 200-character
+     lines would be unreadable. Horizontal padding matches the old transcript pane. */
+  .log {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 130ch;
+    margin-inline: auto;
+    padding: 12px 14px 20px;
+  }
+  .turn { display: flex; flex-direction: column; }
+  /* Pinned while its own turn is on screen, so scrolling back always shows which question you
+     are looking at. Opaque, because the panel itself is translucent. */
+  .turn-q {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 8px 12px;
+    font-weight: 600;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-left: 2px solid rgb(255 255 255 / 0.18);
+    background: var(--solid);
+  }
+  /* Markdown supplies the block structure, but pre-wrap still matters: a model told to answer in
+     "bullet points, each a single line" often emits plain lines or "*" characters rather than
+     markdown "-", and those newlines survive inside a paragraph's text. Without this they collapse
+     to spaces and the whole answer runs together. Nothing is built from formatted HTML, so no
+     stray indentation leaks in. */
+  .turn-a {
     padding: 10px 12px;
     white-space: pre-wrap;
     word-break: break-word;
+    color: var(--color-fg);
+    border-left: 2px solid var(--color-accent);
+    background: rgb(137 180 250 / 0.1);
   }
+  .turn-a > :first-child { margin-top: 0; }
+  .turn-a > :last-child { margin-bottom: 0; }
+  .turn-a p { margin: 0.6em 0; }
+  .turn-a ul { list-style: disc; }
+  .turn-a ol { list-style: decimal; }
+  .turn-a ul,
+  .turn-a ol { margin: 0.6em 0; padding-left: 1.4em; }
+  .turn-a li { margin: 0.25em 0; }
+  /* Tight lists: marked still wraps each item's content in a paragraph, so flatten the margins
+     instead of special-casing tight vs loose in the renderer. */
+  .turn-a li > p { margin: 0; }
+  .turn-a li > ul,
+  .turn-a li > ol { margin: 0.25em 0; }
+  .turn-a code {
+    padding: 0 0.3em;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: rgb(255 255 255 / 0.1);
+  }
+  .turn-a pre {
+    margin: 0.6em 0;
+    padding: 8px 10px;
+    overflow-x: auto;
+    background: rgb(0 0 0 / 0.3);
+  }
+  .turn-a pre code { padding: 0; background: none; }
+  /* Heard but not yet asked. Readable rather than faded: you check it to decide whether the
+     engine heard the question correctly before hitting Answer. The dashed rule, not the colour,
+     is what marks it as not yet a turn. */
+  .turn-pending {
+    padding: 8px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--color-fg);
+    border-left: 2px dashed rgb(255 255 255 / 0.28);
+  }
+  .turn-empty { padding: 8px 12px; color: var(--color-dim); }
+  /* The in-flight partial tail still steps back a little, since it can still be revised. */
   #t-live { color: var(--color-dim); }
-  #answer {
-    max-height: 45%;
-    overflow-y: auto;
-    padding: 10px 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--color-ok);
-    border-top: 1px solid rgb(255 255 255 / 0.08);
-  }
-  #answer:empty { display: none; }
 
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb {

@@ -3,10 +3,9 @@
 
   import { session } from "../lib/session.svelte";
   import { windowControls } from "../lib/windowControls.svelte";
-  import Answer from "./Answer.svelte";
   import Bar from "./Bar.svelte";
+  import ChatLog from "./ChatLog.svelte";
   import Controls from "./Controls.svelte";
-  import Transcript from "./Transcript.svelte";
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -21,6 +20,5 @@
 </script>
 
 <Bar {onBack} />
-<Transcript />
-<Answer />
+<ChatLog />
 <Controls />

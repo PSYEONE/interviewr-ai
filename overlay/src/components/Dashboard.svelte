@@ -15,6 +15,7 @@
   import SettingsView from "./dashboard/SettingsView.svelte";
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
+  import Turn from "./Turn.svelte";
   import WindowButtons from "./WindowButtons.svelte";
 
   type View =
@@ -202,16 +203,16 @@
             </button>
           </div>
         </div>
-        <div class="dash-body">
-          {#each selected.turns as t (t.id)}
-            <div class="flex flex-col gap-1">
-              <strong>Q: {t.question}</strong>
-              <p class="text-ok whitespace-pre-wrap">{t.answer}</p>
-            </div>
-          {/each}
-          {#if selected.turns.length === 0}
-            <p class="text-dim text-sm">This conversation has no turns.</p>
-          {/if}
+        <!-- p-0 so .log supplies the padding, matching the interview log exactly. -->
+        <div class="dash-body !p-0">
+          <div class="log">
+            {#each selected.turns as t (t.id)}
+              <Turn question={t.question} answer={t.answer} />
+            {/each}
+            {#if selected.turns.length === 0}
+              <p class="text-dim text-sm">This conversation has no turns.</p>
+            {/if}
+          </div>
         </div>
       </div>
     {:else if view === "models"}
