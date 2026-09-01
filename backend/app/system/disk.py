@@ -28,6 +28,7 @@ class DiskInfo(BaseModel):
     total_mb: int
     free_mb: int
     models_mb: int | None  # size of Ollama's model store; None when it isn't readable
+    partial_mb: int  # of that, bytes held by interrupted downloads (see partial_bytes)
 
 
 def blob_name(digest: str) -> str:
@@ -63,15 +64,48 @@ def resolve_models_dir(override: Path | None) -> Path | None:
     return None
 
 
+def _allocated(path: str) -> int:
+    """Blocks actually committed to disk, which is not the file's length.
+
+    Ollama preallocates a download's full length as a sparse file, so an interrupted 40 GB pull
+    reports 40 GB via getsize while occupying only what it managed to fetch.
+    """
+    return int(os.stat(path).st_blocks) * 512
+
+
 def _dir_size_bytes(path: Path) -> int | None:
     try:
         return sum(
-            os.path.getsize(os.path.join(root, name))
+            _allocated(os.path.join(root, name))
             for root, _dirs, files in os.walk(path)
             for name in files
         )
     except OSError:
         return None
+
+
+def partial_paths(models_dir: Path) -> list[Path]:
+    """Files left behind by interrupted downloads.
+
+    Ollama never removes these: it globs them to resume a later pull, and deletes them only on a
+    successful completion. Nothing references them from a manifest, so `ollama list` cannot show
+    them and `ollama rm` cannot reclaim them.
+    """
+    try:
+        return sorted((models_dir / "blobs").glob("*-partial*"))
+    except OSError:
+        return []
+
+
+def partial_bytes(models_dir: Path) -> int:
+    """Disk actually held by interrupted downloads."""
+    total = 0
+    for path in partial_paths(models_dir):
+        try:
+            total += _allocated(str(path))
+        except OSError:
+            continue
+    return total
 
 
 def probe_disk(override: Path | None) -> DiskInfo | None:
@@ -89,4 +123,5 @@ def probe_disk(override: Path | None) -> DiskInfo | None:
         total_mb=usage.total // _MB,
         free_mb=usage.free // _MB,
         models_mb=None if models_bytes is None else models_bytes // _MB,
+        partial_mb=partial_bytes(models_dir) // _MB,
     )

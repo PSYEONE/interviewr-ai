@@ -70,6 +70,7 @@ export interface DiskInfo {
   total_mb: number;
   free_mb: number;
   models_mb: number | null; // size of Ollama's model store; null when it isn't readable
+  partial_mb: number; // of that, bytes held by interrupted downloads
 }
 
 export interface SystemReport {

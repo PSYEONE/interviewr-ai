@@ -1,0 +1,64 @@
+// The active model download, owned above the screens that start it.
+//
+// A pull outlives the component that kicked it off: leaving the model picker used to unmount
+// LocalSetup while the fetch kept running, so the download continued with nothing tracking it and
+// no way to stop it. Holding it here lets PullStatus show and cancel it from anywhere.
+
+import { pullModel } from "./api";
+
+export type ActivePull = { model: string; pct: number; status: string };
+
+class Pull {
+  active = $state<ActivePull | null>(null);
+  // Set briefly between the user hitting Cancel and the request actually unwinding.
+  cancelling = $state(false);
+
+  #controller: AbortController | null = null;
+
+  get busy(): boolean {
+    return this.active !== null;
+  }
+
+  /** Run a pull to completion. Resolves "done", "cancelled", or throws a real failure.
+   *  Cancellation is a normal outcome, not an error: callers must not surface it as one. */
+  async run(model: string): Promise<"done" | "cancelled"> {
+    if (this.busy || !model) return "cancelled"; // one pull at a time, process-wide
+    const controller = new AbortController();
+    this.#controller = controller;
+    this.cancelling = false;
+    this.active = { model, pct: 0, status: "starting…" };
+    try {
+      await pullModel(
+        model,
+        (p) => {
+          if (this.active?.model !== model) return;
+          this.active = {
+            model,
+            status: p.status,
+            pct: p.percent ?? this.active.pct,
+          };
+        },
+        controller.signal,
+      );
+      return "done";
+    } catch (e) {
+      if (controller.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+        return "cancelled";
+      }
+      throw e;
+    } finally {
+      this.active = null;
+      this.cancelling = false;
+      this.#controller = null;
+    }
+  }
+
+  cancel(): void {
+    if (!this.#controller) return;
+    this.cancelling = true;
+    if (this.active) this.active = { ...this.active, status: "cancelling…" };
+    this.#controller.abort();
+  }
+}
+
+export const pull = new Pull();
