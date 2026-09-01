@@ -61,12 +61,19 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield c
 
 
-def _probes(monkeypatch: pytest.MonkeyPatch, disk: DiskInfo | None, layers: object) -> None:
-    async def fake_layers(model: str) -> object:
-        return layers
+def _probes(
+    monkeypatch: pytest.MonkeyPatch,
+    disk: DiskInfo | None,
+    layers: object,
+    resolution: str = "found",
+) -> None:
+    """`layers=None` means the registry couldn't answer, which must fall open, not 404."""
+
+    async def fake_resolve(model: str) -> tuple[str, object]:
+        return ("unknown" if layers is None and resolution == "found" else resolution), layers
 
     monkeypatch.setattr(main, "probe_disk", lambda _override: disk)
-    monkeypatch.setattr(main, "manifest_layers", fake_layers)
+    monkeypatch.setattr(main, "resolve_model", fake_resolve)
 
 
 async def test_refuses_a_model_that_will_not_fit(
@@ -133,3 +140,35 @@ async def test_skips_the_check_for_a_remote_daemon(
 
     monkeypatch.setattr(main, "probe_disk", boom)
     assert (await client.post("/ollama/pull", json={"model": "phi4"})).status_code == 200
+
+
+async def test_refuses_a_model_the_registry_does_not_have(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typo would otherwise start a download that fails after the UI showed a progress bar."""
+    _probes(monkeypatch, _disk(free_mb=40 * _GB), None, resolution="missing")
+    resp = await client.post("/ollama/pull", json={"model": "gemma3:4bb"})
+    assert resp.status_code == 404
+    assert "gemma3:4bb" in resp.json()["detail"]
+    assert FakeAdmin.pulled == []  # never reached the daemon
+
+
+async def test_a_registry_that_cannot_answer_is_not_a_missing_model(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Offline, or a private HF repo answering 401: fall open rather than claim it doesn't exist."""
+    _probes(monkeypatch, _disk(free_mb=40 * _GB), None, resolution="unknown")
+    resp = await client.post("/ollama/pull", json={"model": "hf.co/someone/private"})
+    assert resp.status_code == 200
+    assert FakeAdmin.pulled == ["hf.co/someone/private"]
+
+
+async def test_missing_is_refused_even_for_a_remote_daemon(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tag not existing has nothing to do with whose disk it would land on."""
+    app.state.settings = Settings(  # type: ignore[call-arg]
+        llm_model="m", ollama_base_url="http://192.168.1.50:11434", _env_file=None
+    )
+    _probes(monkeypatch, None, None, resolution="missing")
+    assert (await client.post("/ollama/pull", json={"model": "nope"})).status_code == 404

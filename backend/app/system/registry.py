@@ -11,6 +11,8 @@ returns None, and the caller must let the pull proceed rather than blocking on a
 
 from __future__ import annotations
 
+from typing import Literal
+
 import httpx
 
 _ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
@@ -19,6 +21,10 @@ _ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
 _REGISTRY = "https://registry.ollama.ai"
 _HF_REGISTRY = "https://huggingface.co"
 _HF_HOSTS = ("hf.co/", "huggingface.co/")
+
+# "missing" means a registry positively denied the tag; "unknown" means we could not find
+# out, and the caller must fall open rather than block a pull that would have worked.
+Resolution = Literal["found", "missing", "unknown"]
 
 
 def parse_tag(tag: str) -> tuple[str, str] | None:
@@ -80,20 +86,37 @@ async def _manifest_layers(
     return out
 
 
-async def manifest_layers(
+async def resolve_model(
     tag: str, *, transport: httpx.AsyncBaseTransport | None = None
-) -> list[tuple[str, int]] | None:
-    """(digest, size) for every blob a pull of `tag` would need, or None if it can't be known."""
+) -> tuple[Resolution, list[tuple[str, int]] | None]:
+    """Whether `tag` exists upstream, and its blobs when it does.
+
+    Only a registry that positively denies the tag yields "missing": ollama.com answers 404 with
+    MANIFEST_UNKNOWN for an unknown name or a typo'd tag, and Hugging Face 400s a quant it cannot
+    serve. A 401 stays "unknown", because HF answers that for a private repo as well as a typo and
+    Ollama can pull private repos with its own key even though we cannot see them.
+    """
     hf = parse_hf_ref(tag)
     parsed = (_HF_REGISTRY, *hf) if hf is not None else None
     if parsed is None:
         ollama = parse_tag(tag)
         parsed = (_REGISTRY, *ollama) if ollama is not None else None
     if parsed is None:
-        return None
+        return "unknown", None
     base, repo, version = parsed
     try:
         async with httpx.AsyncClient(timeout=10.0, transport=transport) as client:
-            return await _manifest_layers(base, repo, version, client)
+            layers = await _manifest_layers(base, repo, version, client)
+    except httpx.HTTPStatusError as exc:
+        return ("missing" if exc.response.status_code in (400, 404) else "unknown"), None
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        return None
+        return "unknown", None
+    # A 200 carrying an error body instead of layers is also a positive denial.
+    return ("found", layers) if layers else ("missing", None)
+
+
+async def manifest_layers(
+    tag: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> list[tuple[str, int]] | None:
+    """(digest, size) for every blob a pull of `tag` would need, or None if it can't be known."""
+    return (await resolve_model(tag, transport=transport))[1]

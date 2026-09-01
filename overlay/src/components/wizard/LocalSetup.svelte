@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { deleteOllamaModel, getSystemInfo } from "../../lib/api";
+  import { deleteOllamaModel, getDisk, getSystemInfo } from "../../lib/api";
   import { pull } from "../../lib/pull.svelte";
   import Command from "../Command.svelte";
   import type { ConfigView, RankedModel, SystemReport } from "../../lib/types";
@@ -51,6 +51,9 @@
   let armed = $state<string | null>(null);
   let deleting = $state(false);
   let error = $state<string | null>(null);
+  // Failures from the "Pull any model" field show inline beside it: a mistyped tag is about that
+  // input, so the message belongs next to it rather than in the strip above the footer.
+  let customError = $state<string | null>(null);
   // Progress lives in the shared store so it survives leaving this screen; PullStatus renders it.
   let pulling = $derived(pull.busy);
 
@@ -176,6 +179,22 @@
     }
   }
 
+  // Reclaiming residue happens outside the app (a sudo rm in a terminal), so the only moment the
+  // answer can have changed is when the window comes back. Guarded on there being residue at all,
+  // so once it is cleared this stops firing and costs nothing.
+  let recheckingDisk = false;
+  async function recheckDisk(): Promise<void> {
+    if (recheckingDisk || !info.disk || info.disk.partial_mb <= 0) return;
+    recheckingDisk = true;
+    try {
+      info = { ...info, disk: await getDisk() };
+    } catch {
+      /* leave the last known figures in place */
+    } finally {
+      recheckingDisk = false;
+    }
+  }
+
   async function refresh(): Promise<void> {
     try {
       info = await getSystemInfo(true);
@@ -207,12 +226,21 @@
   async function pullCustom(): Promise<void> {
     const tag = customModel.trim();
     if (!tag) return;
-    if (sameTag(tag, currentModel)) {
-      await download(tag);
-      return;
+    customError = null;
+    try {
+      await pull.run(tag);
+    } catch (e) {
+      // Inside the field there is only room for a verdict; the tag it refers to is right there.
+      const status = (e as { status?: number }).status;
+      customError =
+        status === 404 ? "Model not found" : e instanceof Error ? e.message : String(e);
     }
-    await pullAndSelect(tag);
-    if (installed(tag)) customModel = "";
+    await refresh(); // installed() reads `info`, so the check below needs the fresh report
+    if (!installed(tag)) return;
+    // Pulling a model by name is an explicit choice, so select it once it lands. Re-pulling the
+    // one already in use is a repair, not a choice, and must not change the selection.
+    if (!sameTag(tag, currentModel)) selected = tag;
+    customModel = "";
   }
 
   function finish(): void {
@@ -233,6 +261,11 @@
     <span class="col-start-1 row-start-1">{text}</span>
   </span>
 {/snippet}
+
+<!-- Both events: WebKitGTK's focus behaviour is unverified, and whichever arrives first makes the
+     other a no-op via the in-flight guard. -->
+<svelte:window onfocus={recheckDisk} />
+<svelte:document onvisibilitychange={() => !document.hidden && recheckDisk()} />
 
 <div class="wiz split">
   <div class="wiz-head">
@@ -274,13 +307,27 @@
 
       <div class="card card-row flex items-center gap-2">
         <span class="text-dim shrink-0 text-xs">Pull any model:</span>
-        <input
-          class="flex-1"
-          type="text"
-          placeholder="e.g. gemma3:4b"
-          bind:value={customModel}
-          onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), pullCustom())}
-        />
+        <!-- The verdict sits inside the field, at the far end: it is about what was typed there.
+             pointer-events-none so it never blocks a click into the input, and the input gains
+             right padding while it shows so a long tag can't run underneath it. -->
+        <span class="relative min-w-0 flex-1">
+          <input
+            class="w-full"
+            class:pr-28={!!customError}
+            type="text"
+            placeholder="e.g. gemma3:4b"
+            bind:value={customModel}
+            oninput={() => (customError = null)}
+            onkeydown={(e) => e.key === "Enter" && (e.preventDefault(), pullCustom())}
+          />
+          {#if customError}
+            <span
+              class="text-bad pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs"
+            >
+              {customError}
+            </span>
+          {/if}
+        </span>
         <button disabled={pulling || !customModel.trim()} onclick={pullCustom}>Download</button>
       </div>
 
