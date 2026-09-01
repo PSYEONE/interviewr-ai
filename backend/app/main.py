@@ -60,9 +60,9 @@ from .rag.base import DocKind
 from .rag.store import DocumentRecord
 from .session import Session
 from .system import SystemReport, collect_system_report
-from .system.disk import missing_bytes, present_blobs, probe_disk
+from .system.disk import DiskInfo, missing_bytes, present_blobs, probe_disk
 from .system.ollama_admin import OllamaAdmin, normalize_tag
-from .system.registry import manifest_layers
+from .system.registry import resolve_model
 
 _log = logging.getLogger(__name__)
 
@@ -394,16 +394,22 @@ def _local_ollama(base_url: str) -> bool:
     return host in {"127.0.0.1", "localhost", "::1"}
 
 
-async def _guard_disk_space(settings: Settings, model: str) -> None:
-    """Refuse a pull that can't fit, before a byte moves.
+async def _guard_pull(settings: Settings, model: str) -> None:
+    """Refuse a pull that can't succeed, before a byte moves: an unknown tag, or one that won't fit.
 
-    Fails open on every unknown (remote daemon, unlocatable model store, a registry that won't
-    answer): a lookup failure must never block a download that would have worked.
+    Fails open on every genuine unknown (remote daemon, unlocatable model store, a registry that
+    won't answer): a lookup failure must never block a download that would have worked.
     """
+    resolution, layers = await resolve_model(model)
+    if resolution == "missing":
+        # The registry positively denied it, so the pull would fail after the UI had already
+        # committed to a progress bar. Say so up front instead.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"no model called '{model}'"
+        )
     if not _local_ollama(settings.ollama_base_url):
         return
     disk = await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
-    layers = await manifest_layers(model)
     if disk is None or layers is None:
         return
     models_dir = Path(disk.path)
@@ -451,12 +457,22 @@ async def system_info(request: Request) -> SystemReport:
     return await collect_system_report(settings)
 
 
+@app.get("/system/disk")
+async def system_disk(request: Request) -> DiskInfo | None:
+    """Just the disk figures. Separate from /system/info because that one shells out to
+    vulkaninfo/nvidia-smi and calls Ollama, ~1000x the cost, and the UI re-checks this whenever
+    the window regains focus to notice reclaimed space."""
+    _require_auth(request)
+    settings: Settings = request.app.state.settings
+    return await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
+
+
 @app.post("/ollama/pull")
 async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
     """Pull an Ollama model, streaming progress as newline-delimited JSON (PullProgress)."""
     _require_auth(request)
     settings: Settings = request.app.state.settings
-    await _guard_disk_space(settings, body.model)
+    await _guard_pull(settings, body.model)
 
     async def stream() -> AsyncIterator[str]:
         admin = OllamaAdmin(settings.ollama_base_url)

@@ -10,13 +10,16 @@ export type ActivePull = { model: string; pct: number; status: string };
 
 class Pull {
   active = $state<ActivePull | null>(null);
+  // Tag being resolved before any download starts. Kept separate from `active` so an unknown
+  // model is rejected without ever flashing a progress bar.
+  checking = $state<string | null>(null);
   // Set briefly between the user hitting Cancel and the request actually unwinding.
   cancelling = $state(false);
 
   #controller: AbortController | null = null;
 
   get busy(): boolean {
-    return this.active !== null;
+    return this.active !== null || this.checking !== null;
   }
 
   /** Run a pull to completion. Resolves "done", "cancelled", or throws a real failure.
@@ -26,7 +29,7 @@ class Pull {
     const controller = new AbortController();
     this.#controller = controller;
     this.cancelling = false;
-    this.active = { model, pct: 0, status: "starting…" };
+    this.checking = model; // the tag is being resolved; no progress bar yet
     try {
       await pullModel(
         model,
@@ -39,6 +42,10 @@ class Pull {
           };
         },
         controller.signal,
+        () => {
+          this.checking = null;
+          this.active = { model, pct: 0, status: "starting…" };
+        },
       );
       return "done";
     } catch (e) {
@@ -48,6 +55,7 @@ class Pull {
       throw e;
     } finally {
       this.active = null;
+      this.checking = null;
       this.cancelling = false;
       this.#controller = null;
     }

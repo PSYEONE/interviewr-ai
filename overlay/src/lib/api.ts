@@ -5,6 +5,7 @@ import { authHeaders, httpBase } from "./connection";
 import { saveText } from "./tauri";
 import type {
   ConfigView,
+  DiskInfo,
   ConversationDetail,
   ConversationRecord,
   Health,
@@ -63,6 +64,16 @@ export async function getSystemInfo(force = false): Promise<SystemReport> {
   if (!force && _systemReport) return _systemReport;
   _systemReport = await getJSON<SystemReport>("/system/info");
   return _systemReport;
+}
+
+// Just the disk figures, without /system/info's GPU probe and Ollama call (~1000x the cost). The
+// model picker re-checks this on window focus to notice space reclaimed outside the app.
+export async function getDisk(): Promise<DiskInfo | null> {
+  const disk = await getJSON<DiskInfo | null>("/system/disk");
+  // Keep the cached report in step, or a later unforced getSystemInfo() would resurrect the stale
+  // figure and the reclaim warning would reappear.
+  if (_systemReport) _systemReport = { ..._systemReport, disk };
+  return disk;
 }
 
 export interface DocumentRecord {
@@ -165,6 +176,7 @@ export async function pullModel(
   model: string,
   onProgress: (p: PullProgress) => void,
   signal?: AbortSignal,
+  onStart?: () => void,
 ): Promise<void> {
   // The signal covers the pre-body window too: the server runs a registry lookup for the disk
   // pre-check before the first byte, and a cancel during that must still take effect.
@@ -174,8 +186,17 @@ export async function pullModel(
     body: JSON.stringify({ model }),
     signal,
   });
-  if (!resp.ok) throw new Error(await failure(resp, `pull ${model}`));
+  if (!resp.ok) {
+    // Attach the status so callers can distinguish "no such model" (404) from a real failure and
+    // phrase it for the space they have.
+    const err = new Error(await failure(resp, `pull ${model}`)) as Error & { status?: number };
+    err.status = resp.status;
+    throw err;
+  }
   if (!resp.body) throw new Error(`pull ${model} -> no response body`);
+  // Only now is a download genuinely under way: the server has already resolved the tag and
+  // checked the disk, so a rejected pull never flashes a progress bar.
+  onStart?.();
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
