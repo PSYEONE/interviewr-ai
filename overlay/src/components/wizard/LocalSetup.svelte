@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { deleteOllamaModel, getSystemInfo, pullModel } from "../../lib/api";
+  import { deleteOllamaModel, getSystemInfo } from "../../lib/api";
+  import { pull } from "../../lib/pull.svelte";
+  import Command from "../Command.svelte";
   import type { ConfigView, RankedModel, SystemReport } from "../../lib/types";
 
   let {
@@ -48,10 +50,9 @@
   // Model whose Delete is armed (click again to confirm), same shape as the history list.
   let armed = $state<string | null>(null);
   let deleting = $state(false);
-  let pulling = $state(false);
-  let pullPct = $state(0);
-  let pullStatus = $state("");
   let error = $state<string | null>(null);
+  // Progress lives in the shared store so it survives leaving this screen; PullStatus renders it.
+  let pulling = $derived(pull.busy);
 
   type Row = {
     name: string;
@@ -150,6 +151,10 @@
       hasModels: d.models_mb !== null,
       free: d.free_mb,
       total: d.total_mb,
+      // Interrupted downloads. Ollama keeps these to resume from and never prunes them, and no
+      // manifest references them, so nothing else in any UI can show that the space is in use.
+      partial: d.partial_mb,
+      reclaim: `sudo rm -f '${d.path}/blobs/'*-partial*`,
       modelsPct: (models / d.total_mb) * 100,
       otherPct: (other / d.total_mb) * 100,
     };
@@ -182,20 +187,14 @@
   async function download(model: string): Promise<void> {
     if (pulling || !model) return;
     error = null;
-    pulling = true;
-    pullPct = 0;
-    pullStatus = "starting…";
     try {
-      await pullModel(model, (p) => {
-        pullStatus = p.status;
-        if (p.percent !== null) pullPct = p.percent;
-      });
-      await refresh();
+      // A cancel is a normal outcome, not a failure: it must never paint the red error line.
+      // Either way the disk figures moved, so refresh on both paths.
+      await pull.run(model);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
-    } finally {
-      pulling = false;
     }
+    await refresh();
   }
 
   // Pulling an answering model is an explicit choice, so select it once it lands. Re-pulling the
@@ -262,8 +261,7 @@
       <div class="card">
         <strong>Ollama isn't installed</strong>
         <p class="text-xs">Run this in a terminal, then re-check:</p>
-        <pre class="card font-mono text-xs whitespace-pre-wrap break-all"><code
-          >{info.ollama.install_command}</code></pre>
+        <Command command={info.ollama.install_command ?? ""} />
         <div class="flex items-center justify-end gap-2">
           <button onclick={refresh}>Re-check</button>
         </div>
@@ -274,7 +272,7 @@
         <div class="flex items-center gap-2"><button onclick={refresh}>Re-check</button></div>
       {/if}
 
-      <div class="card flex items-center gap-2">
+      <div class="card card-row flex items-center gap-2">
         <span class="text-dim shrink-0 text-xs">Pull any model:</span>
         <input
           class="flex-1"
@@ -289,7 +287,7 @@
       {#each rows as m (m.name)}
         {@const isCurrent = sameTag(m.name, currentModel)}
         <label
-          class="card flex items-center gap-2"
+          class="card card-row flex items-center gap-2"
           class:cursor-pointer={!isCurrent}
           class:selected={selected === m.name}
         >
@@ -358,7 +356,7 @@
         </label>
       {/each}
 
-      <div class="card">
+      <div class="card card-row">
         <div class="flex items-center gap-2">
           <span class="flex-1">
             RAG (resume / job-description context)
@@ -396,12 +394,15 @@
     {/if}
   </div>
 
-  {#if error || pulling}
+  {#if error || (disk && disk.partial > 0)}
     <div class="wiz-status">
       {#if error}<p class="text-warn text-xs">{error}</p>{/if}
-      {#if pulling}
-        <div class="bar-track"><div class="bar-fill" style="width:{pullPct}%"></div></div>
-        <p class="text-xs">{pullStatus} {pullPct.toFixed(0)}%</p>
+      {#if disk && disk.partial > 0}
+        <Command
+          warn
+          note={`${gb(disk.partial)} in interrupted downloads. Run this to reclaim it:`}
+          command={disk.reclaim}
+        />
       {/if}
     </div>
   {/if}

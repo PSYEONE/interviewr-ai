@@ -41,7 +41,9 @@ class FakeAdmin:
 
 
 def _disk(free_mb: int) -> DiskInfo:
-    return DiskInfo(path="/models", total_mb=500 * _GB, free_mb=free_mb, models_mb=9 * _GB)
+    return DiskInfo(
+        path="/models", total_mb=500 * _GB, free_mb=free_mb, models_mb=9 * _GB, partial_mb=0
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 import httpx
 from pydantic import BaseModel
@@ -87,7 +87,7 @@ class OllamaAdmin:
             )
         return models
 
-    async def pull_model(self, model: str) -> AsyncIterator[PullProgress]:
+    async def pull_model(self, model: str) -> AsyncGenerator[PullProgress, None]:
         """Stream `/api/pull` progress until the download finishes (status 'success')."""
         async with self._client.stream(
             "POST", "/api/pull", json={"model": model, "stream": True}

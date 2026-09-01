@@ -6,6 +6,8 @@ from pathlib import Path
 
 from app.system.disk import (
     blob_name,
+    partial_bytes,
+    partial_paths,
     missing_bytes,
     present_blobs,
     probe_disk,
@@ -71,3 +73,55 @@ def test_probe_disk_reports_megabytes_and_store_size(tmp_path: Path) -> None:
 
 def test_probe_disk_is_none_when_the_store_is_missing(tmp_path: Path) -> None:
     assert probe_disk(tmp_path / "absent") is None
+
+
+# --- interrupted downloads ---------------------------------------------------------------------
+
+
+def _sparse(path: Path, apparent: int, written: int) -> None:
+    """A file that claims `apparent` bytes while only committing `written`, as Ollama's
+    preallocated download files do."""
+    with path.open("wb") as fh:
+        fh.truncate(apparent)
+        fh.write(b"x" * written)
+
+
+def test_partial_bytes_counts_allocated_not_apparent(tmp_path: Path) -> None:
+    """The real case: a 40GB partial holding 21GB. getsize would overstate by 19GB."""
+    blobs = tmp_path / "blobs"
+    blobs.mkdir()
+    _sparse(blobs / "sha256-aaa-partial", apparent=64 * 1024 * 1024, written=4 * 1024 * 1024)
+
+    counted = partial_bytes(tmp_path)
+    assert counted < 8 * 1024 * 1024, "counted the hole, not the data"
+    assert counted >= 4 * 1024 * 1024
+
+
+def test_partial_paths_ignores_finished_blobs(tmp_path: Path) -> None:
+    blobs = tmp_path / "blobs"
+    blobs.mkdir()
+    (blobs / "sha256-aaa").write_bytes(b"complete")
+    (blobs / "sha256-bbb-partial").write_bytes(b"in flight")
+    (blobs / "sha256-bbb-partial-0").write_bytes(b"chunk state")
+
+    names = {p.name for p in partial_paths(tmp_path)}
+    assert names == {"sha256-bbb-partial", "sha256-bbb-partial-0"}
+
+
+def test_partials_are_zero_when_the_store_is_clean(tmp_path: Path) -> None:
+    (tmp_path / "blobs").mkdir()
+    assert partial_bytes(tmp_path) == 0
+    assert partial_paths(tmp_path) == []
+
+
+def test_probe_disk_reports_partials_within_the_store(tmp_path: Path) -> None:
+    blobs = tmp_path / "blobs"
+    blobs.mkdir()
+    (blobs / "sha256-aaa").write_bytes(b"y" * (2 * 1024 * 1024))
+    _sparse(blobs / "sha256-bbb-partial", apparent=32 * 1024 * 1024, written=3 * 1024 * 1024)
+
+    disk = probe_disk(tmp_path)
+    assert disk is not None
+    # models_mb must also be allocated-based, or it would read ~34MB here instead of ~5MB.
+    assert disk.models_mb is not None and disk.models_mb < 8
+    assert 2 <= disk.partial_mb < 6

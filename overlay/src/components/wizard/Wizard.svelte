@@ -6,6 +6,7 @@
   import Done from "./Done.svelte";
   import GpuCheck from "./GpuCheck.svelte";
   import LocalSetup from "./LocalSetup.svelte";
+  import PullStatus from "../PullStatus.svelte";
   import Welcome from "./Welcome.svelte";
 
   let { recheck }: { recheck: () => void } = $props();
@@ -45,6 +46,8 @@
     <button class="icon" title="Minimize" onclick={() => void minimizeWindow()}>&#8211;</button>
     <button class="icon" title="Close" onclick={() => void quit()}>&#10005;</button>
   </div>
+
+    <PullStatus />
 
   {#if step === "welcome"}
     <Welcome next={() => (step = "gpu")} />

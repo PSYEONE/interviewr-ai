@@ -6,10 +6,11 @@ import asyncio
 import hmac
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
+import anyio
 import httpx
 from fastapi import (
     FastAPI,
@@ -460,10 +461,17 @@ async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         admin = OllamaAdmin(settings.ollama_base_url)
         try:
-            async for progress in admin.pull_model(body.model):
-                yield progress.model_dump_json() + "\n"
+            # aclosing: a bare `async for` never closes its iterator, so without this the inner
+            # generator's `async with client.stream(...)` unwinds only if the cancellation happens
+            # to arrive at its innermost await. A client hanging up mid-pull must always reach it.
+            async with aclosing(admin.pull_model(body.model)) as progress_stream:
+                async for progress in progress_stream:
+                    yield progress.model_dump_json() + "\n"
         finally:
-            await admin.close()
+            # Runs inside an already-cancelled scope on the disconnect path, where a bare await can
+            # be re-cancelled before the pool closes.
+            with anyio.CancelScope(shield=True):
+                await admin.close()
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 

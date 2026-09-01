@@ -15,6 +15,7 @@
   import SettingsView from "./dashboard/SettingsView.svelte";
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
+  import PullStatus from "./PullStatus.svelte";
   import Turn from "./Turn.svelte";
   import WindowButtons from "./WindowButtons.svelte";
 
@@ -154,6 +155,8 @@
       <span class="flex-1"></span>
       <WindowButtons onSettings={() => (view = "settings")} />
     </div>
+
+    <PullStatus />
 
     {#if view === "home"}
       <div class="dash">

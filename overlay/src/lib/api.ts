@@ -164,11 +164,15 @@ export async function deleteOllamaModel(model: string): Promise<void> {
 export async function pullModel(
   model: string,
   onProgress: (p: PullProgress) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  // The signal covers the pre-body window too: the server runs a registry lookup for the disk
+  // pre-check before the first byte, and a cancel during that must still take effect.
   const resp = await fetch(`${await httpBase()}/ollama/pull`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ model }),
+    signal,
   });
   if (!resp.ok) throw new Error(await failure(resp, `pull ${model}`));
   if (!resp.body) throw new Error(`pull ${model} -> no response body`);
