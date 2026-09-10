@@ -3,6 +3,7 @@
 
   import { getSettings, postSettings, reloadSettings } from "../../lib/api";
   import { applyAndRestart } from "../../lib/apply";
+  import ConfirmBack from "../ConfirmBack.svelte";
 
   let { back }: { back: () => void } = $props();
 
@@ -23,8 +24,6 @@
   let original = $state<Record<Field, string> | null>(null);
   let status = $state("");
   let error = $state<string | null>(null);
-  // Back discards, so it arms first (click again to confirm), like the model picker's Delete.
-  let armedBack = $state(false);
   const dirty = $derived(
     form !== null && original !== null && FIELDS.some(({ key }) => form![key] !== original![key]),
   );
@@ -96,26 +95,8 @@
     }
   }
 
-  /** Leave, but not while unsaved edits would go with us: the first click only arms. */
-  function leave(): void {
-    if (!dirty || armedBack) {
-      back();
-      return;
-    }
-    armedBack = true;
-  }
-
   onMount(load);
 </script>
-
-{#snippet backLabel(text: string)}
-  <!-- The longest label reserves the width in a shared grid cell, so arming swaps the text
-       without resizing the button and shifting the footer. -->
-  <span class="grid">
-    <span class="invisible col-start-1 row-start-1">Discard?</span>
-    <span class="col-start-1 row-start-1">{text}</span>
-  </span>
-{/snippet}
 
 {#if stage === "applying"}
   <div class="splash">{status || "Applying…"}</div>
@@ -149,14 +130,7 @@
     {/if}
 
     <div class="wiz-foot">
-      <button
-        class:armed={armedBack && dirty}
-        title={armedBack && dirty ? "Click again to leave; your edits will be lost" : "Back"}
-        onclick={leave}
-        onmouseleave={() => (armedBack = false)}
-      >
-        {@render backLabel(armedBack && dirty ? "Discard?" : "Back")}
-      </button>
+      <ConfirmBack {dirty} {back} />
       <button class="primary ml-auto" onclick={() => void save()} disabled={!form}>Save</button>
     </div>
   </div>
