@@ -10,6 +10,7 @@
     type HotkeyAction,
   } from "../../lib/hotkeys.svelte";
   import type { ConfigView, GpuInfo } from "../../lib/types";
+  import ConfirmBack from "../ConfirmBack.svelte";
   import Info from "../Info.svelte";
 
   let { back }: { back: () => void } = $props();
@@ -66,6 +67,10 @@
   let saving = $state(false);
   let status = $state("");
   let error = $state<string | null>(null);
+  // Same diff save() uses to decide what to send, reused so Back can refuse to discard it.
+  const dirty = $derived(
+    form !== null && original !== null && KEYS.some((k) => form![k] !== original![k]),
+  );
 
   function msg(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -230,7 +235,7 @@
 <div class="dash">
   <div class="dash-head">
     <div class="flex items-stretch gap-2">
-      <button onclick={back} disabled={saving}>Back</button>
+      <ConfirmBack {dirty} {back} disabled={saving} />
       <h1 class="flex-1 self-center text-lg font-semibold">Settings</h1>
       <button class="primary" onclick={save} disabled={saving || !form}>
         {saving ? status || "Saving…" : "Save"}
