@@ -16,7 +16,37 @@ surfaces AI-generated answers and notes in a native always-on-top overlay. It is
 
 ## Status
 
-Early development. Phase 0: prove the pipeline (capture > transcribe > stream answer).
+Working end to end on Linux/KDE, and still rough. The loop runs: system audio in, live
+transcription, question detection, RAG over your CV and the job description, a streamed answer
+in the overlay, and the conversation saved to history.
+
+Around it: a setup wizard, a dashboard with a model manager (pull, delete, disk checks), an
+editable system prompt and answer styles, conversation history with Markdown/JSON export, and
+global shortcuts through the XDG portal. Local by default via whisper.cpp (Vulkan) and Ollama,
+with BYOK Anthropic/OpenAI/Gemini and cloud STT as options.
+
+Not yet: packaging beyond running from source, and anything but Linux has had no real testing.
+
+## Choosing what gets captured
+
+By default the engine records the **default sink's monitor**, which is all system audio: the
+call, but also notification sounds, music, and every other tab.
+
+**Settings > Audio > Capture from** narrows that to one application. The engine creates a
+private null sink, routes that app's audio into it, loops it back to your speakers so you still
+hear the call, and records only that sink. In testing, a second application playing at the same
+time was attenuated by a factor of ~1.4e6, so it is isolation rather than a volume difference.
+
+Two things worth knowing:
+
+- An application's *output* is the far side of a call, so an isolated capture transcribes **the
+  interviewer and not you**. That is usually what you want for question detection; your own
+  answers not appearing in the transcript is expected, not a fault.
+- The sink exists only while an interview is running and is released when you leave it, so your
+  audio routing is never left changed behind your back.
+
+The app does not have to be playing when you pick it. Anything that has played audio on the
+machine is listed, and it is captured from the moment it starts.
 
 ## Architecture (short version)
 
