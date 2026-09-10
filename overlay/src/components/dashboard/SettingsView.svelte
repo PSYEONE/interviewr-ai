@@ -342,8 +342,7 @@
     <hr class="sep" />
     <h2>Shortcuts</h2>
     <p class="text-xs">
-      Global hotkeys, active even when the overlay isn't focused. Unbound by default; changes apply
-      immediately (no Save needed).
+      Global hotkeys, active even when the overlay isn't focused.
     </p>
     {#if hotkeys.error}<p class="text-warn">{hotkeys.error}</p>{/if}
     {#if recordError}<p class="text-bad text-xs">{recordError}</p>{/if}
@@ -352,18 +351,10 @@
       <!-- Wayland: the compositor owns the binding, so it also owns the key-capture UI. An
            in-app recorder cannot register a trigger here. -->
       {#if !hotkeys.enabled}
-        <p class="text-dim text-xs">
-          Your desktop manages these. Enabling registers the actions with it, which asks for your
-          permission once; you then choose the keys in its own editor.
-        </p>
         <div class="flex items-center gap-2">
           <button onclick={() => void hotkeys.enablePortal()}>Enable shortcuts</button>
         </div>
       {:else}
-        <p class="text-dim text-xs">
-          Your desktop owns these keys, so it decides what each one is. Single letters are not
-          allowed; use a modifier.
-        </p>
         <div class="flex items-center gap-2">
           <button onclick={() => void hotkeys.configure()}>Configure shortcuts</button>
         </div>
