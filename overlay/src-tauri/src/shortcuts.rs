@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use ashpd::desktop::global_shortcuts::{
     BindShortcutsOptions, ConfigureShortcutsOptions, GlobalShortcuts, ListShortcutsOptions,
-    NewShortcut,
+    NewShortcut, Shortcut,
 };
 use ashpd::desktop::{CreateSessionOptions, Session};
 use futures_util::StreamExt;
@@ -21,6 +21,10 @@ use tokio::sync::Mutex;
 
 /// Emitted to the webview with the activated shortcut id as payload.
 pub const ACTIVATED_EVENT: &str = "shortcut://activated";
+
+/// Emitted when the desktop changes a trigger, with the same payload as [`list`]. The compositor
+/// owns the keys, so this is the only way to know a key changed without asking repeatedly.
+pub const CHANGED_EVENT: &str = "shortcut://changed";
 
 /// Which mechanism can actually deliver a global shortcut here.
 pub fn backend() -> &'static str {
@@ -97,6 +101,16 @@ async fn ensure<'a>(app: &AppHandle, slot: &'a mut Option<Portal>) -> Result<&'a
                 let _ = handle.emit(ACTIVATED_EVENT, signal.shortcut_id().to_string());
             }
         });
+
+        let changed = proxy.receive_shortcuts_changed().await.map_err(err)?;
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            futures_util::pin_mut!(changed);
+            while let Some(signal) = changed.next().await {
+                let _ = handle.emit(CHANGED_EVENT, pairs(signal.shortcuts()));
+            }
+        });
+
         *slot = Some(Portal { proxy, session });
     }
     Ok(slot.as_ref().expect("just filled"))
@@ -143,11 +157,16 @@ pub async fn list(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
         .map_err(err)?
         .response()
         .map_err(err)?;
-    Ok(listed
-        .shortcuts()
+    Ok(pairs(listed.shortcuts()))
+}
+
+/// The wire shape the webview reads, shared by [`list`] and [`CHANGED_EVENT`] so the two cannot
+/// drift apart.
+fn pairs(shortcuts: &[Shortcut]) -> Vec<(String, String)> {
+    shortcuts
         .iter()
         .map(|s| (s.id().to_string(), s.trigger_description().to_string()))
-        .collect())
+        .collect()
 }
 
 /// Open the desktop's own shortcut editor. On Wayland the compositor owns the binding, so this

@@ -181,6 +181,10 @@ class Hotkeys {
         dispatch(e.payload as HotkeyAction);
       }
     });
+    // The desktop owns the keys and tells us when one changes, which is the only way to follow an
+    // edit made in its own editor: ConfigureShortcuts returns when the editor opens, not when the
+    // user is done with it.
+    await listen<[string, string][]>("shortcut://changed", (e) => this.#applyTriggers(e.payload));
     if (localStorage.getItem(PORTAL_OPT_IN_KEY) !== "1") return;
 
     // Ask before binding, so a permission dialog can never appear at startup. A desktop that still
