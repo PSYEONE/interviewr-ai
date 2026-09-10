@@ -97,8 +97,8 @@ export interface ConfigView {
   rag_enabled: boolean;
   rag_top_k: number;
   history_enabled: boolean;
-  audio_capture_app: string; // application.name to isolate; empty = capture everything
-  // All three resolved: override if set, else the built-in default.
+  audio_capture_app: string; // empty = capture everything
+  // Prompts arrive resolved, so an untouched box shows the built-in default rather than blank.
   system_prompt: string;
   answer_style_script: string;
   answer_style_bullets: string;

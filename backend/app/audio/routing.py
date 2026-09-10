@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .capture import get_default_sink
@@ -27,6 +29,12 @@ _log = logging.getLogger(__name__)
 
 SINK_NAME = "interviewr"
 MONITOR = f"{SINK_NAME}.monitor"
+
+_STATE_FILE = (
+    Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    / "wireplumber/stream-properties"
+)
+_STATE_PREFIX = "Output/Audio:application.name:"
 # What the user hears is delayed by this much. Low enough not to be distracting in a call, high
 # enough not to crackle.
 _LOOPBACK_LATENCY_MS = 50
@@ -53,12 +61,18 @@ async def _run(*args: str) -> str:
     return stdout.decode()
 
 
-async def _try(*args: str) -> None:
-    """Best-effort variant, for teardown paths where a missing object is not an error."""
+async def _try(*args: str) -> bool:
+    """Best-effort variant for paths where a missing object is not an error. Returns success.
+
+    Callers that count outcomes must use the return value: a stream serial read from one pw-dump
+    can already be gone by the time the move runs, which browsers do constantly.
+    """
     try:
         await _run(*args)
-    except (RuntimeError, FileNotFoundError, OSError) as exc:  # noqa: BLE001 - teardown only
+    except (RuntimeError, FileNotFoundError, OSError) as exc:  # noqa: BLE001
         _log.debug("ignoring failure of %s: %s", " ".join(args), exc)
+        return False
+    return True
 
 
 def _apps_from(objects: list[Any]) -> list[PlayingApp]:
@@ -74,12 +88,48 @@ def _apps_from(objects: list[Any]) -> list[PlayingApp]:
         props = ((obj.get("info") or {}).get("props")) or {}
         if props.get("media.class") != "Stream/Output/Audio":
             continue
-        name = props.get("application.name") or props.get("node.name")
+        node = str(props.get("node.name") or "")
+        # module-loopback's own nodes carry no application.name, so they would otherwise be
+        # offered as "output.loopback-2784-13". Choosing one would route our loopback into the
+        # sink it reads from.
+        if node.startswith(("output.loopback", "input.loopback")):
+            continue
+        name = props.get("application.name") or node
         serial = props.get("object.serial")
         if not name or serial is None:
             continue
         by_name.setdefault(str(name), []).append(int(serial))
     return [PlayingApp(name=n, streams=tuple(sorted(s))) for n, s in sorted(by_name.items())]
+
+
+def _names_from_state(text: str) -> list[str]:
+    """Application names out of WirePlumber's stream-properties file."""
+    names = []
+    for line in text.splitlines():
+        key, sep, _ = line.partition("=")
+        if not sep or not key.startswith(_STATE_PREFIX):
+            continue
+        name = key[len(_STATE_PREFIX) :].replace(r"\s", " ")
+        # Entries can carry escapes beyond \s (one real example is "PipeWire\sALSA\s\oresolve\c").
+        # Those are not app names a user would recognise, so drop rather than half-decode them.
+        if name and "\\" not in name:
+            names.append(name)
+    return sorted(set(names))
+
+
+def known_apps() -> list[str]:
+    """Applications that have played audio on this machine before, whether playing now or not.
+
+    PipeWire has no node for a silent application, so the live list alone cannot offer a browser
+    that is merely open. WirePlumber remembers per-application volume, which incidentally makes
+    its state file a record of what plays audio here. Read for names only: it is another
+    project's internal state, so a missing or changed file degrades to the live list.
+    """
+    try:
+        return _names_from_state(_STATE_FILE.read_text())
+    except OSError as exc:
+        _log.debug("no wireplumber stream state (%s); live apps only", exc)
+        return []
 
 
 async def list_apps() -> list[PlayingApp]:
@@ -191,15 +241,54 @@ async def reconcile(app: str) -> str:
         return f"{default_sink}.monitor"
 
     await _ensure_sink(default_sink)
+    if await move_streams(app) == 0:
+        # Normal: the app may be silent right now. watch() moves its streams the moment they
+        # appear, so this is a wait rather than a failure.
+        _log.info("%r is not playing yet; waiting for it to start", app)
+    return MONITOR
+
+
+async def move_streams(app: str) -> int:
+    """Move every current stream of `app` into the null sink. Returns how many were moved."""
     moved = 0
     for playing in await list_apps():
         if playing.name != app:
             continue
         for stream in playing.streams:
-            await _try("pactl", "move-sink-input", str(stream), SINK_NAME)
-            moved += 1
-    if moved == 0:
-        # Not fatal: the app may simply be silent right now, and it will be picked up the next
-        # time capture starts. Say so rather than leaving a silent transcript unexplained.
-        _log.warning("%r is not playing anything; capturing its (silent) sink", app)
-    return MONITOR
+            if await _try("pactl", "move-sink-input", str(stream), SINK_NAME):
+                moved += 1
+            else:
+                _log.info("stream %s of %r vanished before it could be moved", stream, app)
+    return moved
+
+
+async def watch(app: str) -> None:
+    """Move `app`'s streams into the null sink as they appear, until cancelled.
+
+    Needed because a moved stream's target is not remembered: WirePlumber's state stores volume
+    and mute only, so a replacement stream goes back to the default sink. Chromium browsers
+    destroy and recreate their output stream on pause, seek and tab change, which made a
+    move-once approach lose the audio within seconds.
+    """
+    if not app:
+        return
+    proc = await asyncio.create_subprocess_exec(
+        "pactl", "subscribe",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    assert proc.stdout is not None
+    try:
+        async for raw in proc.stdout:
+            # "Event 'new' on sink-input #4497". Only 'new' matters; 'change' fires constantly
+            # for volume and format updates on streams already where we want them.
+            line = raw.decode(errors="replace")
+            if "'new'" in line and "sink-input" in line:
+                await move_streams(app)
+    finally:
+        if proc.returncode is None:
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+        await proc.wait()

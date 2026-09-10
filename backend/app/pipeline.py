@@ -82,12 +82,16 @@ async def run_producer(
         )
         feed = asyncio.ensure_future(_feed(transcript_stream, session, settings))
         stop = asyncio.ensure_future(session.wait_capture_stop())
+        # Scoped to the interview, so choosing an app in Settings never re-routes the user's
+        # audio while they are just sitting on the dashboard.
+        router = asyncio.ensure_future(routing.watch(prefs.app))
         try:
             done, _ = await asyncio.wait({feed, stop}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             stop.cancel()
             feed.cancel()
-            await asyncio.gather(stop, feed, return_exceptions=True)
+            router.cancel()
+            await asyncio.gather(stop, feed, router, return_exceptions=True)
             # Close both: transcribe_stream does not finalize its source, so the capture stream
             # is closed explicitly to run capture_audio's finally and terminate pw-record.
             await transcript_stream.aclose()
