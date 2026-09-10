@@ -1,12 +1,12 @@
 mod appid;
 mod shortcuts;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -19,33 +19,58 @@ struct Connection {
     token: String,
 }
 
-/// Load the project root `.env` (the one beside `backend/`) so the overlay can reach the
-/// backend out of the box on the same machine. Real environment variables take precedence;
-/// `dotenvy::from_path` does not override what is already set.
+/// The project root `.env` (the one beside `backend/`) as a map, parsed once so the overlay can
+/// reach the backend out of the box. Deliberately NOT loaded into this process's environment.
+///
+/// It used to be `dotenvy::from_path`, which sets the variables for real. The engine is spawned as
+/// a child and inherited them, and pydantic-settings ranks environment variables above the `.env`
+/// file, so every key present at launch was frozen for the life of the app: writing a new value to
+/// `.env` and reloading changed nothing, and only restarting the overlay appeared to help.
+static ENV_FILE: OnceLock<HashMap<String, String>> = OnceLock::new();
+
 fn load_env() {
-    if let Ok(mut dir) = std::env::current_dir() {
-        loop {
-            let candidate = dir.join(".env");
-            if candidate.is_file() {
-                let _ = dotenvy::from_path(&candidate);
-                return;
-            }
-            if !dir.pop() {
-                return;
-            }
+    ENV_FILE.get_or_init(|| match std::env::current_dir() {
+        Ok(dir) => read_env_file(dir),
+        Err(_) => HashMap::new(),
+    });
+}
+
+/// Parse the nearest `.env` at or above `dir`. Returns a map and leaves the environment alone.
+fn read_env_file(mut dir: PathBuf) -> HashMap<String, String> {
+    loop {
+        let candidate = dir.join(".env");
+        if candidate.is_file() {
+            return match dotenvy::from_path_iter(&candidate) {
+                Ok(iter) => iter.flatten().collect(),
+                Err(_) => HashMap::new(),
+            };
+        }
+        if !dir.pop() {
+            return HashMap::new();
         }
     }
+}
+
+/// A setting for the overlay's own use, from the real environment first so an exported variable
+/// still wins, then `.env`. The engine reads `.env` itself and must not be handed a stale copy.
+fn cfg(key: &str) -> Option<String> {
+    std::env::var(key).ok().or_else(|| {
+        ENV_FILE
+            .get()
+            .and_then(|m| m.get(key))
+            .filter(|v| !v.is_empty())
+            .cloned()
+    })
 }
 
 #[tauri::command]
 fn get_connection() -> Connection {
     Connection {
-        host: std::env::var("INTERVIEWR_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
-        port: std::env::var("INTERVIEWR_PORT")
-            .ok()
+        host: cfg("INTERVIEWR_HOST").unwrap_or_else(|| "127.0.0.1".into()),
+        port: cfg("INTERVIEWR_PORT")
             .and_then(|p| p.parse().ok())
             .unwrap_or(8765),
-        token: std::env::var("INTERVIEWR_AUTH_TOKEN").unwrap_or_default(),
+        token: cfg("INTERVIEWR_AUTH_TOKEN").unwrap_or_default(),
     }
 }
 
@@ -119,8 +144,8 @@ struct EngineCmd {
 /// Resolve the interpreter + working dir to launch `run_pipeline.py`. Prefers the project venv;
 /// both are overridable for packaged builds / non-standard layouts.
 fn engine_command() -> Result<EngineCmd, String> {
-    let dir = match std::env::var("INTERVIEWR_BACKEND_DIR") {
-        Ok(d) if !d.trim().is_empty() => PathBuf::from(d),
+    let dir = match cfg("INTERVIEWR_BACKEND_DIR") {
+        Some(d) if !d.trim().is_empty() => PathBuf::from(d),
         _ => find_backend_dir().ok_or_else(|| {
             "could not locate the backend (no run_pipeline.py found above the working dir; \
              set INTERVIEWR_BACKEND_DIR)"
@@ -130,8 +155,8 @@ fn engine_command() -> Result<EngineCmd, String> {
     if !dir.is_dir() {
         return Err(format!("backend dir not found: {}", dir.display()));
     }
-    let python = match std::env::var("INTERVIEWR_BACKEND_PYTHON") {
-        Ok(p) if !p.trim().is_empty() => PathBuf::from(p),
+    let python = match cfg("INTERVIEWR_BACKEND_PYTHON") {
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p),
         _ => {
             let venv = if cfg!(windows) {
                 dir.join(".venv/Scripts/python.exe")
@@ -152,9 +177,8 @@ fn engine_command() -> Result<EngineCmd, String> {
 /// maintainer keep running the backend by hand in dev).
 fn engine_reachable() -> bool {
     use std::net::{TcpStream, ToSocketAddrs};
-    let host = std::env::var("INTERVIEWR_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-    let port: u16 = std::env::var("INTERVIEWR_PORT")
-        .ok()
+    let host = cfg("INTERVIEWR_HOST").unwrap_or_else(|| "127.0.0.1".into());
+    let port: u16 = cfg("INTERVIEWR_PORT")
         .and_then(|p| p.parse().ok())
         .unwrap_or(8765);
     let Ok(addrs) = format!("{host}:{port}").to_socket_addrs() else {
@@ -698,9 +722,7 @@ pub fn run() {
             // Own the backend unless one is already serving the port or the user opted out.
             let handle = app.handle().clone();
             let state = handle.state::<EngineState>();
-            let opted_out = std::env::var("INTERVIEWR_NO_SIDECAR")
-                .map(|v| !v.trim().is_empty())
-                .unwrap_or(false);
+            let opted_out = cfg("INTERVIEWR_NO_SIDECAR").is_some_and(|v| !v.trim().is_empty());
             if opted_out || engine_reachable() {
                 state.manage_engine.store(false, Ordering::SeqCst);
             } else {
@@ -719,4 +741,39 @@ pub fn run() {
                 stop_engine(&app_handle.state::<EngineState>());
             }
         });
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::read_env_file;
+
+    /// The regression this guards: `.env` used to be loaded with `dotenvy::from_path`, which sets
+    /// the variables for real. The engine inherits this process's environment, and
+    /// pydantic-settings ranks environment variables above the `.env` file, so every key present
+    /// at launch was pinned for the life of the app: saving a new value wrote the file, the engine
+    /// kept reading the stale variable, and only restarting the overlay appeared to fix it.
+    #[test]
+    fn reading_the_env_file_does_not_set_process_variables() {
+        let dir = std::env::temp_dir().join(format!("interviewr-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::write(dir.join(".env"), "INTERVIEWR_TEST_ONLY_KEY=from_file\n").expect("write");
+
+        let parsed = read_env_file(dir.clone());
+
+        assert_eq!(parsed.get("INTERVIEWR_TEST_ONLY_KEY").map(String::as_str), Some("from_file"));
+        assert!(
+            std::env::var("INTERVIEWR_TEST_ONLY_KEY").is_err(),
+            "reading .env must not export into the environment; the engine inherits it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_env_file_is_not_an_error() {
+        let dir = std::env::temp_dir().join(format!("interviewr-noenv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        // Walks to the filesystem root without finding one, which is a normal first run.
+        assert!(read_env_file(dir.clone()).get("INTERVIEWR_TEST_ONLY_KEY").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

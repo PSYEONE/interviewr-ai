@@ -82,6 +82,25 @@ def test_apply_twice_leaves_no_residue(tmp_path: Path) -> None:
     assert "one" not in env.read_text()
 
 
+def test_an_environment_variable_outranks_the_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Why the overlay must not export `.env` into its own environment.
+
+    The engine is spawned as a child and inherits it, and this precedence means a value present
+    at launch then wins forever: POST /settings rewrites the file, the engine keeps reading the
+    variable, and only relaunching the whole app appears to help. See read_env_file in
+    overlay/src-tauri/src/lib.rs.
+    """
+    env = tmp_path / ".env"
+    apply_config(_settings(), {"audio_capture_app": "FromFile"}, env_path=env)
+    monkeypatch.setenv("INTERVIEWR_AUDIO_CAPTURE_APP", "FromEnvVar")
+    assert Settings(_env_file=env, llm_model="m").audio_capture_app == "FromEnvVar"  # type: ignore[call-arg]
+
+    monkeypatch.delenv("INTERVIEWR_AUDIO_CAPTURE_APP")
+    assert Settings(_env_file=env, llm_model="m").audio_capture_app == "FromFile"  # type: ignore[call-arg]
+
+
 def test_apply_leaves_plain_values_unquoted(tmp_path: Path) -> None:
     # Quoting is for values that need it; .env stays readable for the ordinary ones.
     env = tmp_path / ".env"
