@@ -215,9 +215,17 @@
       saving = false;
     }
   }
+
+  // Fallback for a desktop that does not emit ShortcutsChanged, and for edits made while we were
+  // hidden. One round trip on focus, and only while this screen is open.
+  function refreshShortcuts(): void {
+    if (hotkeys.backend !== "portal" || !hotkeys.enabled) return;
+    void hotkeys.refreshTriggers();
+  }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onfocus={refreshShortcuts} />
+<svelte:document onvisibilitychange={() => !document.hidden && refreshShortcuts()} />
 
 <div class="dash">
   <div class="dash-head">
