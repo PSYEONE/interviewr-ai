@@ -128,12 +128,16 @@
     <div class="wiz-body">
       {#if form}
         {#each FIELDS as f (f.key)}
-          <div class="flex items-center gap-2">
-            <span class="flex-1">{f.title}</span>
-            <span class="text-dim text-xs">{f.blurb}</span>
-            <button onclick={() => void reset(f.key)}>Reset</button>
+          <!-- Grouped so the body's gap separates one prompt from the next, rather than sitting
+               equally between a title and the box it names. -->
+          <div class="flex shrink-0 flex-col gap-1">
+            <div class="flex items-center gap-2">
+              <span class="flex-1">{f.title}</span>
+              <span class="text-dim text-xs">{f.blurb}</span>
+              <button onclick={() => void reset(f.key)}>Reset</button>
+            </div>
+            <textarea bind:value={form[f.key]} rows="8"></textarea>
           </div>
-          <textarea bind:value={form[f.key]} rows="8"></textarea>
         {/each}
       {:else}
         <p class="text-dim text-sm">Loading…</p>
