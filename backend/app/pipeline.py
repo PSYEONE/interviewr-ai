@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -12,6 +13,8 @@ from .config import Settings
 from .events import EventBus, StatusEvent
 from .session import Session
 from .stt.whisper import Hypothesis, WhisperTranscriber, transcribe_stream
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,11 +67,13 @@ async def run_producer(
     bus.publish(StatusEvent(state="idle"))
     while True:
         await session.wait_capture_start()
-        bus.publish(StatusEvent(state="listening"))
         # Resolved per capture start, not once: it makes the capture target a live setting (no
         # engine restart), and re-routes an app that has been relaunched since the last interview,
         # which WirePlumber will not do for us.
         device = await resolve_device(prefs)
+        source = prefs.app or "system audio"
+        _log.info("capturing %s (device %s)", source, device)
+        bus.publish(StatusEvent(state="listening", source=source))
         audio_stream = capture_audio(device)
         transcript_stream = transcribe_stream(
             audio_stream,

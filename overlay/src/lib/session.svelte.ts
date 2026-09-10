@@ -26,6 +26,9 @@ export type Status =
 
 class Session {
   status = $state<Status>("offline");
+  // The audio source the engine resolved at capture start, so the bar can show what is actually
+  // being listened to rather than leaving a stale capture target indistinguishable from a live one.
+  captureSource = $state<string | null>(null);
   // Answered turns, oldest first: the scrollback the interview view renders.
   turns = $state<Turn[]>([]);
   // Final transcript heard since the last answer, i.e. the not-yet-asked buffer. Mirrors the
@@ -187,6 +190,8 @@ class Session {
         break;
       case "status":
         this.status = ev.state;
+        // Only carried when capture starts; keep the last one so the bar can keep showing it.
+        if (ev.source) this.captureSource = ev.source;
         break;
       case "error":
         this.#noteError(ev.message);

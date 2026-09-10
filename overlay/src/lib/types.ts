@@ -145,7 +145,11 @@ export type ServerEvent =
   | { type: "answer.start"; answer_id: string; question: string; source_chars: number }
   | { type: "answer.token"; answer_id: string; token: string }
   | { type: "answer.done"; answer_id: string; cancelled: boolean }
-  | { type: "status"; state: "idle" | "listening" | "thinking" | "unconfigured" }
+  | {
+      type: "status";
+      state: "idle" | "listening" | "thinking" | "unconfigured";
+      source?: string | null; // what capture is listening to, only sent when it starts
+    }
   | { type: "error"; code: string; message: string }
   | { type: "conversation.titled"; conversation_id: number; title: string };
 
