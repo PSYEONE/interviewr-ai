@@ -18,6 +18,11 @@
   {/if}
   <span id="dot" data-state={session.status} title={session.status}></span>
   <span id="brand">interviewr</span>
+  {#if session.captureSource}
+    <span class="text-dim truncate text-xs" title="Audio source being captured">
+      {session.captureSource}
+    </span>
+  {/if}
   <span class="flex-1"></span>
   <WindowButtons />
 </div>

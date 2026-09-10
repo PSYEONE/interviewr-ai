@@ -47,6 +47,9 @@ class AnswerDoneEvent(BaseModel):
 class StatusEvent(BaseModel):
     type: Literal["status"] = "status"
     state: Literal["idle", "listening", "thinking", "unconfigured"]
+    # What capture is actually listening to, resolved at capture start: the isolated application,
+    # or "system audio". Without it a stale capture target looks identical to a working one.
+    source: str | None = None
 
 
 class ErrorEvent(BaseModel):
