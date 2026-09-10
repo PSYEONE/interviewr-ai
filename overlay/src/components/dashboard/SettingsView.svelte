@@ -232,25 +232,18 @@
 <svelte:window onkeydown={onKeydown} onfocus={refreshShortcuts} />
 <svelte:document onvisibilitychange={() => !document.hidden && refreshShortcuts()} />
 
-<div class="dash">
-  <div class="dash-head">
-    <div class="flex items-stretch gap-2">
-      <ConfirmBack {dirty} {back} disabled={saving} />
-      <h1 class="flex-1 self-center text-lg font-semibold">Settings</h1>
-      <button class="primary" onclick={save} disabled={saving || !form}>
-        {saving ? status || "Saving…" : "Save"}
-      </button>
-    </div>
+<div class="wiz split">
+  <div class="wiz-head">
+    <h1>Settings</h1>
   </div>
 
-  <div class="wiz">
+  <!-- gap-4 over .wiz-body's gap-2: this form is far denser than a wizard step. -->
+  <div class="wiz-body gap-4">
     {#if loadError}
       <p class="text-warn">{loadError}</p>
     {:else if !form}
       <p class="text-dim text-sm">Loading…</p>
     {:else}
-      {#if error}<p class="text-warn">{error}</p>{/if}
-
       <h2>Speech-to-text</h2>
       <div>
         <label for="stt">
@@ -394,5 +387,22 @@
         </div>
       {/each}
     {/if}
+  </div>
+
+  <!-- Outside the scroll area, so a failure or a restart notice can't hide below a long form.
+       This is also where the save status lives now: it grows to a whole sentence, which used to
+       stretch the Save button. -->
+  {#if error || (saving && status)}
+    <div class="wiz-status">
+      {#if error}<p class="text-warn">{error}</p>{/if}
+      {#if saving && status}<p class="text-dim text-xs">{status}</p>{/if}
+    </div>
+  {/if}
+
+  <div class="wiz-foot">
+    <ConfirmBack {dirty} {back} disabled={saving} />
+    <button class="primary ml-auto" onclick={save} disabled={saving || !form}>
+      {saving ? "Saving…" : "Save"}
+    </button>
   </div>
 </div>
