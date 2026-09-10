@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 
+from app.config import Settings
 from app.events import AnswerStyleCommand, EventBus, parse_command
-from app.llm.base import Message
+from app.llm.base import STYLE_DIRECTIVES, Message, effective_style_directives
 from app.session import Session
 
 
@@ -42,6 +43,45 @@ def test_set_answer_style_changes_directive() -> None:
     assert "bullet points" in s._style_directive()
     s.set_answer_style("nonsense")  # unknown style is ignored, keeps the last valid one
     assert "bullet points" in s._style_directive()
+
+
+def _settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {"llm_model": "m", "_env_file": None}
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
+def test_effective_directives_default_to_builtin() -> None:
+    assert effective_style_directives(_settings()) == STYLE_DIRECTIVES
+
+
+def test_effective_directives_take_the_override() -> None:
+    resolved = effective_style_directives(_settings(answer_style_bullets="exactly two bullets"))
+    assert resolved["bullets"] == "exactly two bullets"
+    assert resolved["script"] == STYLE_DIRECTIVES["script"]  # untouched styles keep the default
+
+
+def test_session_uses_the_injected_directives() -> None:
+    s = Session(EventBus(), _FakeLLM(), style_directives={"script": "one line", "bullets": "two"})
+    assert s._style_directive() == "one line"
+    s.set_answer_style("bullets")
+    assert s._style_directive() == "two"
+
+
+def test_a_style_with_an_empty_directive_can_still_be_selected() -> None:
+    # Validation keys off the fixed style names, not the directive text: blanking one must not
+    # make its style unreachable.
+    s = Session(EventBus(), _FakeLLM(), style_directives={"script": "say it", "bullets": ""})
+    s.set_answer_style("bullets")
+    assert s._answer_style == "bullets"
+    assert s._style_directive() == ""
+
+
+def test_directives_can_be_swapped_live() -> None:
+    # What POST /settings/reload does; no restart, so a running session must pick them up.
+    s = Session(EventBus(), _FakeLLM())
+    s.set_style_directives({"script": "new script text", "bullets": "new bullet text"})
+    assert s._style_directive() == "new script text"
 
 
 async def test_directive_reaches_the_llm() -> None:

@@ -1,15 +1,26 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { getSettings } from "../../lib/api";
+  import { getSettings, postSettings, reloadSettings } from "../../lib/api";
   import { applyAndRestart } from "../../lib/apply";
 
   let { back }: { back: () => void } = $props();
 
+  // Every field here is prompt text the model sees. Only system_prompt is baked into the LLM
+  // adapter at build time, so only it needs a restart; the style directives are read per answer
+  // and take effect on a reload.
+  type Field = "system_prompt" | "answer_style_script" | "answer_style_bullets";
+  const FIELDS: { key: Field; title: string; blurb: string }[] = [
+    { key: "system_prompt", title: "System prompt", blurb: "Who the model is, on every answer." },
+    { key: "answer_style_script", title: "Script answers", blurb: "Shape of a Script answer." },
+    { key: "answer_style_bullets", title: "Bullet answers", blurb: "Shape of a Bullets answer." },
+  ];
+  const CHEAP = new Set<Field>(["answer_style_script", "answer_style_bullets"]);
+
   type Stage = "edit" | "applying" | "error";
   let stage = $state<Stage>("edit");
-  let prompt = $state("");
-  let loaded = $state(false);
+  let form = $state<Record<Field, string> | null>(null);
+  let original = $state<Record<Field, string> | null>(null);
   let status = $state("");
   let error = $state<string | null>(null);
 
@@ -19,34 +30,64 @@
 
   async function load(): Promise<void> {
     try {
-      prompt = (await getSettings()).system_prompt; // resolved: override or built-in default
-      loaded = true;
+      const cfg = await getSettings(); // resolved: override or built-in default
+      const next: Record<Field, string> = {
+        system_prompt: cfg.system_prompt,
+        answer_style_script: cfg.answer_style_script,
+        answer_style_bullets: cfg.answer_style_bullets,
+      };
+      form = next;
+      original = { ...next };
     } catch (e) {
       error = msg(e);
       stage = "error";
     }
   }
 
-  // thenBack=true after Save (return home); false after Reset (refill with the default and stay).
-  async function apply(value: string, thenBack: boolean): Promise<void> {
+  /** Persist `updates`, restarting only if something in them needs it. */
+  async function apply(updates: Partial<Record<Field, string>>): Promise<boolean> {
+    const changed = Object.keys(updates) as Field[];
+    if (changed.length === 0) return true;
     stage = "applying";
     error = null;
     try {
-      const res = await applyAndRestart({ system_prompt: value }, (m) => (status = m));
-      if (res === "manual") {
-        error = "Saved. The engine isn't app-managed here; restart it manually to apply.";
-        stage = "error";
-        return;
-      }
-      if (thenBack) {
-        back();
+      if (changed.some((k) => !CHEAP.has(k))) {
+        const res = await applyAndRestart(updates, (m) => (status = m));
+        if (res === "manual") {
+          error = "Saved. The engine isn't app-managed here; restart it manually to apply.";
+          stage = "error";
+          return false;
+        }
       } else {
-        await load();
-        stage = "edit";
+        status = "Applying…";
+        await postSettings(updates);
+        await reloadSettings(); // the running session picks these up; no restart
       }
+      return true;
     } catch (e) {
       error = msg(e);
       stage = "error";
+      return false;
+    }
+  }
+
+  async function save(): Promise<void> {
+    if (!form || !original) return;
+    const updates: Partial<Record<Field, string>> = {};
+    for (const { key } of FIELDS) if (form[key] !== original[key]) updates[key] = form[key];
+    if (Object.keys(updates).length === 0) {
+      back(); // nothing changed
+      return;
+    }
+    if (await apply(updates)) back();
+  }
+
+  // Saving "" is what restores the built-in: the backend resolves an empty override to its
+  // default, so reloading afterwards refills the box with it.
+  async function reset(key: Field): Promise<void> {
+    if (await apply({ [key]: "" })) {
+      await load();
+      stage = "edit";
     }
   }
 
@@ -57,14 +98,18 @@
   <div class="splash">{status || "Applying…"}</div>
 {:else}
   <div class="wiz">
-    <h1>System prompt</h1>
-    <p class="text-xs">
-      Controls how the model answers.
-    </p>
+    <h1>Prompts</h1>
     {#if error}<p class="text-warn">{error}</p>{/if}
 
-    {#if loaded}
-      <textarea bind:value={prompt} rows="12"></textarea>
+    {#if form}
+      {#each FIELDS as f (f.key)}
+        <div class="flex items-center gap-2">
+          <span class="flex-1">{f.title}</span>
+          <span class="text-dim text-xs">{f.blurb}</span>
+          <button onclick={() => void reset(f.key)}>Reset</button>
+        </div>
+        <textarea bind:value={form[f.key]} rows="6"></textarea>
+      {/each}
     {:else}
       <p class="text-dim text-sm">Loading…</p>
     {/if}
@@ -72,10 +117,7 @@
     <div class="flex-1"></div>
     <div class="flex items-center justify-end gap-2">
       <button class="mr-auto" onclick={back}>Back</button>
-      <button onclick={() => apply("", false)} disabled={!loaded}>Reset to default</button>
-      <button class="primary" onclick={() => apply(prompt, true)} disabled={!loaded || !prompt.trim()}>
-        Save
-      </button>
+      <button class="primary" onclick={() => void save()} disabled={!form}>Save</button>
     </div>
   </div>
 {/if}
