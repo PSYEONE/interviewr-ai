@@ -1,3 +1,6 @@
+mod appid;
+mod shortcuts;
+
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -624,7 +627,40 @@ fn size_to_screen(win: &WebviewWindow) {
     let _ = win.center();
 }
 
+/// Which mechanism can deliver a global shortcut here: "portal", "plugin" or "none".
+#[tauri::command]
+fn shortcuts_backend() -> &'static str {
+    shortcuts::backend()
+}
+
+/// Bind (id, description) pairs with the compositor. Portal path only.
+#[tauri::command]
+async fn shortcuts_bind(app: AppHandle, shortcuts: Vec<(String, String)>) -> Result<(), String> {
+    shortcuts::bind(&app, shortcuts).await
+}
+
+/// Open the desktop's own shortcut editor. Portal path only.
+#[tauri::command]
+async fn shortcuts_configure(app: AppHandle) -> Result<(), String> {
+    shortcuts::configure(&app).await
+}
+
+/// (action id, human-readable trigger) for whatever the compositor has bound. Portal path only.
+#[tauri::command]
+async fn shortcuts_list(app: AppHandle) -> Result<Vec<(String, String)>, String> {
+    shortcuts::list(&app).await
+}
+
+/// Why the desktop cannot identify us, or null when it can. Explains a refused bind.
+#[tauri::command]
+fn shortcuts_app_id_problem() -> Option<String> {
+    appid::diagnose()
+}
+
 pub fn run() {
+    // Before anything can open a portal connection: the GlobalShortcuts portal refuses a caller
+    // it cannot name, and the name comes from the systemd scope we are sitting in.
+    appid::ensure_scope();
     // Always-on-top is enforced by a KWin window rule, not the toolkit: on native Wayland
     // GTK ignores keep-above, and forcing XWayland to dodge that costs HiDPI scaling and
     // normal window management. See scripts/install-kwin-rule.sh.
@@ -633,6 +669,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(EngineState::default())
+        .manage(shortcuts::PortalState::default())
         .invoke_handler(tauri::generate_handler![
             get_connection,
             set_pin,
@@ -644,6 +681,11 @@ pub fn run() {
             engine_managed,
             engine_error,
             save_text,
+            shortcuts_backend,
+            shortcuts_bind,
+            shortcuts_configure,
+            shortcuts_list,
+            shortcuts_app_id_problem,
             quit
         ])
         .setup(|app| {
