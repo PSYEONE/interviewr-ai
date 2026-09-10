@@ -97,7 +97,10 @@ export interface ConfigView {
   rag_enabled: boolean;
   rag_top_k: number;
   history_enabled: boolean;
-  system_prompt: string; // resolved: override if set, else the built-in default
+  // All three resolved: override if set, else the built-in default.
+  system_prompt: string;
+  answer_style_script: string;
+  answer_style_bullets: string;
   auth_token_set: boolean;
   anthropic_api_key_set: boolean;
   openai_api_key_set: boolean;

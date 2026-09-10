@@ -21,6 +21,20 @@ SYSTEM_PROMPT = (
     "Be direct and brief."
 )
 
+# Form-only directives appended to the question, one per answer style the client flips between.
+# They shape the answer, not the model's role, which is why they live beside the system prompt and
+# are overridable the same way.
+STYLE_DIRECTIVES: dict[str, str] = {
+    "script": (
+        "STYLE: Answer as a natural first-person spoken script, what the candidate would say "
+        "out loud. Conversational and flowing. No bullet points, lists, or headers."
+    ),
+    "bullets": (
+        "STYLE: Answer as 3 to 6 concise bullet points, each a single line to glance at and "
+        "expand on. No long paragraphs."
+    ),
+}
+
 
 class Message(TypedDict):
     role: Literal["system", "user", "assistant"]
@@ -46,3 +60,11 @@ class LLMClient(Protocol):
 def effective_system_prompt(settings: Settings) -> str:
     """The system prompt to use: the user's override if set, else the built-in default."""
     return settings.system_prompt or SYSTEM_PROMPT
+
+
+def effective_style_directives(settings: Settings) -> dict[str, str]:
+    """Per-style directives: each the user's override if set, else the built-in default."""
+    return {
+        "script": settings.answer_style_script or STYLE_DIRECTIVES["script"],
+        "bullets": settings.answer_style_bullets or STYLE_DIRECTIVES["bullets"],
+    }

@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     ollama_models_dir: str = ""  # empty = auto-detect (~/.ollama, then the systemd install path)
     llm_keep_alive: str = "30m"  # how long Ollama keeps the model in VRAM after last use
     system_prompt: str = ""  # empty = built-in default (llm/base.py SYSTEM_PROMPT)
+    # Per-answer-style directives; empty = built-in default (llm/base.py STYLE_DIRECTIVES).
+    answer_style_script: str = ""
+    answer_style_bullets: str = ""
 
     # rag (retrieval over resume + job description)
     rag_enabled: bool = True

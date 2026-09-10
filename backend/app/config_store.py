@@ -14,7 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from .config import _ENV_FILE, Settings
-from .llm.base import effective_system_prompt
+from .llm.base import effective_style_directives, effective_system_prompt
 
 # Fields the wizard / settings page may change. Deliberately excludes transport/security
 # fields (host, port, enable_remote_viewer) which are not part of the setup flow.
@@ -29,6 +29,8 @@ _WRITABLE: frozenset[str] = frozenset(
         "ollama_base_url",
         "llm_keep_alive",
         "system_prompt",
+        "answer_style_script",
+        "answer_style_bullets",
         "anthropic_api_key",
         "openai_api_key",
         "gemini_api_key",
@@ -58,7 +60,10 @@ class ConfigView(BaseModel):
     rag_enabled: bool
     rag_top_k: int
     history_enabled: bool
-    system_prompt: str  # resolved: the override if set, else the built-in default
+    # All three resolved: the override if set, else the built-in default.
+    system_prompt: str
+    answer_style_script: str
+    answer_style_bullets: str
     auth_token_set: bool
     anthropic_api_key_set: bool
     openai_api_key_set: bool
@@ -67,6 +72,7 @@ class ConfigView(BaseModel):
 
 
 def current_config(settings: Settings) -> ConfigView:
+    styles = effective_style_directives(settings)
     return ConfigView(
         stt_provider=settings.stt_provider,
         whisper_model=settings.whisper_model,
@@ -82,6 +88,8 @@ def current_config(settings: Settings) -> ConfigView:
         rag_top_k=settings.rag_top_k,
         history_enabled=settings.history_enabled,
         system_prompt=effective_system_prompt(settings),
+        answer_style_script=styles["script"],
+        answer_style_bullets=styles["bullets"],
         auth_token_set=bool(settings.auth_token),
         anthropic_api_key_set=bool(settings.anthropic_api_key),
         openai_api_key_set=bool(settings.openai_api_key),
@@ -109,7 +117,28 @@ def apply_config(
 def _fmt(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
-    return str(value)
+    text = str(value)
+    if not _needs_quoting(text):
+        return text
+    # dotenv reads an unquoted value as `[^\r\n]*`, then strips ` #...` and trailing space, so
+    # prose loses everything past the first newline or comment marker. Inside double quotes it
+    # decodes \\, \" and \n, which is exactly what this escapes.
+    escaped = (
+        text.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'
+
+
+def _needs_quoting(text: str) -> bool:
+    """Quote only what would not survive being read back, so .env stays readable."""
+    return (
+        any(c in text for c in '\n\r"\\#')
+        or text != text.strip()
+        or text.startswith("'")
+    )
 
 
 def _write_env(updates: dict[str, object], path: Path) -> None:

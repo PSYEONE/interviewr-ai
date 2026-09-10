@@ -22,7 +22,7 @@ from .events import (
     TranscriptEvent,
 )
 from .history import HistoryStore, TurnRecord
-from .llm.base import LLMClient, Message
+from .llm.base import STYLE_DIRECTIVES, LLMClient, Message
 from .rag import Retriever, format_context
 
 _log = logging.getLogger(__name__)
@@ -44,17 +44,9 @@ def _fallback_title(turns: list[TurnRecord]) -> str:
     title = " ".join(words[:_FALLBACK_TITLE_WORDS])
     return (title + "...") if len(words) > _FALLBACK_TITLE_WORDS else title
 
-# Form-only answer-style directives appended to the question (the client flips between them).
-_STYLE_DIRECTIVES = {
-    "script": (
-        "STYLE: Answer as a natural first-person spoken script, what the candidate would say "
-        "out loud. Conversational and flowing. No bullet points, lists, or headers."
-    ),
-    "bullets": (
-        "STYLE: Answer as 3 to 6 concise bullet points, each a single line to glance at and "
-        "expand on. No long paragraphs."
-    ),
-}
+# The answer styles the client can flip between. Fixed: only the directive text behind each is
+# user-editable, so validation must key off this and never off the directives themselves.
+_STYLES = ("script", "bullets")
 
 
 class Session:
@@ -67,6 +59,7 @@ class Session:
         retriever: Retriever | None = None,
         history: HistoryStore | None = None,
         history_enabled: bool = True,
+        style_directives: dict[str, str] | None = None,
     ) -> None:
         self._bus = bus
         self._llm = llm
@@ -94,8 +87,10 @@ class Session:
         self._capture_on = asyncio.Event()
         self._capture_off = asyncio.Event()
         self._recompute_capture()
-        # Answer formatting, flipped live by the client (sticky until changed).
+        # Answer formatting, flipped live by the client (sticky until changed). The directive text
+        # is config, refreshed by POST /settings/reload without a restart.
         self._answer_style = "script"
+        self._style_directives = dict(style_directives or STYLE_DIRECTIVES)
 
     def _recompute_capture(self) -> None:
         active = self._capture_intent and self._bus.subscriber_count() > 0
@@ -141,12 +136,16 @@ class Session:
 
     def set_answer_style(self, style: str) -> None:
         """Flip how answers are formatted (sticky until changed); applied to the next answer."""
-        if style in _STYLE_DIRECTIVES:
+        if style in _STYLES:
             self._answer_style = style
+
+    def set_style_directives(self, directives: dict[str, str]) -> None:
+        """Live-swap the per-style directive text (applied by POST /settings/reload)."""
+        self._style_directives = dict(directives)
 
     def _style_directive(self) -> str:
         """Form-only instruction appended to the question for the LLM; never stored in history."""
-        return _STYLE_DIRECTIVES.get(self._answer_style, "")
+        return self._style_directives.get(self._answer_style, "")
 
     def add_transcript(self, text: str) -> None:
         """Append a transcript chunk and broadcast it. Called by the producer loop."""

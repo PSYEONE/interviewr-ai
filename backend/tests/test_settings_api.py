@@ -60,6 +60,35 @@ def test_apply_writes_only_changed_keys(tmp_path: Path) -> None:
     assert "INTERVIEWR_RAG_TOP_K=6" in text
 
 
+def test_apply_round_trips_prose(tmp_path: Path) -> None:
+    """A prompt is prose, not a token: newlines, # and quotes must survive the .env round trip.
+
+    Unquoted, dotenv reads a value as `[^\\r\\n]*`, strips ` #...` and rstrips, so every one of
+    these silently truncated or lost characters on the way back in.
+    """
+    env = tmp_path / ".env"
+    prompt = 'Be terse.\nUse #1 as the example.\nSay "hello" first. '
+    apply_config(_settings(), {"system_prompt": prompt}, env_path=env)
+    assert Settings(_env_file=env, llm_model="m").system_prompt == prompt  # type: ignore[call-arg]
+
+
+def test_apply_twice_leaves_no_residue(tmp_path: Path) -> None:
+    # A multi-line value written raw leaves orphan lines that later writes cannot recognise as
+    # part of a key, so they accumulate.
+    env = tmp_path / ".env"
+    apply_config(_settings(), {"system_prompt": "one\ntwo"}, env_path=env)
+    apply_config(_settings(), {"system_prompt": "three\nfour"}, env_path=env)
+    assert Settings(_env_file=env, llm_model="m").system_prompt == "three\nfour"  # type: ignore[call-arg]
+    assert "one" not in env.read_text()
+
+
+def test_apply_leaves_plain_values_unquoted(tmp_path: Path) -> None:
+    # Quoting is for values that need it; .env stays readable for the ordinary ones.
+    env = tmp_path / ".env"
+    apply_config(_settings(), {"llm_model": "qwen2.5:7b"}, env_path=env)
+    assert "INTERVIEWR_LLM_MODEL=qwen2.5:7b" in env.read_text()
+
+
 def test_apply_accepts_valid_cloud_combo(tmp_path: Path) -> None:
     env = tmp_path / ".env"
     apply_config(

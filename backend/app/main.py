@@ -53,7 +53,7 @@ from .history import (
     format_history_md,
 )
 from .llm import build_llm
-from .llm.base import LLMClient
+from .llm.base import LLMClient, effective_style_directives
 from .pipeline import run_producer
 from .rag import Retriever, build_retriever
 from .rag.base import DocKind
@@ -113,6 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 retriever=retriever,
                 history=history,
                 history_enabled=settings.history_enabled,
+                style_directives=effective_style_directives(settings),
             )
             app.state.session = session
             app.state.llm = llm
@@ -548,6 +549,7 @@ async def reload_settings(request: Request) -> dict[str, bool]:
     session: Session | None = request.app.state.session
     if session is not None:
         session.set_history_enabled(fresh.history_enabled)
+        session.set_style_directives(effective_style_directives(fresh))
     set_keep_alive = getattr(request.app.state.llm, "set_keep_alive", None)
     if callable(set_keep_alive):
         set_keep_alive(fresh.llm_keep_alive)
