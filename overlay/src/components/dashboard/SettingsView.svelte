@@ -80,6 +80,13 @@
   let gpus = $state<GpuInfo[]>([]);
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
+  // Always carries the saved value, even when the app list has not arrived or no longer names it.
+  // An <option> whose value is read from the same state the <select> binds to feeds back into that
+  // binding while the list changes underneath it, so the choices are derived once instead.
+  const captureChoices = $derived.by(() => {
+    const saved = form?.audio_capture_app;
+    return saved && !audioApps.includes(saved) ? [...audioApps, saved] : audioApps;
+  });
   let loadError = $state<string | null>(null);
   let saving = $state(false);
   let status = $state("");
@@ -351,14 +358,9 @@
         <div class="flex items-center gap-2">
           <select id="capapp" class="flex-1" bind:value={form.audio_capture_app}>
             <option value="">Everything (system audio)</option>
-            {#each audioApps as a (a)}
+            {#each captureChoices as a (a)}
               <option value={a}>{a}</option>
             {/each}
-            <!-- A previously chosen app that is currently silent has no node, so it would
-                 otherwise vanish from the list and silently reset the setting on save. -->
-            {#if form.audio_capture_app && !audioApps.includes(form.audio_capture_app)}
-              <option value={form.audio_capture_app}>{form.audio_capture_app} (not playing)</option>
-            {/if}
           </select>
           <button onclick={loadAudioApps} disabled={loadingApps}>
             {loadingApps ? "…" : "Refresh"}

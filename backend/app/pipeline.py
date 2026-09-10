@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from .audio import routing
-from .audio.capture import capture_audio
+from .audio.capture import capture_audio, get_default_sink
 from .config import Settings
 from .events import EventBus, StatusEvent
 from .session import Session
@@ -96,6 +96,11 @@ async def run_producer(
             # is closed explicitly to run capture_audio's finally and terminate pw-record.
             await transcript_stream.aclose()
             await audio_stream.aclose()
+            # Give the user's audio back when the interview ends. Leaving the sink loaded meant
+            # our routing outlived the interview, and any app WirePlumber remembers pointing at
+            # it would silently rejoin a sink nothing was capturing.
+            if prefs.app:
+                await routing.cleanup(await get_default_sink())
             bus.publish(StatusEvent(state="idle"))
         # Feed ending while capture was never paused means pw-record died; back off so a
         # persistent failure cannot spin this loop hot (wait_capture_start returns at once).
