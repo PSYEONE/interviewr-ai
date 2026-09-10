@@ -34,7 +34,7 @@
 
   async function load(): Promise<void> {
     try {
-      const cfg = await getSettings(); // resolved: override or built-in default
+      const cfg = await getSettings();
       const next: Record<Field, string> = {
         system_prompt: cfg.system_prompt,
         answer_style_script: cfg.answer_style_script,

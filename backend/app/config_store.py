@@ -61,8 +61,9 @@ class ConfigView(BaseModel):
     rag_enabled: bool
     rag_top_k: int
     history_enabled: bool
-    audio_capture_app: str  # application.name to isolate; empty = capture everything
-    # All three resolved: the override if set, else the built-in default.
+    audio_capture_app: str
+    # Prompt text is sent resolved so the UI can show the built-in default in an editable box
+    # without shipping a copy of it.
     system_prompt: str
     answer_style_script: str
     answer_style_bullets: str

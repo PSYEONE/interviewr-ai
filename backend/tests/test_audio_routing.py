@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
-from app.audio.routing import MONITOR, SINK_NAME, PlayingApp, _apps_from
+import pytest
+
+from app.audio import routing
+from app.audio.routing import MONITOR, SINK_NAME, PlayingApp, _apps_from, _names_from_state
 
 # Real `pw-dump` node entries, trimmed to the props the parser reads. Two streams from one
 # application, which is the browser case: several tabs, one app, all of which must move together.
@@ -68,6 +72,43 @@ def test_a_stream_without_a_serial_is_skipped() -> None:
         {"id": 5, "info": {"props": {"media.class": "Stream/Output/Audio", "node.name": "x"}}}
     ]
     assert _apps_from(dump) == []
+
+
+def test_our_own_loopback_is_not_offered() -> None:
+    """module-loopback's nodes have no application.name, so they used to be listed as
+    "output.loopback-2784-13". Selecting one would route our loopback into the sink it reads."""
+    dump: list[Any] = [
+        {"id": 9, "info": {"props": {"media.class": "Stream/Output/Audio",
+                                     "node.name": "output.loopback-2784-13",
+                                     "object.serial": 31}}},
+        {"id": 10, "info": {"props": {"media.class": "Stream/Output/Audio",
+                                      "node.name": "input.loopback-2784-14",
+                                      "object.serial": 32}}},
+    ]
+    assert _apps_from(dump) == []
+
+
+# Real lines from ~/.local/state/wireplumber/stream-properties, values trimmed.
+_STATE = r"""[stream-properties]
+Audio/Sink:node.name:alsa_output.pci-0000_01_00.1.pro-output-3={"volume":1.0}
+Output/Audio:application.name:Brave={"volume":1.000000, "mute":false}
+Output/Audio:application.name:Chromium={"volume":1.000000, "mute":false}
+Output/Audio:application.name:FL\sStudio={"volume":1.000000, "mute":false}
+Output/Audio:application.name:PipeWire\sALSA\s\oresolve\c={"volume":1.000000}
+Output/Audio:media.role:Music={"volume":1.000000}
+Input/Audio:application.name:Brave\sinput={"volume":1.000000}
+"""
+
+
+def test_known_apps_reads_output_streams_only() -> None:
+    # Sinks, mic inputs and media.role entries are not applications the user can capture.
+    assert _names_from_state(_STATE) == ["Brave", "Chromium", "FL Studio"]
+
+
+def test_known_apps_is_empty_without_the_state_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A non-WirePlumber setup must degrade to the live list, not raise.
+    monkeypatch.setattr(routing, "_STATE_FILE", Path("/nonexistent/stream-properties"))
+    assert routing.known_apps() == []
 
 
 def test_monitor_name_matches_the_sink() -> None:

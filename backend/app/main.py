@@ -492,13 +492,14 @@ async def system_disk(request: Request) -> DiskInfo | None:
 
 @app.get("/audio/apps")
 async def audio_apps(request: Request) -> list[str]:
-    """Applications currently playing audio, for the capture picker.
+    """Applications the user can capture from.
 
-    Only apps making sound right now can be listed: PipeWire has no node for a silent
-    application, so the list is a snapshot and the UI offers a refresh.
+    The union of what is playing now and what has played on this machine before, so a browser
+    that is open but silent can still be chosen; PipeWire has no node for a silent application.
     """
     _require_auth(request)
-    return [a.name for a in await audio_routing.list_apps()]
+    live = {a.name for a in await audio_routing.list_apps()}
+    return sorted(live | set(audio_routing.known_apps()))
 
 
 @app.post("/ollama/pull")

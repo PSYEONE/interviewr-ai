@@ -35,8 +35,8 @@ async function failure(resp: Response, what: string): Promise<string> {
 export const getHealth = (): Promise<Health> => getJSON<Health>("/health");
 export const getSettings = (): Promise<ConfigView> => getJSON<ConfigView>("/settings");
 
-// Applications playing audio right now. A snapshot, not a stable list: PipeWire has no node for
-// a silent app, so the picker offers a refresh rather than pretending this is complete.
+// Apps that are playing now, plus ones that have played before so a silent browser is still
+// selectable. Refreshable because a newly launched app only appears once it makes a sound.
 export const getAudioApps = (): Promise<string[]> => getJSON<string[]>("/audio/apps");
 
 // Poll /health until `pred` holds or `timeoutMs` elapses. Used after an engine restart to wait

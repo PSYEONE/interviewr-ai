@@ -30,6 +30,9 @@ Build a capture-source selector so the user captures **only the call/meeting aud
 - [x] Selector in the overlay UI: Settings > Audio > "Capture from". A cheap field, so it
       applies at the next interview start with no engine restart.
 - [ ] Document the mic-sidetone gotcha and the recommended capture mode in the README.
-- [ ] Re-route a stream that appears **mid-interview** (`pactl subscribe`). Today reconcile
-      runs at capture start, so an app relaunched during an interview is only picked up at
-      the next one.
+- [x] Re-route a stream that appears **mid-interview**: `routing.watch()` reads
+      `pactl subscribe` for the length of a capture session and moves the chosen app's new
+      streams in. Needed because a browser recreates its output stream on pause/seek/tab
+      change, and because an app selected while silent has no stream to move at start.
+- [x] Pick an app that is not currently playing: `known_apps()` reads the names WirePlumber
+      has stored state for, so a silent browser is still selectable.
