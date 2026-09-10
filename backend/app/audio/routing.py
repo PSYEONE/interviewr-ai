@@ -241,11 +241,39 @@ async def reconcile(app: str) -> str:
         return f"{default_sink}.monitor"
 
     await _ensure_sink(default_sink)
-    if await move_streams(app) == 0:
+    moved = await move_streams(app)
+    await evict(app, default_sink)
+    if moved == 0:
         # Normal: the app may be silent right now. watch() moves its streams the moment they
         # appear, so this is a wait rather than a failure.
         _log.info("%r is not playing yet; waiting for it to start", app)
     return MONITOR
+
+
+def _foreign(in_sink: list[int], ours: set[int]) -> list[int]:
+    """Streams sitting in our sink that do not belong to the selected app."""
+    return [s for s in in_sink if s not in ours]
+
+
+async def evict(app: str, default_sink: str) -> int:
+    """Send everything that is not `app` back to `default_sink`. Returns how many were evicted.
+
+    The invariant this maintains is the feature: only the selected app's streams live in our sink.
+    Two things break it otherwise. Switching the selection used to leave the previous app behind,
+    so a capture contained both. And WirePlumber remembers a target after a move under keys wider
+    than the application (a media.role entry will pull in any stream with that role), so foreign
+    streams can arrive with no move from us at all.
+    """
+    index = await _sink_index()
+    if index is None:
+        return 0
+    ours = {s for a in await list_apps() if a.name == app for s in a.streams}
+    evicted = 0
+    for stream in _foreign([int(s) for s in await _streams_in_sink(index)], ours):
+        if await _try("pactl", "move-sink-input", str(stream), default_sink):
+            _log.info("moved stream %s out of the capture sink; it is not %r", stream, app)
+            evicted += 1
+    return evicted
 
 
 async def move_streams(app: str) -> int:
@@ -272,6 +300,7 @@ async def watch(app: str) -> None:
     """
     if not app:
         return
+    default_sink = await get_default_sink()
     proc = await asyncio.create_subprocess_exec(
         "pactl", "subscribe",
         stdout=asyncio.subprocess.PIPE,
@@ -285,6 +314,9 @@ async def watch(app: str) -> None:
             line = raw.decode(errors="replace")
             if "'new'" in line and "sink-input" in line:
                 await move_streams(app)
+                # A new stream can land in our sink without us moving it, when WirePlumber has a
+                # remembered target that matches it. Push it back out before it is captured.
+                await evict(app, default_sink)
     finally:
         if proc.returncode is None:
             try:

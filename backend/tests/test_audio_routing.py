@@ -9,7 +9,14 @@ from typing import Any
 import pytest
 
 from app.audio import routing
-from app.audio.routing import MONITOR, SINK_NAME, PlayingApp, _apps_from, _names_from_state
+from app.audio.routing import (
+    MONITOR,
+    SINK_NAME,
+    PlayingApp,
+    _apps_from,
+    _foreign,
+    _names_from_state,
+)
 
 # Real `pw-dump` node entries, trimmed to the props the parser reads. Two streams from one
 # application, which is the browser case: several tabs, one app, all of which must move together.
@@ -109,6 +116,17 @@ def test_known_apps_is_empty_without_the_state_file(monkeypatch: pytest.MonkeyPa
     # A non-WirePlumber setup must degrade to the live list, not raise.
     monkeypatch.setattr(routing, "_STATE_FILE", Path("/nonexistent/stream-properties"))
     assert routing.known_apps() == []
+
+
+def test_foreign_streams_are_the_ones_to_evict() -> None:
+    """Switching the selected app used to leave the previous one in the sink, so a capture
+    contained both and the second selection only appeared to work."""
+    assert _foreign([11, 22, 33], ours={22}) == [11, 33]
+
+
+def test_nothing_to_evict_when_the_sink_holds_only_ours() -> None:
+    assert _foreign([22, 23], ours={22, 23}) == []
+    assert _foreign([], ours={22}) == []
 
 
 def test_monitor_name_matches_the_sink() -> None:
