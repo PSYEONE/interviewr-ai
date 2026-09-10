@@ -230,6 +230,12 @@ fn spawn_engine(app: &AppHandle) -> Result<(), String> {
     command
         .arg("run_pipeline.py")
         .current_dir(&cmd.dir)
+        // The engine runs in its own process group (below) so killing it reaps pw-record, which
+        // also means a Ctrl+C aimed at the terminal never reaches it. If the overlay then dies
+        // without running stop_engine, the engine outlives it, keeps the port, and the next
+        // launch adopts it through engine_reachable() with whatever config it was started with.
+        // Handing it our pid lets it notice and exit on its own.
+        .env("INTERVIEWR_PARENT_PID", std::process::id().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::piped());
