@@ -23,6 +23,11 @@
   let original = $state<Record<Field, string> | null>(null);
   let status = $state("");
   let error = $state<string | null>(null);
+  // Back discards, so it arms first (click again to confirm), like the model picker's Delete.
+  let armedBack = $state(false);
+  const dirty = $derived(
+    form !== null && original !== null && FIELDS.some(({ key }) => form![key] !== original![key]),
+  );
 
   function msg(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
@@ -91,33 +96,64 @@
     }
   }
 
+  /** Leave, but not while unsaved edits would go with us: the first click only arms. */
+  function leave(): void {
+    if (!dirty || armedBack) {
+      back();
+      return;
+    }
+    armedBack = true;
+  }
+
   onMount(load);
 </script>
+
+{#snippet backLabel(text: string)}
+  <!-- The longest label reserves the width in a shared grid cell, so arming swaps the text
+       without resizing the button and shifting the footer. -->
+  <span class="grid">
+    <span class="invisible col-start-1 row-start-1">Discard?</span>
+    <span class="col-start-1 row-start-1">{text}</span>
+  </span>
+{/snippet}
 
 {#if stage === "applying"}
   <div class="splash">{status || "Applying…"}</div>
 {:else}
-  <div class="wiz">
-    <h1>Prompts</h1>
-    {#if error}<p class="text-warn">{error}</p>{/if}
+  <div class="wiz split">
+    <div class="wiz-head">
+      <h1>Prompts</h1>
+    </div>
 
-    {#if form}
-      {#each FIELDS as f (f.key)}
-        <div class="flex items-center gap-2">
-          <span class="flex-1">{f.title}</span>
-          <span class="text-dim text-xs">{f.blurb}</span>
-          <button onclick={() => void reset(f.key)}>Reset</button>
-        </div>
-        <textarea bind:value={form[f.key]} rows="6"></textarea>
-      {/each}
-    {:else}
-      <p class="text-dim text-sm">Loading…</p>
+    <div class="wiz-body">
+      {#if form}
+        {#each FIELDS as f (f.key)}
+          <div class="flex items-center gap-2">
+            <span class="flex-1">{f.title}</span>
+            <span class="text-dim text-xs">{f.blurb}</span>
+            <button onclick={() => void reset(f.key)}>Reset</button>
+          </div>
+          <textarea bind:value={form[f.key]} rows="8"></textarea>
+        {/each}
+      {:else}
+        <p class="text-dim text-sm">Loading…</p>
+      {/if}
+    </div>
+
+    {#if error}
+      <div class="wiz-status"><p class="text-warn">{error}</p></div>
     {/if}
 
-    <div class="flex-1"></div>
-    <div class="flex items-center justify-end gap-2">
-      <button class="mr-auto" onclick={back}>Back</button>
-      <button class="primary" onclick={() => void save()} disabled={!form}>Save</button>
+    <div class="wiz-foot">
+      <button
+        class:armed={armedBack && dirty}
+        title={armedBack && dirty ? "Click again to leave; your edits will be lost" : "Back"}
+        onclick={leave}
+        onmouseleave={() => (armedBack = false)}
+      >
+        {@render backLabel(armedBack && dirty ? "Discard?" : "Back")}
+      </button>
+      <button class="primary ml-auto" onclick={() => void save()} disabled={!form}>Save</button>
     </div>
   </div>
 {/if}
