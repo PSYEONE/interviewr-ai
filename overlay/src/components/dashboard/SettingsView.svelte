@@ -80,13 +80,14 @@
   let gpus = $state<GpuInfo[]>([]);
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
-  // Always carries the saved value, even when the app list has not arrived or no longer names it.
-  // An <option> whose value is read from the same state the <select> binds to feeds back into that
-  // binding while the list changes underneath it, so the choices are derived once instead.
-  const captureChoices = $derived.by(() => {
-    const saved = form?.audio_capture_app;
-    return saved && !audioApps.includes(saved) ? [...audioApps, saved] : audioApps;
-  });
+  // The saved app, snapshotted at load. The option list must not be derived from
+  // form.audio_capture_app: that is what the <select> binds to, so the list would change in
+  // response to the binding writing to it, and a select whose options move under its own binding
+  // cannot reliably show the value it loaded.
+  let savedApp = $state("");
+  const captureChoices = $derived(
+    savedApp && !audioApps.includes(savedApp) ? [...audioApps, savedApp] : audioApps,
+  );
   let loadError = $state<string | null>(null);
   let saving = $state(false);
   let status = $state("");
@@ -117,6 +118,7 @@
       const cfg = await getSettings();
       original = pick(cfg);
       form = pick(cfg);
+      savedApp = cfg.audio_capture_app;
     } catch (e) {
       loadError = msg(e);
     }
@@ -228,7 +230,11 @@
   async function save(): Promise<void> {
     if (!form || !original) return;
     const updates: Record<string, unknown> = {};
-    for (const k of KEYS) if (form[k] !== original[k]) updates[k] = form[k];
+    // undefined is what a Svelte binding writes back when its control finds no matching option.
+    // Sending it would overwrite a real saved value with a blank, so treat it as "no change".
+    for (const k of KEYS) {
+      if (form[k] !== original[k] && form[k] !== undefined) updates[k] = form[k];
+    }
     const changed = Object.keys(updates) as (keyof Editable)[];
     if (changed.length === 0) {
       back(); // nothing changed -> no restart, no reload
