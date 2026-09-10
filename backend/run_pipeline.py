@@ -8,6 +8,7 @@ import sys
 import uvicorn
 
 from app.config import get_settings
+from app.system.parent import watch
 
 
 async def _list_devices() -> None:
@@ -27,6 +28,9 @@ def main() -> None:
     # Preflight (ollama health + model warmup) and the capture producer run inside the
     # FastAPI lifespan, on uvicorn's single event loop. One loop for the whole lifetime
     # avoids the "Event loop is closed" teardown race the old double-asyncio.run had.
+    # Before binding the port: an engine that outlives its launcher keeps the port and gets
+    # adopted by the next launch, config and all. See app/system/parent.py.
+    watch()
     settings = get_settings()
     uvicorn.run("app.main:app", host=settings.host, port=settings.port, log_level="info")
 
