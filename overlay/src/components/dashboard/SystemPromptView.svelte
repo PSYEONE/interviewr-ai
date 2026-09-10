@@ -130,7 +130,7 @@
         {#each FIELDS as f (f.key)}
           <!-- Grouped so the body's gap separates one prompt from the next, rather than sitting
                equally between a title and the box it names. -->
-          <div class="flex shrink-0 flex-col gap-1">
+          <div class="mb-2 flex shrink-0 flex-col gap-1">
             <div class="flex items-center gap-2">
               <span class="flex-1">{f.title}</span>
               <span class="text-dim text-xs">{f.blurb}</span>
