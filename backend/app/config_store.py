@@ -40,6 +40,7 @@ _WRITABLE: frozenset[str] = frozenset(
         "rag_enabled",
         "rag_top_k",
         "history_enabled",
+        "audio_capture_app",
     }
 )
 
@@ -60,6 +61,7 @@ class ConfigView(BaseModel):
     rag_enabled: bool
     rag_top_k: int
     history_enabled: bool
+    audio_capture_app: str  # application.name to isolate; empty = capture everything
     # All three resolved: the override if set, else the built-in default.
     system_prompt: str
     answer_style_script: str
@@ -87,6 +89,7 @@ def current_config(settings: Settings) -> ConfigView:
         rag_enabled=settings.rag_enabled,
         rag_top_k=settings.rag_top_k,
         history_enabled=settings.history_enabled,
+        audio_capture_app=settings.audio_capture_app,
         system_prompt=effective_system_prompt(settings),
         answer_style_script=styles["script"],
         answer_style_bullets=styles["bullets"],

@@ -54,6 +54,9 @@ class Settings(BaseSettings):
 
     # audio
     audio_device: str = ""  # PipeWire source name; empty = auto-detect default sink monitor
+    # application.name to isolate into the engine's own null sink; empty = capture everything.
+    # Takes precedence over audio_device. See app/audio/routing.py.
+    audio_capture_app: str = ""
 
     # stt
     stt_provider: STTProvider = STTProvider.WHISPER_CPP

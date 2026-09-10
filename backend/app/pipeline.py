@@ -4,15 +4,48 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
-from .audio.capture import capture_audio, get_default_monitor
+from .audio import routing
+from .audio.capture import capture_audio
 from .config import Settings
 from .events import EventBus, StatusEvent
 from .session import Session
 from .stt.whisper import Hypothesis, WhisperTranscriber, transcribe_stream
 
 
-async def run_producer(settings: Settings, session: Session, bus: EventBus) -> None:
+@dataclass
+class CapturePrefs:
+    """Where to capture from, mutable so POST /settings/reload can change it with no restart.
+
+    The producer is handed this instead of a Settings snapshot, which reload replaces wholesale
+    and so could never reach a long-running task. Same idea as Retriever.set_top_k.
+    """
+
+    device: str = ""
+    app: str = ""
+
+    @classmethod
+    def of(cls, settings: Settings) -> CapturePrefs:
+        return cls(device=settings.audio_device, app=settings.audio_capture_app)
+
+    def update(self, settings: Settings) -> None:
+        self.device = settings.audio_device
+        self.app = settings.audio_capture_app
+
+
+async def resolve_device(prefs: CapturePrefs) -> str:
+    """The PipeWire source to record, applying the app-isolation routing as a side effect."""
+    if prefs.app:
+        return await routing.reconcile(prefs.app)
+    # Also tears down a null sink left over from app mode, and hands back the default monitor.
+    fallback = await routing.reconcile("")
+    return prefs.device or fallback
+
+
+async def run_producer(
+    settings: Settings, session: Session, bus: EventBus, prefs: CapturePrefs | None = None
+) -> None:
     """Transcribe captured audio into the session, but only while capture is active.
 
     Capture runs only inside an interview: the session is paused on the dashboard and
@@ -20,7 +53,7 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     pw-record actually stops, rather than reading and discarding audio. No LLM call here:
     answers are generated on demand via a client command. Runs for the server's lifetime.
     """
-    device = settings.audio_device or await get_default_monitor()
+    prefs = prefs if prefs is not None else CapturePrefs.of(settings)
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
         use_gpu=settings.whisper_use_gpu,
@@ -32,6 +65,10 @@ async def run_producer(settings: Settings, session: Session, bus: EventBus) -> N
     while True:
         await session.wait_capture_start()
         bus.publish(StatusEvent(state="listening"))
+        # Resolved per capture start, not once: it makes the capture target a live setting (no
+        # engine restart), and re-routes an app that has been relaunched since the last interview,
+        # which WirePlumber will not do for us.
+        device = await resolve_device(prefs)
         audio_stream = capture_audio(device)
         transcript_stream = transcribe_stream(
             audio_stream,
