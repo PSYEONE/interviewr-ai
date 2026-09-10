@@ -2,13 +2,15 @@
 
 ## Selectable audio capture in the engine
 
-Right now `app/audio/capture.py` captures the **default sink's monitor** (whole-system
-output). That's the wrong long-term strategy:
+By default `app/audio/capture.py` captures the **default sink's monitor** (whole-system
+output), which grabs everything: notification dings, music, every app's audio.
 
-- It grabs everything: notification dings, music, every app's audio.
-- On some hardware (e.g. the maintainer's Intel SOF/HDA laptop) the mic is folded into the
-  playback path via **hardware mic sidetone**, so the monitor also picks up your own voice.
-  An interview copilot then tries to "answer" the user's own words.
+An earlier note here claimed hardware mic sidetone folds the user's own voice into that
+monitor on the maintainer's laptop. **Not reproduced.** Card 0 exposes no `Loopback`,
+`Sidetone` or `Mic Playback` control, and the default sink's monitor measures
+`rms=0.000000, peak=0.000000` with nothing playing, where ambient noise would show if the
+mic fed the playback path. It stays possible on an analog codec configured for it; treat it
+as an unverified hardware quirk, not a reason this feature exists.
 
 Build a capture-source selector so the user captures **only the call/meeting audio**:
 
@@ -29,7 +31,8 @@ Build a capture-source selector so the user captures **only the call/meeting aud
       playing different tones, isolating one attenuates the other by ~1.4e6.
 - [x] Selector in the overlay UI: Settings > Audio > "Capture from". A cheap field, so it
       applies at the next interview start with no engine restart.
-- [ ] Document the mic-sidetone gotcha and the recommended capture mode in the README.
+- [x] Document the recommended capture mode in the README ("Choosing what gets captured"),
+      including that an isolated capture contains the far side of a call and not the user.
 - [x] Re-route a stream that appears **mid-interview**: `routing.watch()` reads
       `pactl subscribe` for the length of a capture session and moves the chosen app's new
       streams in. Needed because a browser recreates its output stream on pause/seek/tab
