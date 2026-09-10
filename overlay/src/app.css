@@ -242,8 +242,11 @@
     background: var(--solid);
     color: var(--color-fg);
   }
+  /* shrink-0 matters inside .wiz-body: a textarea has no min-content floor, so as a flex child it
+     compresses below its rows, nothing overflows, and the scroll container never scrolls. It also
+     makes the resize-y handle stick instead of being undone by the flexbox. */
   .wiz textarea {
-    @apply w-full resize-y rounded-none border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-xs text-fg;
+    @apply w-full shrink-0 resize-y rounded-none border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-xs text-fg;
   }
 
   /* Active-download strip, pinned under the title bar in both shells so a pull started on the
