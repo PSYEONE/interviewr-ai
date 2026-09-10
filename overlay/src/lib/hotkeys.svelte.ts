@@ -2,7 +2,9 @@
 // persisted locally (localStorage, an overlay concern, not engine .env) and registered with the
 // Tauri global-shortcut plugin. Callbacks dispatch to the session / window-control stores.
 
-import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
+import { register, unregister, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 import { session } from "./session.svelte";
 import { windowControls } from "./windowControls.svelte";
@@ -35,6 +37,35 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
 };
 
 const STORAGE_KEY = "interviewr.hotkeys";
+// Portal path: whether the user has opted in. A fresh session's ListShortcuts reports nothing
+// until that session has bound, so it cannot tell us about a previous grant; this can.
+const PORTAL_OPT_IN_KEY = "interviewr.shortcuts.enabled";
+
+// Which mechanism can actually deliver a shortcut. "portal" = the compositor owns the binding
+// (Wayland), "plugin" = we grab it ourselves (X11/Windows/macOS), "none" = nothing can.
+export type Backend = "portal" | "plugin" | "none";
+
+// Shown by the desktop's own shortcut dialog on the portal path, so it has to read as a sentence
+// to someone who has never seen this app. No "interviewr:" prefix: the desktop files these under
+// the app's own component now that it can identify us, and repeats the app name itself.
+const PORTAL_DESCRIPTIONS: Record<HotkeyAction, string> = {
+  answer: "Answer the current question",
+  clear: "Clear the pending transcript",
+  reset: "Start a fresh conversation",
+  pin: "Pin the overlay on top",
+  stealth: "Hide the overlay from screen capture",
+  answer_style: "Switch between script and bullet answers",
+  collapse: "Collapse the overlay to its bars",
+};
+
+/** Turn the one portal error a user can act on into a sentence that says what to do.
+ *  "An app id is required" means the desktop could not identify us; the Rust side knows which
+ *  half is missing, and only it can tell them apart. */
+async function explain(raw: string): Promise<string | null> {
+  if (!raw.includes("An app id is required")) return null;
+  const problem = await invoke<string | null>("shortcuts_app_id_problem").catch(() => null);
+  return problem ?? null;
+}
 
 function dispatch(action: HotkeyAction): void {
   switch (action) {
@@ -73,6 +104,12 @@ class Hotkeys {
     collapse: null,
   });
   error = $state<string | null>(null);
+  // Null until init() has asked the Rust side. The Settings UI branches on this: the portal path
+  // has no per-action Record button, because the compositor owns the binding.
+  backend = $state<Backend | null>(null);
+  // Portal path only: what the compositor actually has bound, keyed by action.
+  triggers = $state<Partial<Record<HotkeyAction, string>>>({});
+  enabled = $state(false);
   #inited = false;
 
   #load(): void {
@@ -103,16 +140,112 @@ class Hotkeys {
   async init(): Promise<void> {
     if (this.#inited) return;
     this.#inited = true;
+    this.backend = await invoke<Backend>("shortcuts_backend").catch(() => "plugin" as Backend);
+
+    if (this.backend === "portal") {
+      await this.#initPortal();
+      return;
+    }
+    if (this.backend === "none") {
+      this.error =
+        "This desktop has no way to register a global shortcut, so hotkeys are unavailable.";
+      return;
+    }
+
     this.#load();
+    // The grabs live in the Rust process while #inited is webview state, so a dev reload would
+    // otherwise re-register over live grabs and every call would fail.
+    await unregisterAll().catch(() => {});
+    const failed: string[] = [];
     for (const a of HOTKEY_ACTIONS) {
       const accel = this.bindings[a];
-      if (accel) {
-        try {
-          await this.#register(a, accel);
-        } catch {
-          /* a saved combo may now be taken; leave it bound in the UI, just not active */
-        }
+      if (!accel) continue;
+      try {
+        await this.#register(a, accel);
+      } catch {
+        failed.push(`${HOTKEY_LABELS[a]} (${accel})`);
       }
+    }
+    // Previously swallowed, so Settings showed a dead binding as though it were live.
+    if (failed.length > 0) {
+      this.error = `Not active, the combination is already taken: ${failed.join(", ")}`;
+    }
+  }
+
+  /** Portal path: the compositor holds the bindings, so there is nothing in localStorage to
+   *  restore and nothing for us to grab. Listen always; bind only once the user has opted in,
+   *  since binding is what raises the desktop's permission dialog. */
+  async #initPortal(): Promise<void> {
+    await listen<string>("shortcut://activated", (e) => {
+      if (HOTKEY_ACTIONS.includes(e.payload as HotkeyAction)) {
+        dispatch(e.payload as HotkeyAction);
+      }
+    });
+    this.enabled = localStorage.getItem(PORTAL_OPT_IN_KEY) === "1";
+    // Already granted, so re-binding is silent and the shortcuts work from launch.
+    if (this.enabled) await this.enablePortal();
+  }
+
+  /** Bind with the compositor. First call raises the permission dialog; later ones do not. */
+  async enablePortal(): Promise<void> {
+    this.error = null;
+    try {
+      await invoke("shortcuts_bind", {
+        shortcuts: HOTKEY_ACTIONS.map((a) => [a, PORTAL_DESCRIPTIONS[a]]),
+      });
+      this.enabled = true;
+      localStorage.setItem(PORTAL_OPT_IN_KEY, "1");
+      await this.refreshTriggers();
+    } catch (e) {
+      // Nothing is bound, so nothing can be configured: stay on the Enable action rather than
+      // offering an editor that would only report a missing session.
+      this.enabled = false;
+      localStorage.removeItem(PORTAL_OPT_IN_KEY);
+      this.triggers = {};
+      const raw = e instanceof Error ? e.message : String(e);
+      this.error = (await explain(raw)) ?? `Couldn't register shortcuts with the desktop: ${raw}`;
+    }
+  }
+
+  /** Ask the compositor what it has bound. Its answer is the only truth: it owns the triggers
+   *  and can change them without telling us. */
+  async refreshTriggers(): Promise<void> {
+    try {
+      const listed = await invoke<[string, string][]>("shortcuts_list");
+      const next: Partial<Record<HotkeyAction, string>> = {};
+      for (const [id, trigger] of listed) {
+        if (!HOTKEY_ACTIONS.includes(id as HotkeyAction)) continue;
+        // An empty string is kept, not dropped: "registered with no key" and "not registered at
+        // all" are different states and the UI says so. KDE separates multiple keys for one
+        // action with a tab, which would otherwise render as a run of whitespace.
+        next[id as HotkeyAction] = trigger.split(/[\t\n]+/).filter(Boolean).join(", ");
+      }
+      this.triggers = next;
+    } catch {
+      /* leave the last known triggers; this is display only */
+    }
+  }
+
+  /** Portal path: hand binding to the desktop's own editor, the only thing that can set a
+   *  trigger on Wayland. */
+  async configure(): Promise<void> {
+    this.error = null;
+    try {
+      await invoke("shortcuts_configure");
+      // The dialog is where the keys change, so re-read rather than wait for a restart.
+      await this.refreshTriggers();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      // The editor needs a live session. Without one there is nothing to edit, so send the user
+      // back to Enable instead of leaving them on a button that cannot work.
+      if (raw.includes("bind first")) {
+        this.enabled = false;
+        localStorage.removeItem(PORTAL_OPT_IN_KEY);
+        this.triggers = {};
+        this.error = "The shortcuts aren't registered with your desktop. Enable them again.";
+        return;
+      }
+      this.error = raw;
     }
   }
 
@@ -138,6 +271,7 @@ class Hotkeys {
   }
 
   async clearBinding(action: HotkeyAction): Promise<void> {
+    this.error = null; // or a warning about this binding outlives the binding itself
     const accel = this.bindings[action];
     if (accel) await unregister(accel).catch(() => {});
     this.bindings[action] = null;

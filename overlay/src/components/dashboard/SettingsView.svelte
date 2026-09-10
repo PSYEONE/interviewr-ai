@@ -88,10 +88,36 @@
 
   // --- Global hotkey capture (applies immediately, independent of Save) ---
   let recording = $state<HotkeyAction | null>(null);
+  let recordError = $state<string | null>(null);
+  let recordTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function startRecording(action: HotkeyAction): void {
+    recordError = null;
+    recording = action;
+    // Without this a combination the compositor swallows leaves the widget on "Press keys..."
+    // forever, with nothing to say the key never arrived.
+    clearTimeout(recordTimer);
+    recordTimer = setTimeout(() => {
+      if (recording === action) {
+        recording = null;
+        recordError = "No key detected. Your desktop may already use that combination.";
+      }
+    }, 5000);
+  }
+
+  function stopRecording(): void {
+    clearTimeout(recordTimer);
+    recording = null;
+  }
+
+  // Bare modifiers are not a key, they are the user still reaching for one. Recognised so the
+  // handler can keep waiting instead of treating the press as unbindable.
+  const MODIFIER_CODES = /^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/;
 
   function codeToKey(code: string): string | null {
     if (code.startsWith("Key")) return code.slice(3); // KeyA -> A
     if (code.startsWith("Digit")) return code.slice(5); // Digit1 -> 1
+    if (code.startsWith("Numpad")) return code; // Numpad0, NumpadAdd, ...
     if (/^F\d{1,2}$/.test(code)) return code; // F1..F12
     if (code === "Space") return "Space";
     const map: Record<string, string> = {
@@ -100,31 +126,61 @@
       ArrowLeft: "Left",
       ArrowRight: "Right",
       Enter: "Enter",
+      Tab: "Tab",
+      Backspace: "Backspace",
+      Delete: "Delete",
+      Insert: "Insert",
+      Home: "Home",
+      End: "End",
+      PageUp: "PageUp",
+      PageDown: "PageDown",
+      Minus: "Minus",
+      Equal: "Equal",
+      BracketLeft: "BracketLeft",
+      BracketRight: "BracketRight",
+      Backslash: "Backslash",
+      Semicolon: "Semicolon",
+      Quote: "Quote",
+      Backquote: "Backquote",
+      Comma: "Comma",
+      Period: "Period",
+      Slash: "Slash",
     };
     return map[code] ?? null;
   }
 
   function toAccelerator(e: KeyboardEvent): string | null {
     const mods: string[] = [];
-    if (e.ctrlKey || e.metaKey) mods.push("CmdOrCtrl");
+    if (e.ctrlKey) mods.push("CmdOrCtrl");
+    // Super is its own modifier: folding it into CmdOrCtrl silently turned Super+A into Ctrl+A,
+    // registering a different shortcut than the one that was pressed.
+    if (e.metaKey) mods.push("Super");
     if (e.altKey) mods.push("Alt");
     if (e.shiftKey) mods.push("Shift");
-    if (mods.length === 0) return null; // require a modifier so it can't clash with typing
     const key = codeToKey(e.code);
-    return key ? [...mods, key].join("+") : null;
+    if (!key) return null;
+    // F-keys stand alone; everything else needs a modifier or it would clash with typing.
+    if (mods.length === 0 && !/^F\d{1,2}$/.test(key)) return null;
+    return [...mods, key].join("+");
   }
 
   function onKeydown(e: KeyboardEvent): void {
     if (!recording) return;
     e.preventDefault();
     if (e.code === "Escape") {
-      recording = null;
+      stopRecording();
       return;
     }
+    // Still holding modifiers down, waiting for the actual key. Not a rejection.
+    if (MODIFIER_CODES.test(e.code)) return;
     const accel = toAccelerator(e);
-    if (!accel) return; // wait for a modifier + a real key
+    if (!accel) {
+      // Previously a bare return, so an unbindable key was indistinguishable from a dead widget.
+      recordError = "That key can't be bound. Try a letter, digit or F-key, with a modifier.";
+      return;
+    }
     const action = recording;
-    recording = null;
+    stopRecording();
     void hotkeys.setBinding(action, accel);
   }
 
@@ -282,17 +338,57 @@
       immediately (no Save needed).
     </p>
     {#if hotkeys.error}<p class="text-warn">{hotkeys.error}</p>{/if}
-    {#each HOTKEY_ACTIONS as a (a)}
-      <div class="card flex items-center gap-2">
-        <span class="flex-1">{HOTKEY_LABELS[a]}</span>
-        <span class="text-dim text-sm">
-          {recording === a ? "Press keys…" : (hotkeys.bindings[a] ?? "Unbound")}
-        </span>
-        <button onclick={() => (recording = a)}>{recording === a ? "…" : "Record"}</button>
-        {#if hotkeys.bindings[a]}
-          <button onclick={() => void hotkeys.clearBinding(a)}>Clear</button>
-        {/if}
-      </div>
-    {/each}
+    {#if recordError}<p class="text-bad text-xs">{recordError}</p>{/if}
+
+    {#if hotkeys.backend === "portal"}
+      <!-- Wayland: the compositor owns the binding, so it also owns the key-capture UI. An
+           in-app recorder cannot register a trigger here. -->
+      {#if !hotkeys.enabled}
+        <p class="text-dim text-xs">
+          Your desktop manages these. Enabling registers the actions with it, which asks for your
+          permission once; you then choose the keys in its own editor.
+        </p>
+        <div class="flex items-center gap-2">
+          <button onclick={() => void hotkeys.enablePortal()}>Enable shortcuts</button>
+        </div>
+      {:else}
+        <p class="text-dim text-xs">
+          Your desktop owns these keys, so it decides what each one is. Single letters are not
+          allowed; use a modifier.
+        </p>
+        <div class="flex items-center gap-2">
+          <button onclick={() => void hotkeys.configure()}>Configure shortcuts</button>
+        </div>
+        {#each HOTKEY_ACTIONS as a (a)}
+          <div class="card card-row flex items-center gap-2">
+            <span class="flex-1">{HOTKEY_LABELS[a]}</span>
+            <span class="text-dim text-sm">
+              {#if hotkeys.triggers[a]}
+                {hotkeys.triggers[a]}
+              {:else if a in hotkeys.triggers}
+                No key set
+              {:else}
+                Not registered
+              {/if}
+            </span>
+          </div>
+        {/each}
+      {/if}
+    {:else if hotkeys.backend === "none"}
+      <p class="text-dim text-xs">Not available on this desktop.</p>
+    {:else}
+      {#each HOTKEY_ACTIONS as a (a)}
+        <div class="card flex items-center gap-2">
+          <span class="flex-1">{HOTKEY_LABELS[a]}</span>
+          <span class="text-dim text-sm">
+            {recording === a ? "Press keys…" : (hotkeys.bindings[a] ?? "Unbound")}
+          </span>
+          <button onclick={() => startRecording(a)}>{recording === a ? "…" : "Record"}</button>
+          {#if hotkeys.bindings[a]}
+            <button onclick={() => void hotkeys.clearBinding(a)}>Clear</button>
+          {/if}
+        </div>
+      {/each}
+    {/if}
   </div>
 </div>
