@@ -181,9 +181,52 @@ class Hotkeys {
         dispatch(e.payload as HotkeyAction);
       }
     });
-    this.enabled = localStorage.getItem(PORTAL_OPT_IN_KEY) === "1";
-    // Already granted, so re-binding is silent and the shortcuts work from launch.
-    if (this.enabled) await this.enablePortal();
+    if (localStorage.getItem(PORTAL_OPT_IN_KEY) !== "1") return;
+
+    // Ask before binding, so a permission dialog can never appear at startup. A desktop that still
+    // holds our grant answers with the actions it stored, and re-binding those is silent; one that
+    // has forgotten us answers with nothing, and binding would prompt for a permission the user
+    // did not ask for right now.
+    //
+    // Verified on KDE, whose portal backend loads the stored component when the session is created.
+    // A backend that stays empty until something has been bound would instead cost one click per
+    // launch. That is worse, but it is visible rather than surprising, and KDE is the only one
+    // testable here.
+    let listed: [string, string][];
+    try {
+      listed = await invoke<[string, string][]>("shortcuts_list");
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      this.#forget((await explain(raw)) ?? `Couldn't reach your desktop's shortcuts: ${raw}`);
+      return;
+    }
+    this.#applyTriggers(listed);
+    if (Object.keys(this.triggers).length === 0) {
+      this.#forget("Your desktop no longer has these registered. Enable them again to restore them.");
+      return;
+    }
+    await this.enablePortal();
+  }
+
+  /** Drop back to the un-enabled state, which is the only honest one when the desktop is not
+   *  holding our shortcuts: Settings then offers Enable, and the dialog follows that click. */
+  #forget(message: string | null): void {
+    this.enabled = false;
+    localStorage.removeItem(PORTAL_OPT_IN_KEY);
+    this.triggers = {};
+    this.error = message;
+  }
+
+  #applyTriggers(listed: [string, string][]): void {
+    const next: Partial<Record<HotkeyAction, string>> = {};
+    for (const [id, trigger] of listed) {
+      if (!HOTKEY_ACTIONS.includes(id as HotkeyAction)) continue;
+      // An empty string is kept, not dropped: "registered with no key" and "not registered at
+      // all" are different states and the UI says so. KDE separates multiple keys for one
+      // action with a tab, which would otherwise render as a run of whitespace.
+      next[id as HotkeyAction] = trigger.split(/[\t\n]+/).filter(Boolean).join(", ");
+    }
+    this.triggers = next;
   }
 
   /** Bind with the compositor. First call raises the permission dialog; later ones do not. */
@@ -198,12 +241,9 @@ class Hotkeys {
       await this.refreshTriggers();
     } catch (e) {
       // Nothing is bound, so nothing can be configured: stay on the Enable action rather than
-      // offering an editor that would only report a missing session.
-      this.enabled = false;
-      localStorage.removeItem(PORTAL_OPT_IN_KEY);
-      this.triggers = {};
+      // offering an editor with nothing behind it.
       const raw = e instanceof Error ? e.message : String(e);
-      this.error = (await explain(raw)) ?? `Couldn't register shortcuts with the desktop: ${raw}`;
+      this.#forget((await explain(raw)) ?? `Couldn't register shortcuts with the desktop: ${raw}`);
     }
   }
 
@@ -211,16 +251,7 @@ class Hotkeys {
    *  and can change them without telling us. */
   async refreshTriggers(): Promise<void> {
     try {
-      const listed = await invoke<[string, string][]>("shortcuts_list");
-      const next: Partial<Record<HotkeyAction, string>> = {};
-      for (const [id, trigger] of listed) {
-        if (!HOTKEY_ACTIONS.includes(id as HotkeyAction)) continue;
-        // An empty string is kept, not dropped: "registered with no key" and "not registered at
-        // all" are different states and the UI says so. KDE separates multiple keys for one
-        // action with a tab, which would otherwise render as a run of whitespace.
-        next[id as HotkeyAction] = trigger.split(/[\t\n]+/).filter(Boolean).join(", ");
-      }
-      this.triggers = next;
+      this.#applyTriggers(await invoke<[string, string][]>("shortcuts_list"));
     } catch {
       /* leave the last known triggers; this is display only */
     }
@@ -235,17 +266,7 @@ class Hotkeys {
       // The dialog is where the keys change, so re-read rather than wait for a restart.
       await this.refreshTriggers();
     } catch (e) {
-      const raw = e instanceof Error ? e.message : String(e);
-      // The editor needs a live session. Without one there is nothing to edit, so send the user
-      // back to Enable instead of leaving them on a button that cannot work.
-      if (raw.includes("bind first")) {
-        this.enabled = false;
-        localStorage.removeItem(PORTAL_OPT_IN_KEY);
-        this.triggers = {};
-        this.error = "The shortcuts aren't registered with your desktop. Enable them again.";
-        return;
-      }
-      this.error = raw;
+      this.error = e instanceof Error ? e.message : String(e);
     }
   }
 

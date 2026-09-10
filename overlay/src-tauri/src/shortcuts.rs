@@ -68,9 +68,38 @@ fn portal_present() -> bool {
 
 type ShortcutSession = Session<GlobalShortcuts>;
 
+/// The proxy is kept beside the session on purpose. Dropping either silently unbinds everything,
+/// and the `Activated` stream is only useful while both are alive.
+struct Portal {
+    proxy: GlobalShortcuts,
+    session: ShortcutSession,
+}
+
 #[derive(Default)]
 pub struct PortalState {
-    inner: Arc<Mutex<Option<ShortcutSession>>>,
+    inner: Arc<Mutex<Option<Portal>>>,
+}
+
+/// The session, created on first use. Creating one raises no dialog and, on KDE, loads whatever
+/// the desktop has already stored for us, which is what lets [`list`] answer before any bind.
+async fn ensure<'a>(app: &AppHandle, slot: &'a mut Option<Portal>) -> Result<&'a Portal, String> {
+    if slot.is_none() {
+        let proxy = GlobalShortcuts::new().await.map_err(err)?;
+        let session = proxy
+            .create_session(CreateSessionOptions::default())
+            .await
+            .map_err(err)?;
+        let activated = proxy.receive_activated().await.map_err(err)?;
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            futures_util::pin_mut!(activated);
+            while let Some(signal) = activated.next().await {
+                let _ = handle.emit(ACTIVATED_EVENT, signal.shortcut_id().to_string());
+            }
+        });
+        *slot = Some(Portal { proxy, session });
+    }
+    Ok(slot.as_ref().expect("just filled"))
 }
 
 /// Bind `shortcuts` (id, human description) with the compositor.
@@ -79,53 +108,37 @@ pub struct PortalState {
 /// as a sentence to someone who has never seen this app. The compositor picks the final trigger;
 /// we do not get to insist on one.
 pub async fn bind(app: &AppHandle, shortcuts: Vec<(String, String)>) -> Result<(), String> {
-    let state = app.state::<PortalState>();
-    let proxy = GlobalShortcuts::new().await.map_err(err)?;
-
-    let session = proxy
-        .create_session(CreateSessionOptions::default())
-        .await
-        .map_err(err)?;
+    let state = app.state::<PortalState>().inner.clone();
+    let mut slot = state.lock().await;
+    let portal = ensure(app, &mut slot).await?;
     let new: Vec<NewShortcut> = shortcuts
         .into_iter()
         .map(|(id, description)| NewShortcut::new(id, description))
         .collect();
-    proxy
-        .bind_shortcuts(&session, &new, None, BindShortcutsOptions::default())
+    portal
+        .proxy
+        .bind_shortcuts(&portal.session, &new, None, BindShortcutsOptions::default())
         .await
         .map_err(err)?
         .response()
         .map_err(err)?;
-
-    // The stream is tied to the session, so both have to outlive this call: a dropped session
-    // silently unbinds everything.
-    let activated = proxy.receive_activated().await.map_err(err)?;
-    let handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        futures_util::pin_mut!(activated);
-        while let Some(signal) = activated.next().await {
-            let _ = handle.emit(ACTIVATED_EVENT, signal.shortcut_id().to_string());
-        }
-    });
-
-    *state.inner.lock().await = Some(session);
     Ok(())
 }
 
-/// What the compositor currently has bound, as (action id, human-readable trigger).
+/// What the compositor currently has for us, as (action id, human-readable trigger).
 ///
 /// `trigger_description` is the portal's own rendering of the key, which is the only correct
 /// thing to show: the compositor picks the trigger and can change it behind our back.
+///
+/// This answers before anything is bound, which is the point: a non-empty answer means the desktop
+/// still holds our permission, so re-binding is silent. See `#initPortal` in hotkeys.svelte.ts.
 pub async fn list(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
-    let state = app.state::<PortalState>();
-    let guard = state.inner.lock().await;
-    let Some(session) = guard.as_ref() else {
-        // Not bound yet, which is a normal first-run state, not a failure.
-        return Ok(Vec::new());
-    };
-    let proxy = GlobalShortcuts::new().await.map_err(err)?;
-    let listed = proxy
-        .list_shortcuts(session, ListShortcutsOptions::default())
+    let state = app.state::<PortalState>().inner.clone();
+    let mut slot = state.lock().await;
+    let portal = ensure(app, &mut slot).await?;
+    let listed = portal
+        .proxy
+        .list_shortcuts(&portal.session, ListShortcutsOptions::default())
         .await
         .map_err(err)?
         .response()
@@ -140,12 +153,12 @@ pub async fn list(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
 /// Open the desktop's own shortcut editor. On Wayland the compositor owns the binding, so this
 /// replaces the in-app key-capture widget rather than supplementing it.
 pub async fn configure(app: &AppHandle) -> Result<(), String> {
-    let state = app.state::<PortalState>();
-    let guard = state.inner.lock().await;
-    let session = guard.as_ref().ok_or("no shortcut session; bind first")?;
-    let proxy = GlobalShortcuts::new().await.map_err(err)?;
-    proxy
-        .configure_shortcuts(session, None, ConfigureShortcutsOptions::default())
+    let state = app.state::<PortalState>().inner.clone();
+    let mut slot = state.lock().await;
+    let portal = ensure(app, &mut slot).await?;
+    portal
+        .proxy
+        .configure_shortcuts(&portal.session, None, ConfigureShortcutsOptions::default())
         .await
         .map_err(err)
 }
