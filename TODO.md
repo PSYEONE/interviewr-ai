@@ -15,12 +15,21 @@ Build a capture-source selector so the user captures **only the call/meeting aud
 - [x] Enumerate capture sources (sink monitors + mics) via `list_capture_targets()` in
       `app/audio/capture.py`; list them from the CLI with `run_pipeline.py --list-devices`.
       Selection works today by setting `INTERVIEWR_AUDIO_DEVICE` to a listed id.
-- [ ] Extend enumeration to individual application **sink-inputs** (needs node-level
-      targeting, not just source names) and expose targets via the API.
-- [ ] Support capturing a **specific application's** output stream (pick the browser /
-      Zoom / Meet), not the global monitor.
-- [ ] Support a **virtual null sink** mode: route the call app into a dedicated null sink,
-      capture its monitor, and mirror it back to real speakers (combine sink) so the user
-      still hears it. Fully isolates call audio from mic/notifications/other apps.
-- [ ] Surface the selector in the Tauri overlay UI once it exists.
-- [ ] Document the mic-sidetone gotcha and the recommended capture mode.
+- [x] Enumerate playing applications via `list_apps()` in `app/audio/routing.py` (from
+      `pw-dump`, which carries `application.name`; `pactl list short sink-inputs` does not),
+      exposed as `GET /audio/apps`.
+- [x] Capture a **specific application's** output, via the null sink below rather than by
+      targeting its stream node. Targeting the node directly does work
+      (`pw-record --target <serial> -P stream.capture.sink=true`) but the node disappears
+      whenever the app goes silent, which would kill capture mid-interview.
+- [x] **Virtual null sink** mode: `reconcile()` loads `module-null-sink` + `module-loopback`
+      (so the user still hears the call), moves the chosen app's streams in, and captures
+      `interviewr.monitor`. Idempotent, and `cleanup()` runs on engine start as well as
+      shutdown so a crash cannot leave a sink behind. Verified spectrally: with two apps
+      playing different tones, isolating one attenuates the other by ~1.4e6.
+- [x] Selector in the overlay UI: Settings > Audio > "Capture from". A cheap field, so it
+      applies at the next interview start with no engine restart.
+- [ ] Document the mic-sidetone gotcha and the recommended capture mode in the README.
+- [ ] Re-route a stream that appears **mid-interview** (`pactl subscribe`). Today reconcile
+      runs at capture start, so an app relaunched during an interview is only picked up at
+      the next one.

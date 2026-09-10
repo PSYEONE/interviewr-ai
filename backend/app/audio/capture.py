@@ -85,8 +85,8 @@ async def list_capture_targets() -> list[CaptureTarget]:
     return targets
 
 
-async def get_default_monitor() -> str:
-    """Auto-detect the default PipeWire sink's monitor source."""
+async def get_default_sink() -> str:
+    """The default PipeWire sink's name (no `.monitor` suffix)."""
     proc = await asyncio.create_subprocess_exec(
         "pactl", "info",
         stdout=asyncio.subprocess.PIPE,
@@ -95,8 +95,13 @@ async def get_default_monitor() -> str:
     stdout, _ = await proc.communicate()
     for line in stdout.decode().splitlines():
         if line.strip().startswith("Default Sink:"):
-            return line.split(":", 1)[1].strip() + ".monitor"
+            return line.split(":", 1)[1].strip()
     raise RuntimeError("Could not determine default PipeWire sink from pactl info")
+
+
+async def get_default_monitor() -> str:
+    """Auto-detect the default PipeWire sink's monitor source."""
+    return await get_default_sink() + ".monitor"
 
 
 async def capture_audio(
@@ -112,7 +117,14 @@ async def capture_audio(
     the sink is idle, which captures the user instead of the system audio.
     """
     chunk_bytes = chunk_samples * 4
-    args = ["pw-record", "--rate", str(rate), "--channels", "1", "--format", "f32"]
+    # --container raw or pw-record writes a 24-byte AU header first (".snd" magic, encoding 6),
+    # which we would read as 6 float32 samples of garbage, one of them NaN. A single NaN
+    # propagates through whisper's mel computation, so the first utterance of every capture was
+    # being fed poison.
+    args = [
+        "pw-record", "--container", "raw",
+        "--rate", str(rate), "--channels", "1", "--format", "f32",
+    ]
     if device.endswith(".monitor"):
         args += ["-P", "stream.capture.sink=true", "--target", device[: -len(".monitor")]]
     else:

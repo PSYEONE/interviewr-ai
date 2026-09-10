@@ -13,6 +13,7 @@ from app.config_store import apply_config
 from app.events import EventBus
 from app.llm.base import STYLE_DIRECTIVES, Message
 from app.main import app
+from app.pipeline import CapturePrefs
 from app.session import Session
 
 
@@ -35,6 +36,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     app.state.settings = Settings(llm_model="m", _env_file=None)  # type: ignore[call-arg]
     app.state.retriever = None
     app.state.llm = None
+    app.state.capture_prefs = None
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
@@ -65,3 +67,29 @@ async def test_reload_swaps_style_directives_without_a_restart(
     assert session._style_directive() == "exactly two bullets"
 
     get_settings.cache_clear()  # the cache outlives this test's monkeypatched env file
+
+
+async def test_reload_updates_the_capture_target(
+    client: httpx.AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The producer holds a CapturePrefs, not a Settings snapshot, precisely so reload can reach
+    it; a snapshot would be replaced wholesale and the running task would never see the change."""
+    env = tmp_path / ".env"
+    env.write_text("INTERVIEWR_LLM_MODEL=m\n")
+    apply_config(
+        Settings(llm_model="m", _env_file=None),  # type: ignore[call-arg]
+        {"audio_capture_app": "Chromium"},
+        env_path=env,
+    )
+    monkeypatch.setitem(Settings.model_config, "env_file", env)
+    get_settings.cache_clear()
+
+    prefs = CapturePrefs()
+    app.state.capture_prefs = prefs
+    assert prefs.app == ""
+
+    resp = await client.post("/settings/reload")
+    assert resp.status_code == 200
+    assert prefs.app == "Chromium"
+
+    get_settings.cache_clear()

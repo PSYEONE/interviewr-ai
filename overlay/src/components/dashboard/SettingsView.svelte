@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { getSettings, getSystemInfo, postSettings, reloadSettings } from "../../lib/api";
+  import {
+    getAudioApps,
+    getSettings,
+    getSystemInfo,
+    postSettings,
+    reloadSettings,
+  } from "../../lib/api";
   import { applyAndRestart } from "../../lib/apply";
   import {
     HOTKEY_ACTIONS,
@@ -27,6 +33,7 @@
     history_enabled: boolean;
     ollama_base_url: string;
     llm_keep_alive: string;
+    audio_capture_app: string;
   }
   const KEYS: (keyof Editable)[] = [
     "stt_provider",
@@ -40,9 +47,16 @@
     "history_enabled",
     "ollama_base_url",
     "llm_keep_alive",
+    "audio_capture_app",
   ];
   // Fields the engine can apply live (no restart); everything else rebuilds at startup.
-  const CHEAP = new Set<keyof Editable>(["rag_top_k", "history_enabled", "llm_keep_alive"]);
+  // The producer re-reads the capture target at every interview start, so it needs no restart.
+  const CHEAP = new Set<keyof Editable>([
+    "rag_top_k",
+    "history_enabled",
+    "llm_keep_alive",
+    "audio_capture_app",
+  ]);
 
   function pick(c: ConfigView): Editable {
     return {
@@ -57,12 +71,15 @@
       history_enabled: c.history_enabled,
       ollama_base_url: c.ollama_base_url,
       llm_keep_alive: c.llm_keep_alive,
+      audio_capture_app: c.audio_capture_app,
     };
   }
 
   let original = $state<Editable | null>(null);
   let form = $state<Editable | null>(null);
   let gpus = $state<GpuInfo[]>([]);
+  let audioApps = $state<string[]>([]);
+  let loadingApps = $state(false);
   let loadError = $state<string | null>(null);
   let saving = $state(false);
   let status = $state("");
@@ -76,7 +93,19 @@
     return e instanceof Error ? e.message : String(e);
   }
 
+  async function loadAudioApps(): Promise<void> {
+    loadingApps = true;
+    try {
+      audioApps = await getAudioApps();
+    } catch {
+      audioApps = []; // the picker still offers "Everything", which is the working default
+    } finally {
+      loadingApps = false;
+    }
+  }
+
   onMount(async () => {
+    void loadAudioApps();
     try {
       const cfg = await getSettings();
       original = pick(cfg);
@@ -310,6 +339,31 @@
           <Info text="The embedding model name for the chosen provider (e.g. nomic-embed-text for Ollama). Changing it means re-uploading documents." />
         </label>
         <input id="emodel" type="text" bind:value={form.embed_model} />
+      </div>
+
+      <hr class="sep" />
+      <h2>Audio</h2>
+      <div>
+        <label for="capapp">
+          Capture from
+          <Info text="Everything captures all system audio, including notifications and other apps. Picking one app routes just that app through a private sink, so only it is transcribed. Apps only appear here while they are playing sound; a new stream is picked up when the next interview starts." />
+        </label>
+        <div class="flex items-center gap-2">
+          <select id="capapp" class="flex-1" bind:value={form.audio_capture_app}>
+            <option value="">Everything (system audio)</option>
+            {#each audioApps as a (a)}
+              <option value={a}>{a}</option>
+            {/each}
+            <!-- A previously chosen app that is currently silent has no node, so it would
+                 otherwise vanish from the list and silently reset the setting on save. -->
+            {#if form.audio_capture_app && !audioApps.includes(form.audio_capture_app)}
+              <option value={form.audio_capture_app}>{form.audio_capture_app} (not playing)</option>
+            {/if}
+          </select>
+          <button onclick={loadAudioApps} disabled={loadingApps}>
+            {loadingApps ? "…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <hr class="sep" />

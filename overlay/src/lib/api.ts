@@ -35,6 +35,10 @@ async function failure(resp: Response, what: string): Promise<string> {
 export const getHealth = (): Promise<Health> => getJSON<Health>("/health");
 export const getSettings = (): Promise<ConfigView> => getJSON<ConfigView>("/settings");
 
+// Applications playing audio right now. A snapshot, not a stable list: PipeWire has no node for
+// a silent app, so the picker offers a refresh rather than pretending this is complete.
+export const getAudioApps = (): Promise<string[]> => getJSON<string[]>("/audio/apps");
+
 // Poll /health until `pred` holds or `timeoutMs` elapses. Used after an engine restart to wait
 // for the fresh process to come up and report the new config. Returns the matching Health, or
 // throws on timeout. Unreachable health (engine still restarting) counts as "not yet".

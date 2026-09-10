@@ -54,11 +54,13 @@ from .history import (
 )
 from .llm import build_llm
 from .llm.base import LLMClient, effective_style_directives
-from .pipeline import run_producer
+from .pipeline import CapturePrefs, run_producer
 from .rag import Retriever, build_retriever
 from .rag.base import DocKind
 from .rag.store import DocumentRecord
 from .session import Session
+from .audio import routing as audio_routing
+from .audio.capture import get_default_sink
 from .system import SystemReport, collect_system_report
 from .system.disk import DiskInfo, missing_bytes, present_blobs, probe_disk
 from .system.ollama_admin import OllamaAdmin, normalize_tag
@@ -82,6 +84,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm = None  # the live LLM client, for cheap live-reload (e.g. keep-alive)
     app.state.configured = bool(settings.llm_model)
     app.state.ready = False
+    app.state.capture_prefs = None
+
+    # A crashed engine leaves its null sink and loopback loaded, which the user would otherwise
+    # have to unload by hand. Reconcile to "nothing of ours exists" before doing anything else.
+    await audio_routing.cleanup(await _default_sink_or_none())
 
     # History persists regardless of LLM config so the endpoints serve past conversations even
     # in setup mode; the live Session only writes to it when configured + enabled.
@@ -122,7 +129,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
             # for an answer, and keep_alive holds it warm after that.
             warmup_task = asyncio.create_task(_warm_llm(llm))
-            producer = asyncio.create_task(run_producer(settings, session, bus))
+            capture_prefs = CapturePrefs.of(settings)
+            app.state.capture_prefs = capture_prefs
+            producer = asyncio.create_task(run_producer(settings, session, bus, capture_prefs))
         else:
             _log.warning(
                 "LLM provider '%s' unhealthy; starting in setup mode", settings.llm_provider
@@ -148,7 +157,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await llm.close()
         if retriever is not None:
             await retriever.close()
+        # Hand the user's audio back before going away, so stopping the engine never leaves a
+        # call routed into a sink that no longer has anything listening to it.
+        await audio_routing.cleanup(await _default_sink_or_none())
         history.close()
+
+
+async def _default_sink_or_none() -> str | None:
+    """The default sink, or None on a machine with no working PipeWire. Cleanup still runs: it
+    just cannot move streams back, which is moot when there is no audio server."""
+    try:
+        return await get_default_sink()
+    except (RuntimeError, FileNotFoundError, OSError) as exc:  # noqa: BLE001
+        _log.debug("no default sink: %s", exc)
+        return None
 
 
 async def _warm_llm(llm: LLMClient) -> None:
@@ -468,6 +490,17 @@ async def system_disk(request: Request) -> DiskInfo | None:
     return await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
 
 
+@app.get("/audio/apps")
+async def audio_apps(request: Request) -> list[str]:
+    """Applications currently playing audio, for the capture picker.
+
+    Only apps making sound right now can be listed: PipeWire has no node for a silent
+    application, so the list is a snapshot and the UI offers a refresh.
+    """
+    _require_auth(request)
+    return [a.name for a in await audio_routing.list_apps()]
+
+
 @app.post("/ollama/pull")
 async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
     """Pull an Ollama model, streaming progress as newline-delimited JSON (PullProgress)."""
@@ -550,6 +583,11 @@ async def reload_settings(request: Request) -> dict[str, bool]:
     if session is not None:
         session.set_history_enabled(fresh.history_enabled)
         session.set_style_directives(effective_style_directives(fresh))
+    prefs: CapturePrefs | None = request.app.state.capture_prefs
+    if prefs is not None:
+        # The producer re-reads this at each capture start, so a new target applies to the next
+        # interview without restarting the engine.
+        prefs.update(fresh)
     set_keep_alive = getattr(request.app.state.llm, "set_keep_alive", None)
     if callable(set_keep_alive):
         set_keep_alive(fresh.llm_keep_alive)
