@@ -49,76 +49,6 @@ say() { printf '\n%s==%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 die() { printf '%serror:%s %s\n' "$RED" "$RESET" "$1" >&2; exit 1; }
 
-# Run a long command showing progress and nothing else.
-#
-# Downloads get a real bar: `--progress-bar raw` makes pip emit "Progress <done> of <total>" lines
-# instead of drawing its own, which is the only way to keep the bar and drop the
-# collecting/installing commentary. Plain `-q` silences the bar too, and pip only draws it straight
-# to a terminal where it cannot be filtered.
-#
-# Everything else gets a spinner, because most of the time here has no progress to report: with a
-# warm pip cache the engine install downloads nothing and spends its time building an editable
-# wheel, and the Vulkan compile emits no progress at all. A bar alone would leave those silent.
-#
-# Output is captured and printed only on failure, so a normal run stays quiet while a broken one
-# still explains itself.
-run_step() {
-  local msg="$1"; shift
-  local log rc=0 start=$SECONDS
-  log="$(mktemp)"
-  set +e
-  "$@" --progress-bar raw 2>&1 | tee "$log" | draw_progress "$msg" "$start"
-  rc=${PIPESTATUS[0]}
-  set -e
-  if [ "$rc" -ne 0 ]; then
-    printf '%serror:%s %s failed\n' "$RED" "$RESET" "$msg" >&2
-    cat "$log" >&2
-    rm -f "$log"
-    exit "$rc"
-  fi
-  rm -f "$log"
-  printf '  %s (%ds)\n' "$msg" "$((SECONDS - start))"
-}
-
-# A bar while bytes are moving, a spinner the rest of the time. `read -t` is what makes both
-# possible from one loop: it returns >128 on timeout, so the display keeps ticking even when the
-# command has gone quiet, and 1 at EOF to end it.
-draw_progress() {
-  # `got` rather than `done`, which is a shell keyword.
-  local msg="$1" start="$2" width=28 frames='|/-\' i=0
-  local line rc got total pct=-1 fresh=0 filled
-  while true; do
-    IFS= read -r -t 0.2 line; rc=$?
-    if [ "$rc" -eq 0 ]; then
-      case "$line" in
-        "Progress "*)
-          total="${line##* of }"
-          got="${line#Progress }"; got="${got%% of *}"
-          case "$total$got" in *[!0-9]*) continue ;; esac
-          [ "$total" -gt 0 ] || continue
-          pct=$(( got * 100 / total ))
-          fresh=5  # keep showing the bar for ~1s after the last update
-          ;;
-      esac
-    elif [ "$rc" -gt 128 ]; then
-      [ "$fresh" -gt 0 ] && fresh=$(( fresh - 1 ))
-    else
-      break
-    fi
-    if [ -t 1 ]; then
-      if [ "$fresh" -gt 0 ] && [ "$pct" -ge 0 ]; then
-        filled=$(( pct * width / 100 ))
-        printf '\r  %s [%s%s] %3d%%' "$msg" \
-          "$(printf '%*s' "$filled" '' | tr ' ' '=')" "$(printf '%*s' $(( width - filled )) '')" "$pct"
-      else
-        printf '\r\033[K  %s %s (%ds)' "${frames:i++%4:1}" "$msg" "$(( SECONDS - start ))"
-      fi
-    fi
-  done
-  if [ -t 1 ]; then printf '\r\033[K'; fi
-  return 0
-}
-
 # 1. Preflight. Fail here with something actionable rather than deep inside pip.
 say "Checking prerequisites"
 [ "$(uname -s)" = "Linux" ] || die "this installer is Linux-only (the engine captures via PipeWire)"
@@ -140,7 +70,9 @@ echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 say "Installing the engine into backend/.venv"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
 "$PY" -m pip install --quiet --upgrade pip
-run_step "installing dependencies" "$PY" -m pip install -e "$BACKEND"
+# Not --quiet: on a fresh clone this downloads numpy and the rest, and pip's own collecting and
+# download output is the only sign the script has not hung.
+"$PY" -m pip install -e "$BACKEND"
 
 # Whether the GPU build is already in place. Used before building (to skip a long compile) and
 # after (as the thing that decides success), so it lives in one function.
@@ -161,8 +93,8 @@ if [ "$WANT_GPU" -eq 0 ]; then
   say "Skipping the GPU build (--cpu)"
   # --no-deps for the same reason as the GPU path: force-reinstall would otherwise rebuild the
   # whole dependency tree. The plain install after it supplies anything missing.
-  run_step "installing the CPU build" "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
-  run_step "installing its dependencies" "$PY" -m pip install pywhispercpp
+  "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
+  "$PY" -m pip install pywhispercpp
   echo "  CPU build installed. Transcription will be slower but works on any machine."
   exit 0
 fi
@@ -219,14 +151,14 @@ else
   #    tree: without it pip uninstalls and reinstalls identical versions of numpy, certifi and
   #    idna, which is 40-odd MB of churn and leaves a window where numpy is missing if the build
   #    fails. The follow-up install below is what actually supplies the dependencies.
-  run_step "compiling Vulkan shaders" env GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
+  GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
     "$PY" -m pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 
   # pywhispercpp needs platformdirs, requests and tqdm, and step 2 deliberately skips the [local]
   # extra, so nothing else brings them in. With the package already installed pip reports
   # "Requirement already satisfied" and fills in only what is missing, leaving the source build
   # untouched.
-  run_step "installing its dependencies" "$PY" -m pip install pywhispercpp
+  "$PY" -m pip install pywhispercpp
 fi
 
 # 6. RPATH. The libraries sit beside the extension in site-packages, which the loader does not
