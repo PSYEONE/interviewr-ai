@@ -15,6 +15,9 @@ class Pull {
   checking = $state<string | null>(null);
   // Set briefly between the user hitting Cancel and the request actually unwinding.
   cancelling = $state(false);
+  // Bumped whenever a pull settles, however it ends. A screen that was not mounted when the pull
+  // started still needs to re-read its model list, and the instance that called run() may be gone.
+  settled = $state(0);
 
   #controller: AbortController | null = null;
 
@@ -58,6 +61,7 @@ class Pull {
       this.checking = null;
       this.cancelling = false;
       this.#controller = null;
+      this.settled += 1; // last, so a listener that reads busy sees the pull already finished
     }
   }
 

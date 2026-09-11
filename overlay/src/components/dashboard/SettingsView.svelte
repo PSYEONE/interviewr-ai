@@ -359,7 +359,7 @@
       <div>
         <label for="capapp">
           Capture from
-          <Info text="Everything captures all system audio, including notifications and other apps. Picking one app routes just that app through a private sink, so only it is transcribed, and your microphone never reaches it. The app does not need to be playing when you choose it: it is captured from the moment it starts, and stays captured if it restarts its audio." />
+          <Info text="Transcribe all system audio, or just one app." />
         </label>
         <div class="flex items-center gap-2">
           <select id="capapp" class="flex-1" bind:value={form.audio_capture_app}>
