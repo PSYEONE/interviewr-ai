@@ -91,7 +91,10 @@ gpu_ready() {
 
 if [ "$WANT_GPU" -eq 0 ]; then
   say "Skipping the GPU build (--cpu)"
-  "$PY" -m pip install --force-reinstall pywhispercpp
+  # --no-deps for the same reason as the GPU path: force-reinstall would otherwise rebuild the
+  # whole dependency tree. The plain install after it supplies anything missing.
+  "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
+  "$PY" -m pip install pywhispercpp
   echo "  CPU build installed. Transcription will be slower but works on any machine."
   exit 0
 fi
@@ -144,11 +147,18 @@ else
   #    minutes spent entirely inside "Installing build dependencies", never reaching whisper.
   say "Building pywhispercpp with Vulkan"
   echo "  Compiling the Vulkan shaders takes a few minutes. It runs once."
-  #    Not --no-deps: pywhispercpp pulls platformdirs, requests and tqdm, and step 2 deliberately
-  #    does not install the [local] extra, so nothing else would bring them in. They come from
-  #    wheels, since --no-binary names only pywhispercpp.
+  #    --no-deps keeps --force-reinstall from tearing down and rebuilding the whole dependency
+  #    tree: without it pip uninstalls and reinstalls identical versions of numpy, certifi and
+  #    idna, which is 40-odd MB of churn and leaves a window where numpy is missing if the build
+  #    fails. The follow-up install below is what actually supplies the dependencies.
   GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
-    "$PY" -m pip install --force-reinstall --no-binary pywhispercpp pywhispercpp
+    "$PY" -m pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
+
+  # pywhispercpp needs platformdirs, requests and tqdm, and step 2 deliberately skips the [local]
+  # extra, so nothing else brings them in. With the package already installed pip reports
+  # "Requirement already satisfied" and fills in only what is missing, leaving the source build
+  # untouched.
+  "$PY" -m pip install pywhispercpp
 fi
 
 # 6. RPATH. The libraries sit beside the extension in site-packages, which the loader does not
