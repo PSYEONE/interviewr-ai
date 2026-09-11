@@ -80,6 +80,9 @@ class Session {
     this.turns = [];
     this.pending = "";
     this.live = "";
+    // Leaving the interview stops capture. Don't wait for the engine's idle event to say so: if
+    // it arrives after the view is gone, the next interview opens on the old source.
+    this.captureSource = null;
   }
 
   // The engine drops its buffer on "clear"; drop ours too, or the screen keeps showing text the
@@ -190,8 +193,11 @@ class Session {
         break;
       case "status":
         this.status = ev.state;
-        // Only carried when capture starts; keep the last one so the bar can keep showing it.
+        // Carried only when capture starts, so hold it for the rest of the interview, and drop it
+        // the moment capture stops. Otherwise the next interview opens showing the previous
+        // source until its own status arrives, which is worse than showing nothing.
         if (ev.source) this.captureSource = ev.source;
+        else if (ev.state !== "listening" && ev.state !== "thinking") this.captureSource = null;
         break;
       case "error":
         this.#noteError(ev.message);
