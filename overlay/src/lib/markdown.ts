@@ -6,8 +6,9 @@
 // here because tauri.conf.json sets no CSP, the webview can reach `invoke`, and answers are
 // influenced by the user's uploaded documents through RAG.
 //
-// Headings, tables, blockquotes, links and images are out of scope: they fall through to their
-// source text, so nothing is lost and no navigable or loadable node is ever created.
+// Headings, tables and blockquotes are out of scope and fall through to their source text. Links
+// and images fall through to their label only, dropping the URL, which costs nothing while the
+// model is local and cannot browse. Either way no navigable or loadable node is ever created.
 
 import { marked, type Token, type Tokens } from "marked";
 
