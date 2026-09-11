@@ -203,6 +203,16 @@
     }
   }
 
+  // A pull outlives the screen that started it, so the refresh cannot belong to the caller alone:
+  // leaving mid-download and coming back leaves this instance showing Download for a model that
+  // has since landed. Plain `let`, so the effect depends on pull.settled and nothing else.
+  let handled = pull.settled;
+  $effect(() => {
+    if (pull.settled === handled) return;
+    handled = pull.settled;
+    void refresh();
+  });
+
   async function download(model: string): Promise<void> {
     if (pulling || !model) return;
     error = null;
@@ -213,6 +223,9 @@
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
+    // Claim the completion before awaiting, so the effect above skips a pull we are refreshing for
+    // anyway. /system/info re-probes the GPUs and Ollama, so doing it twice is worth avoiding.
+    handled = pull.settled;
     await refresh();
   }
 
@@ -235,6 +248,7 @@
       customError =
         status === 404 ? "Model not found" : e instanceof Error ? e.message : String(e);
     }
+    handled = pull.settled; // as in download(): this refresh is the one the effect would have run
     await refresh(); // installed() reads `info`, so the check below needs the fresh report
     if (!installed(tag)) return;
     // Pulling a model by name is an explicit choice, so select it once it lands. Re-pulling the
@@ -441,10 +455,13 @@
     {/if}
   </div>
 
-  {#if error || (disk && disk.partial > 0)}
+  <!-- Not while a pull is running. Ollama streams a download into blobs/*-partial*, which is the
+       same glob the backend measures, so mid-download this would name the file being written and
+       tell the user to delete it. -->
+  {#if error || (disk && disk.partial > 0 && !pulling)}
     <div class="wiz-status">
       {#if error}<p class="text-warn text-xs">{error}</p>{/if}
-      {#if disk && disk.partial > 0}
+      {#if disk && disk.partial > 0 && !pulling}
         <Command
           warn
           note={`${gb(disk.partial)} in interrupted downloads. Run this to reclaim it:`}

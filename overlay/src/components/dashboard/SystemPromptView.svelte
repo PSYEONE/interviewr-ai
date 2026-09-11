@@ -11,10 +11,10 @@
   // adapter at build time, so only it needs a restart; the style directives are read per answer
   // and take effect on a reload.
   type Field = "system_prompt" | "answer_style_script" | "answer_style_bullets";
-  const FIELDS: { key: Field; title: string; blurb: string }[] = [
-    { key: "system_prompt", title: "System prompt", blurb: "Who the model is, on every answer." },
-    { key: "answer_style_script", title: "Script answers", blurb: "Shape of a Script answer." },
-    { key: "answer_style_bullets", title: "Bullet answers", blurb: "Shape of a Bullets answer." },
+  const FIELDS: { key: Field; title: string }[] = [
+    { key: "system_prompt", title: "System prompt" },
+    { key: "answer_style_script", title: "Script answers" },
+    { key: "answer_style_bullets", title: "Bullet answers" },
   ];
   const CHEAP = new Set<Field>(["answer_style_script", "answer_style_bullets"]);
 
@@ -114,7 +114,6 @@
           <div class="mb-2 flex shrink-0 flex-col gap-1">
             <div class="flex items-center gap-2">
               <span class="flex-1">{f.title}</span>
-              <span class="text-dim text-xs">{f.blurb}</span>
               <button onclick={() => void reset(f.key)}>Reset</button>
             </div>
             <textarea bind:value={form[f.key]} rows="8"></textarea>
