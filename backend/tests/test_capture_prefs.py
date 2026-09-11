@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import pipeline
+from app.audio import routing
 from app.config import Settings
 from app.pipeline import CapturePrefs, resolve_device
 
@@ -35,7 +35,7 @@ async def test_isolating_an_app_captures_its_sink(monkeypatch: pytest.MonkeyPatc
         seen.append(app)
         return "interviewr.monitor" if app else "default.monitor"
 
-    monkeypatch.setattr(pipeline.routing, "reconcile", fake_reconcile)
+    monkeypatch.setattr(routing, "reconcile", fake_reconcile)
     assert await resolve_device(CapturePrefs(app="Chromium")) == "interviewr.monitor"
     assert seen == ["Chromium"]
 
@@ -51,7 +51,7 @@ async def test_no_app_tears_the_sink_down_and_uses_the_default(
         seen.append(app)
         return "default.monitor"
 
-    monkeypatch.setattr(pipeline.routing, "reconcile", fake_reconcile)
+    monkeypatch.setattr(routing, "reconcile", fake_reconcile)
     assert await resolve_device(CapturePrefs()) == "default.monitor"
     assert seen == [""]  # called with "", which is the teardown path
 
@@ -62,5 +62,5 @@ async def test_an_explicit_device_still_wins_over_the_default(
     async def fake_reconcile(app: str) -> str:
         return "default.monitor"
 
-    monkeypatch.setattr(pipeline.routing, "reconcile", fake_reconcile)
+    monkeypatch.setattr(routing, "reconcile", fake_reconcile)
     assert await resolve_device(CapturePrefs(device="Mic1")) == "Mic1"
