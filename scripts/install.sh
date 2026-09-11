@@ -171,13 +171,63 @@ devices=$("$PY" -c 'from pywhispercpp.model import Model; Model.system_info()' 2
   grep -E '^ggml_vulkan: [0-9]+ = ' || true)
 echo "$devices" | sed 's/^/  /'
 
-# 8. The device index, because defaulting to 0 is the third gotcha and only the user can judge it.
-say "Next steps"
-if [ "$(printf '%s\n' "$devices" | grep -c .)" -gt 1 ]; then
-  echo "  More than one GPU above. whisper.cpp uses device 0, which on a laptop is usually the"
-  echo "  integrated one. Set INTERVIEWR_WHISPER_GPU_DEVICE in .env (or Settings) to the number"
-  echo "  of the card you want, or leave it at -1 to accept device 0."
+# 8. Pick the device. Choosing wrong is the third gotcha and it does not look like an error: STT
+#    just runs on the iGPU, taking seconds per segment instead of milliseconds.
+#
+#    "uma" is unified memory, so uma:1 is an integrated GPU sharing system RAM and uma:0 is a
+#    discrete card. That labels each entry without guessing from the product name.
+names=(); integrated=()
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  idx="${line#ggml_vulkan: }"; idx="${idx%% =*}"
+  name="${line#*= }"; name="${name%% (*}"
+  names[idx]="$name"
+  case "$line" in *"uma: 1"*) integrated[idx]=1 ;; *) integrated[idx]=0 ;; esac
+done <<< "$devices"
+
+# Update the key in place, or append it, leaving every other line alone. Plain KEY=value, which is
+# what config_store._write_env produces and what the engine reads back.
+set_gpu_device() {
+  local value="$1" key="INTERVIEWR_WHISPER_GPU_DEVICE"
+  [ -f "$ROOT/.env" ] || cp "$ROOT/.env.example" "$ROOT/.env"
+  if grep -qE "^${key}=" "$ROOT/.env"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$ROOT/.env"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$ROOT/.env"
+  fi
+}
+
+if [ "${#names[@]}" -le 1 ]; then
+  echo "  Transcription will use ${names[0]:-the only device}."
+elif [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then
+  # Never block a scripted run waiting for an answer nobody is there to give.
+  echo
+  echo "  More than one GPU. Set INTERVIEWR_WHISPER_GPU_DEVICE in .env to the number of the one"
+  echo "  you want; whisper uses device 0 otherwise, which on a laptop is usually the integrated."
+else
+  say "Choose the GPU for transcription"
+  default=0
+  discrete=()
+  for i in "${!names[@]}"; do
+    [ "${integrated[i]}" -eq 0 ] && discrete+=("$i")
+    printf '  %s) %-44s %s\n' "$i" "${names[i]}" \
+      "$([ "${integrated[i]}" -eq 1 ] && echo integrated || echo discrete)"
+  done
+  [ "${#discrete[@]}" -eq 1 ] && default="${discrete[0]}"
+  echo
+  while true; do
+    read -r -p "  Which should transcription use? [$default] " choice
+    choice="${choice:-$default}"
+    # The digits test is load-bearing, not belt-and-braces: bash evaluates an array subscript
+    # arithmetically, so names[abc] resolves to names[0] and names[-1] to the last element. Both
+    # would sail through a bare existence check and write nonsense the engine cannot parse.
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${names[$choice]+x}" ]; then break; fi
+    echo "  Pick one of the numbers listed above."
+  done
+  set_gpu_device "$choice"
+  echo "  Set INTERVIEWR_WHISPER_GPU_DEVICE=$choice in .env (${names[$choice]})."
 fi
+say "Next steps"
 echo "  1. Install Ollama and pull a model:  ollama pull qwen3:8b"
 echo "  2. Build and run the overlay:        cd overlay && npm install && npm run tauri dev"
 echo "  The setup wizard handles the rest, including downloading a whisper model."
