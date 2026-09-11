@@ -19,7 +19,7 @@
   <span id="dot" data-state={session.status} title={session.status}></span>
   <span id="brand">interviewr</span>
   {#if session.captureSource}
-    <span class="min-w-0 truncate text-xs">
+    <span class="min-w-0 truncate">
       <span class="text-dim">Listening to:</span>
       {session.captureSource}
     </span>
