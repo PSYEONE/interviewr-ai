@@ -66,13 +66,25 @@ class Session {
       /* already closing */
     }
     this.#ws = null;
-    this.status = "offline";
+    this.#setStatus("offline");
   }
 
   send(type: CommandType): void {
     if (this.#ws && this.#ws.readyState === WebSocket.OPEN) {
       this.#ws.send(JSON.stringify({ type }));
     }
+  }
+
+  /** Status, plus the capture label that has to move with it.
+   *
+   *  The engine names the source only when capture starts, so it is held for the rest of the
+   *  interview and dropped as soon as the state is no longer a capturing one. Every status change
+   *  goes through here, including a dropped connection, which otherwise left the bar claiming to
+   *  listen to an application while offline. */
+  #setStatus(state: Status, source?: string | null): void {
+    this.status = state;
+    if (source) this.captureSource = source;
+    else if (state !== "listening" && state !== "thinking") this.captureSource = null;
   }
 
   resetView(): void {
@@ -107,17 +119,17 @@ class Session {
 
   async #connect(): Promise<void> {
     const url = await wsUrl();
-    this.status = "connecting";
+    this.#setStatus("connecting");
     const ws = new WebSocket(url);
     this.#ws = ws;
     ws.onopen = () => {
       this.#backoff = 1000;
-      this.status = "listening";
+      this.#setStatus("listening");
       this.setAnswerStyle(this.answerStyle); // re-assert the sticky style on the shared session
     };
     ws.onmessage = (e: MessageEvent<string>) => this.#handle(JSON.parse(e.data) as ServerEvent);
     ws.onclose = () => {
-      this.status = "offline";
+      this.#setStatus("offline");
       if (!this.#stopped) this.#retry();
     };
     ws.onerror = () => {
@@ -192,12 +204,7 @@ class Session {
         this.#finishAnswer(ev.answer_id, ev.cancelled);
         break;
       case "status":
-        this.status = ev.state;
-        // Carried only when capture starts, so hold it for the rest of the interview, and drop it
-        // the moment capture stops. Otherwise the next interview opens showing the previous
-        // source until its own status arrives, which is worse than showing nothing.
-        if (ev.source) this.captureSource = ev.source;
-        else if (ev.state !== "listening" && ev.state !== "thinking") this.captureSource = null;
+        this.#setStatus(ev.state, ev.source);
         break;
       case "error":
         this.#noteError(ev.message);
