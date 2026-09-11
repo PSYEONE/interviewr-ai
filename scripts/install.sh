@@ -29,7 +29,7 @@ for arg in "$@"; do
     --help|-h)
       echo "usage: scripts/install.sh [--cpu] [--yes]"
       echo "  --cpu   skip the Vulkan build and use the CPU wheel"
-      echo "  --yes   don't prompt before installing system build dependencies"
+      echo "  --yes   unattended: install build dependencies and pick the GPU without asking"
       exit 0
       ;;
     *) echo "error: unknown option '$arg' (try --help)" >&2; exit 2 ;;
@@ -207,23 +207,35 @@ set_gpu_device() {
   fi
 }
 
+# What to suggest, or to choose outright when there is nobody to ask: the sole discrete card if
+# there is exactly one, otherwise whisper's own default of device 0.
+default=0
+discrete=()
+for i in "${!names[@]}"; do
+  [ "${integrated[i]}" -eq 0 ] && discrete+=("$i")
+done
+[ "${#discrete[@]}" -eq 1 ] && default="${discrete[0]}"
+
 if [ "${#names[@]}" -le 1 ]; then
   echo "  Transcription will use ${names[0]:-the only device}."
-elif [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then
-  # Never block a scripted run waiting for an answer nobody is there to give.
-  echo
-  echo "  More than one GPU. Set INTERVIEWR_WHISPER_GPU_DEVICE in .env to the number of the one"
-  echo "  you want; whisper uses device 0 otherwise, which on a laptop is usually the integrated."
+elif [ ! -t 0 ] || [ "$ASSUME_YES" -eq 1 ]; then
+  # No terminal, or the user asked not to be asked. Never block on input nobody will give, but
+  # do not hand back a config file to edit either: picking the discrete card is what the prompt
+  # would have suggested, and leaving whisper on device 0 is the documented way to end up
+  # transcribing on the iGPU at seconds per segment instead of milliseconds.
+  if [ "${#discrete[@]}" -eq 1 ]; then
+    set_gpu_device "$default"
+    echo "  Picked ${names[$default]} (device $default) without asking. Change it in Settings."
+  else
+    echo "  Several GPUs and none is clearly the discrete one, so whisper's device 0 stands."
+    echo "  Pick another in Settings if that is the integrated one."
+  fi
 else
   say "Choose the GPU for transcription"
-  default=0
-  discrete=()
   for i in "${!names[@]}"; do
-    [ "${integrated[i]}" -eq 0 ] && discrete+=("$i")
     printf '  %s) %-44s %s%s%s\n' "$i" "${names[i]}" "$DIM" \
       "$([ "${integrated[i]}" -eq 1 ] && echo integrated || echo discrete)" "$RESET"
   done
-  [ "${#discrete[@]}" -eq 1 ] && default="${discrete[0]}"
   echo
   while true; do
     read -r -p "  Which should transcription use? [$default] " choice
@@ -235,7 +247,7 @@ else
     echo "  Pick one of the numbers listed above."
   done
   set_gpu_device "$choice"
-  echo "  Set INTERVIEWR_WHISPER_GPU_DEVICE=$choice in .env (${names[$choice]})."
+  echo "  Using ${names[$choice]} (device $choice)."
 fi
 say "Next steps"
 echo "  Run the overlay:  cd overlay && npm install && npm run tauri dev"
