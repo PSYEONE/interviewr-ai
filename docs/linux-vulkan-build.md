@@ -24,14 +24,24 @@ Fix: force a from-source build.
 
 ```bash
 GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
-  pip install --force-reinstall --no-binary :all: --no-deps pywhispercpp
+  pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 ```
+
+Name the package in `--no-binary`, not `:all:`. `:all:` also applies to the isolated build
+environment, so pip compiles cmake, ninja and setuptools from source first, single-threaded,
+before it reaches whisper at all. Measured on this machine: 42 minutes spent entirely inside
+"Installing build dependencies", versus 16 seconds to reach the real build with the package
+named.
 
 ### Build prerequisites (system packages, need sudo)
 
 - `cmake`, `g++`/`cc` (build toolchain)
 - `libvulkan-dev` (provides `/usr/include/vulkan/vulkan.h`, pkg-config `vulkan`)
 - `glslc` (shader compiler; ships in `shaderc` / glslang tooling)
+- `glslang-tools` (provides `glslangValidator`) and `spirv-headers` (provides the
+  `SPIRV-Headers` cmake package), both required from pywhispercpp **1.5.1** onward. 1.5.0
+  built without them, so a machine with a working older build can still fail a fresh one with
+  `Could not find a package configuration file provided by "SPIRV-Headers"`.
 
 The Vulkan **runtime** (loader + ICD) is usually already present from the GPU driver
 (`vulkaninfo --summary` lists devices). Only the **dev** headers + `glslc` are missing on
@@ -69,6 +79,17 @@ Verify with no `LD_LIBRARY_PATH` set:
 python -c "from pywhispercpp.model import Model; print(Model.system_info())"
 # must show the ggml_vulkan line
 ```
+
+## This is automated
+
+`scripts/install.sh` does everything above: detects Vulkan, installs the missing system build
+packages behind one sudo prompt, source-builds with `GGML_VULKAN=ON`, patches the RPATH, and
+refuses to exit successfully if `ggml_vulkan` is absent. It skips the build when one already
+works, so it is safe to re-run. The steps below remain as the explanation of what it does and
+why, and as the manual path if you would rather do it yourself.
+
+Still open: hosting a prebuilt Vulkan wheel per Python ABI, so a fresh install skips the
+four-minute compile entirely. That is packaging work rather than installer work.
 
 ## Installer TODO (automate all of the above)
 

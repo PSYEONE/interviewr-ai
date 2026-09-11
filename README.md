@@ -55,20 +55,29 @@ transcript + answer events over an **authenticated WebSocket** to any number of 
 clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
 to the same stream.
 
-## Quick start (backend)
+## Quick start
+
+```bash
+./scripts/install.sh       # engine + GPU transcription; re-run safely
+ollama pull qwen3:8b       # or your preferred model
+cd overlay && npm install && npm run tauri dev
+```
+
+The installer creates `backend/.venv`, then builds `pywhispercpp` against Vulkan so
+transcription runs on the GPU. That build cannot be done by `pip install` alone: pip serves a
+CPU-only wheel and ignores the build flags, and the resulting libraries need an RPATH fix
+before they will even import. `scripts/install.sh` handles both, prompts once for the system
+build packages it needs, and refuses to report success on a silent CPU fallback. Pass `--cpu`
+to skip the GPU path deliberately. See `docs/linux-vulkan-build.md` for what it automates and
+why.
+
+The setup wizard covers the rest on first run, including downloading a whisper model.
+
+To run the engine on its own:
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-GGML_VULKAN=1 pip install -e ".[local,cloud,dev]"
-cp ../.env.example ../.env   # fill in INTERVIEWR_LLM_MODEL etc.
-ollama pull qwen3:8b          # or your preferred model
-
-# run the Phase 0 pipeline
-python run_pipeline.py
-
-# or start the API server
-uvicorn app.main:app --reload
+.venv/bin/python run_pipeline.py        # or: .venv/bin/uvicorn app.main:app --reload
 # -> http://127.0.0.1:8765/health
 ```
 
