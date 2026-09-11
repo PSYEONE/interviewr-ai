@@ -36,9 +36,18 @@ for arg in "$@"; do
   esac
 done
 
-say() { printf '\n== %s\n' "$1"; }
+# Colour only for a human at a terminal. Piping to a file or a log then stays readable instead of
+# filling with escape sequences, and NO_COLOR is the conventional way to ask for none.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+  BOLD=$'\033[1m'; CYAN=$'\033[36m'; GREEN=$'\033[32m'; RED=$'\033[31m'
+  DIM=$'\033[2m'; RESET=$'\033[0m'
+else
+  BOLD=''; CYAN=''; GREEN=''; RED=''; DIM=''; RESET=''
+fi
+
+say() { printf '\n%s==%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }
 have() { command -v "$1" >/dev/null 2>&1; }
-die() { echo "error: $1" >&2; exit 1; }
+die() { printf '%serror:%s %s\n' "$RED" "$RESET" "$1" >&2; exit 1; }
 
 # 1. Preflight. Fail here with something actionable rather than deep inside pip.
 say "Checking prerequisites"
@@ -61,8 +70,9 @@ echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 say "Installing the engine into backend/.venv"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
 "$PY" -m pip install --quiet --upgrade pip
-"$PY" -m pip install --quiet -e "$BACKEND"
-echo "  done"
+# Not --quiet: on a fresh clone this downloads numpy and the rest, and pip's own collecting and
+# download output is the only sign the script has not hung.
+"$PY" -m pip install -e "$BACKEND"
 
 # Whether the GPU build is already in place. Used before building (to skip a long compile) and
 # after (as the thing that decides success), so it lives in one function.
@@ -81,7 +91,7 @@ gpu_ready() {
 
 if [ "$WANT_GPU" -eq 0 ]; then
   say "Skipping the GPU build (--cpu)"
-  "$PY" -m pip install --quiet --force-reinstall pywhispercpp
+  "$PY" -m pip install --force-reinstall pywhispercpp
   echo "  CPU build installed. Transcription will be slower but works on any machine."
   exit 0
 fi
@@ -169,7 +179,7 @@ fi
 # to pick from the wrong one is how you end up on the wrong GPU.
 devices=$("$PY" -c 'from pywhispercpp.model import Model; Model.system_info()' 2>&1 |
   grep -E '^ggml_vulkan: [0-9]+ = ' || true)
-echo "$devices" | sed 's/^/  /'
+printf '%s%s%s\n' "$GREEN" "$(echo "$devices" | sed 's/^/  /')" "$RESET"
 
 # 8. Pick the device. Choosing wrong is the third gotcha and it does not look like an error: STT
 #    just runs on the iGPU, taking seconds per segment instead of milliseconds.
@@ -210,8 +220,8 @@ else
   discrete=()
   for i in "${!names[@]}"; do
     [ "${integrated[i]}" -eq 0 ] && discrete+=("$i")
-    printf '  %s) %-44s %s\n' "$i" "${names[i]}" \
-      "$([ "${integrated[i]}" -eq 1 ] && echo integrated || echo discrete)"
+    printf '  %s) %-44s %s%s%s\n' "$i" "${names[i]}" "$DIM" \
+      "$([ "${integrated[i]}" -eq 1 ] && echo integrated || echo discrete)" "$RESET"
   done
   [ "${#discrete[@]}" -eq 1 ] && default="${discrete[0]}"
   echo
