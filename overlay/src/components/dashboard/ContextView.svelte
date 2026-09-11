@@ -62,12 +62,15 @@
   onMount(load);
 </script>
 
-<div class="wiz">
-  <h1>Context</h1>
-  <p class="text-xs">
-    Upload your CV and the job description as context for your answers, all kept on this
-    machine.
-  </p>
+<div class="wiz split">
+  <div class="wiz-head">
+    <h1>Context</h1>
+    <p class="text-xs">
+      Upload your CV and the job description as context for your answers, all kept on this
+      machine.
+    </p>
+  </div>
+  <div class="wiz-body gap-4">
 
   {#if error}<p class="text-warn">{error}</p>{/if}
 
@@ -99,6 +102,9 @@
   {/each}
   {#if busy}<p class="text-dim text-xs">uploading…</p>{/if}
 
-  <div class="flex-1"></div>
-  <div class="flex"><button onclick={back}>Back</button></div>
+  </div>
+
+  <div class="wiz-foot">
+    <button onclick={back}>Back</button>
+  </div>
 </div>

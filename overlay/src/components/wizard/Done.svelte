@@ -104,8 +104,11 @@
   }
 </script>
 
-<div class="wiz">
-  <h1>Review &amp; save</h1>
+<div class="wiz split">
+  <div class="wiz-head">
+    <h1>Review &amp; save</h1>
+  </div>
+  <div class="wiz-body gap-4">
 
   {#each summary as row (row.key)}
     <div class="card flex items-center gap-2">
@@ -127,15 +130,16 @@
     </div>
   {/if}
 
-  <div class="flex-1"></div>
-  <div class="flex items-center justify-end gap-2">
-    <button class="mr-auto" onclick={back} disabled={saving}>Back</button>
+  </div>
+
+  <div class="wiz-foot">
+    <button onclick={back} disabled={saving}>Back</button>
     {#if !saved}
-      <button class="primary" onclick={save} disabled={saving}>
+      <button class="primary ml-auto" onclick={save} disabled={saving}>
         {saving ? statusMsg || "Saving…" : "Save"}
       </button>
     {:else}
-      <button class="primary" onclick={recheck}>I've restarted, continue</button>
+      <button class="primary ml-auto" onclick={recheck}>I've restarted, continue</button>
     {/if}
   </div>
 </div>

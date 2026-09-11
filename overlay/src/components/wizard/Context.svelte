@@ -37,8 +37,11 @@
   }
 </script>
 
-<div class="wiz">
-  <h1>Add context (optional)</h1>
+<div class="wiz split">
+  <div class="wiz-head">
+    <h1>Add context (optional)</h1>
+  </div>
+  <div class="wiz-body gap-4">
   <p class="text-xs">
     Give answers context from your background. Your resume and the job description stay on this
     machine.
@@ -69,9 +72,10 @@
   {@render slotCard("Resume / CV", "resume", resume)}
   {@render slotCard("Job description", "job_description", jd)}
 
-  <div class="flex-1"></div>
-  <div class="flex items-center justify-end gap-2">
-    <button class="mr-auto" onclick={back}>Back</button>
-    <button class="primary" onclick={next}>Continue</button>
+  </div>
+
+  <div class="wiz-foot">
+    <button onclick={back}>Back</button>
+    <button class="primary ml-auto" onclick={next}>Continue</button>
   </div>
 </div>

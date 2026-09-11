@@ -2,7 +2,11 @@
   let { next }: { next: () => void } = $props();
 </script>
 
-<div class="wiz">
+<!-- Split shell so Get started sits where every later step's primary sits. No .wiz-head: the hero
+     is a centred landing title and a ruled header bar under it would look wrong, so it stays in
+     the body and only the footer is pinned. -->
+<div class="wiz split">
+  <div class="wiz-body gap-4">
   <h1 class="hero">interviewr</h1>
   <br>
   <p>A private, Linux-first copilot that listens, transcribes, and drafts answers on-device.</p>
@@ -13,8 +17,9 @@
     <li>privacy focused local model setup</li>
   </ul>
   <p>Lets check your hardware and set up a model.</p>
-  <div class="flex-1"></div>
-  <div class="flex items-center justify-end gap-2">
-    <button class="primary" onclick={next}>Get started</button>
+  </div>
+
+  <div class="wiz-foot">
+    <button class="primary ml-auto" onclick={next}>Get started</button>
   </div>
 </div>
