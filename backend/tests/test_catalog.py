@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import sys
@@ -57,22 +58,14 @@ def test_catalog_json_is_current() -> None:
     claimed. Excluded from the default run so the suite stays offline; the scheduled workflow
     runs `scripts/refresh_catalog.py --check`, which asserts the same thing.
     """
-    import asyncio
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-    from refresh_catalog import build  # type: ignore[import-not-found]
-
     fresh = asyncio.run(build())
     current = json.loads(_CATALOG_JSON.read_text())
     assert current["models"] == fresh["models"], "run scripts/refresh_catalog.py"
 
 
-# --- the refresh script's stamp handling -------------------------------------------------------
-
+# The refresh script is not a package, so put its directory on the path before importing it.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from refresh_catalog import stamp_for  # noqa: E402
+from refresh_catalog import build, stamp_for  # noqa: E402
 
 
 def test_stamp_is_kept_when_the_facts_are_unchanged() -> None:
