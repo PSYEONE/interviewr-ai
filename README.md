@@ -59,7 +59,6 @@ to the same stream.
 
 ```bash
 ./scripts/install.sh       # engine + GPU transcription; re-run safely
-ollama pull qwen3:8b       # or your preferred model
 cd overlay && npm install && npm run tauri dev
 ```
 
@@ -71,7 +70,10 @@ build packages it needs, and refuses to report success on a silent CPU fallback.
 to skip the GPU path deliberately. See `docs/linux-vulkan-build.md` for what it automates and
 why.
 
-The setup wizard covers the rest on first run, including downloading a whisper model.
+The setup wizard covers the rest on first run: it checks for Ollama and shows the install
+command if it is missing, recommends an LLM that fits your GPU's VRAM and downloads it, and
+fetches a whisper model. That is why there is no `ollama pull` step here, since naming a model
+up front would ignore what the wizard knows about your hardware.
 
 To run the engine on its own:
 

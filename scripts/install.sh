@@ -238,6 +238,11 @@ else
   echo "  Set INTERVIEWR_WHISPER_GPU_DEVICE=$choice in .env (${names[$choice]})."
 fi
 say "Next steps"
-echo "  1. Install Ollama and pull a model:  ollama pull qwen3:8b"
-echo "  2. Build and run the overlay:        cd overlay && npm install && npm run tauri dev"
-echo "  The setup wizard handles the rest, including downloading a whisper model."
+echo "  Run the overlay:  cd overlay && npm install && npm run tauri dev"
+echo
+# Deliberately no `ollama pull` here. The wizard ranks the model catalog against the VRAM it
+# detects, so naming one up front risks a multi-gigabyte download of the wrong size. It also owns
+# the Ollama install command, which lives in ollama_admin.INSTALL_COMMAND and should not be copied.
+echo "  The wizard does the rest: checks for Ollama and shows the install command if it is"
+echo "  missing, recommends an LLM that fits your GPU and downloads it, and fetches a whisper"
+echo "  model."
