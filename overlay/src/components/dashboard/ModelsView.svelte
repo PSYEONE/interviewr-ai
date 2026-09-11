@@ -63,9 +63,14 @@
 </script>
 
 {#if stage === "choose"}
-  <div class="wiz">
-    <h1>Manage models</h1>
-    <p class="text-xs">Switch, download or remove local models.</p>
+  <!-- Same shell as the screens this leads to, so Back keeps its size and place across a
+       double back-press rather than making the user re-aim. -->
+  <div class="wiz split">
+    <div class="wiz-head">
+      <h1>Manage models</h1>
+      <p class="text-xs">Switch, download or remove local models.</p>
+    </div>
+    <div class="wiz-body gap-4">
     <div class="flex flex-wrap items-stretch gap-3">
       <button class="choice" onclick={chooseLocal}>
         <span class="flex w-full items-center gap-2">
@@ -86,9 +91,11 @@
           Bring your own key for Claude, GPT, Gemini or Groq. Works on any hardware.
         </span>
       </button>
+      </div>
     </div>
-    <div class="flex-1"></div>
-    <div class="flex"><button onclick={back}>Back</button></div>
+    <div class="wiz-foot">
+      <button onclick={back}>Back</button>
+    </div>
   </div>
 {:else if stage === "local" && report}
   <LocalSetup {report} current={config} manage complete={apply} back={() => (stage = "choose")} />
@@ -97,12 +104,13 @@
 {:else if stage === "applying"}
   <div class="splash">{status || "Applying…"}</div>
 {:else}
-  <div class="wiz">
-    {#if error}<p class="text-warn">{error}</p>{/if}
-    <div class="flex-1"></div>
-    <div class="flex items-center gap-2">
-      <button class="mr-auto" onclick={back}>Back</button>
-      <button onclick={() => (stage = "choose")}>Try again</button>
+  <div class="wiz split">
+    <div class="wiz-body gap-4">
+      {#if error}<p class="text-warn">{error}</p>{/if}
+    </div>
+    <div class="wiz-foot">
+      <button onclick={back}>Back</button>
+      <button class="ml-auto" onclick={() => (stage = "choose")}>Try again</button>
     </div>
   </div>
 {/if}

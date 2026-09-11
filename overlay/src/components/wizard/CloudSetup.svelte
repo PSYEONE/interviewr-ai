@@ -84,10 +84,16 @@
   }
 </script>
 
-<div class="wiz">
-  <h1>Cloud model</h1>
-  <p class="text-xs">Bring your own API key. It's stored locally in .env, never sent anywhere but the provider.</p>
+<!-- Split shell to match the local-model screen: Back stays the same size and place whichever
+     branch of Manage models you came through, and the footer stops scrolling away on a short
+     window. gap-4 keeps the spacing the plain .wiz gave, since .wiz-body is gap-2. -->
+<div class="wiz split">
+  <div class="wiz-head">
+    <h1>Cloud model</h1>
+    <p class="text-xs">Bring your own API key. It's stored locally in .env, never sent anywhere but the provider.</p>
+  </div>
 
+  <div class="wiz-body gap-4">
   {#each PROVIDERS as p (p.id)}
     <label class="card flex cursor-pointer items-center gap-2" class:selected={provider === p.id}>
       <input type="radio" name="provider" checked={provider === p.id} onchange={() => pick(p.id)} />
@@ -111,10 +117,10 @@
       placeholder={keySaved ? "saved, leave blank to keep it" : "paste your key"}
     />
   </div>
+  </div>
 
-  <div class="flex-1"></div>
-  <div class="flex items-center justify-end gap-2">
-    <button class="mr-auto" onclick={back}>Back</button>
-    <button class="primary" disabled={!canContinue} onclick={finish}>Continue</button>
+  <div class="wiz-foot">
+    <button onclick={back}>Back</button>
+    <button class="primary ml-auto" disabled={!canContinue} onclick={finish}>Continue</button>
   </div>
 </div>
