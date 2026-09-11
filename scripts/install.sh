@@ -81,6 +81,53 @@ run_step() {
   printf '  %s (%ds)\n' "$msg" "$((SECONDS - start))"
 }
 
+# Run pip showing a download bar and nothing else.
+#
+# `--progress-bar raw` makes pip emit "Progress <done> of <total>" lines instead of drawing its own
+# bar, which is the only way to keep the bar and drop the collecting/installing commentary: plain
+# `-q` silences the bar too, and pip only draws it straight to a terminal, where it cannot be
+# filtered. Everything else is captured and shown on failure.
+run_pip() {
+  local msg="$1"; shift
+  local log rc=0 start=$SECONDS
+  log="$(mktemp)"
+  set +e
+  "$@" --progress-bar raw 2>&1 | tee "$log" | draw_bar "$msg"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    printf '%serror:%s %s failed\n' "$RED" "$RESET" "$msg" >&2
+    cat "$log" >&2
+    rm -f "$log"
+    exit "$rc"
+  fi
+  rm -f "$log"
+  printf '  %s (%ds)\n' "$msg" "$((SECONDS - start))"
+}
+
+# Turn pip's raw progress into a bar, discarding every other line. Each downloaded wheel runs the
+# bar 0 to 100, the same as pip's own.
+draw_bar() {
+  # `got` rather than `done`, which is a shell keyword.
+  local msg="$1" width=28 got total pct filled bar
+  while IFS= read -r line; do
+    case "$line" in
+      "Progress "*)
+        total="${line##* of }"
+        got="${line#Progress }"; got="${got%% of *}"
+        case "$total$got" in *[!0-9]*) continue ;; esac
+        [ "$total" -gt 0 ] || continue
+        pct=$(( got * 100 / total ))
+        filled=$(( got * width / total ))
+        bar="$(printf '%*s' "$filled" '' | tr ' ' '=')$(printf '%*s' $(( width - filled )) '')"
+        if [ -t 1 ]; then printf '\r  %s [%s] %3d%%' "$msg" "$bar" "$pct"; fi
+        ;;
+    esac
+  done
+  if [ -t 1 ]; then printf '\r\033[K'; fi
+  return 0
+}
+
 # 1. Preflight. Fail here with something actionable rather than deep inside pip.
 say "Checking prerequisites"
 [ "$(uname -s)" = "Linux" ] || die "this installer is Linux-only (the engine captures via PipeWire)"
@@ -102,7 +149,7 @@ echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 say "Installing the engine into backend/.venv"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
 "$PY" -m pip install --quiet --upgrade pip
-run_step "installing dependencies" "$PY" -m pip install -e "$BACKEND"
+run_pip "installing dependencies" "$PY" -m pip install -e "$BACKEND"
 
 # Whether the GPU build is already in place. Used before building (to skip a long compile) and
 # after (as the thing that decides success), so it lives in one function.
@@ -123,8 +170,8 @@ if [ "$WANT_GPU" -eq 0 ]; then
   say "Skipping the GPU build (--cpu)"
   # --no-deps for the same reason as the GPU path: force-reinstall would otherwise rebuild the
   # whole dependency tree. The plain install after it supplies anything missing.
-  run_step "installing the CPU build" "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
-  run_step "installing its dependencies" "$PY" -m pip install pywhispercpp
+  run_pip "installing the CPU build" "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
+  run_pip "installing its dependencies" "$PY" -m pip install pywhispercpp
   echo "  CPU build installed. Transcription will be slower but works on any machine."
   exit 0
 fi
@@ -188,7 +235,7 @@ else
   # extra, so nothing else brings them in. With the package already installed pip reports
   # "Requirement already satisfied" and fills in only what is missing, leaving the source build
   # untouched.
-  run_step "installing its dependencies" "$PY" -m pip install pywhispercpp
+  run_pip "installing its dependencies" "$PY" -m pip install pywhispercpp
 fi
 
 # 6. RPATH. The libraries sit beside the extension in site-packages, which the loader does not
@@ -290,11 +337,7 @@ else
   echo "  Using ${names[$choice]} (device $choice)."
 fi
 say "Next steps"
+# Deliberately no `ollama pull` here. The app ranks the model catalog against the VRAM it detects,
+# so naming one up front risks a multi-gigabyte download of the wrong size. It also owns the Ollama
+# install command, which lives in ollama_admin.INSTALL_COMMAND and should not be copied.
 echo "  Run the overlay:  cd overlay && npm install && npm run tauri dev"
-echo
-# Deliberately no `ollama pull` here. The wizard ranks the model catalog against the VRAM it
-# detects, so naming one up front risks a multi-gigabyte download of the wrong size. It also owns
-# the Ollama install command, which lives in ollama_admin.INSTALL_COMMAND and should not be copied.
-echo "  The wizard does the rest: checks for Ollama and shows the install command if it is"
-echo "  missing, recommends an LLM that fits your GPU and downloads it, and fetches a whisper"
-echo "  model."
