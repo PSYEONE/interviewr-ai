@@ -38,14 +38,23 @@
   onMount(() => load(false));
 </script>
 
-<div class="wiz">
-  <div class="flex items-center gap-2">
-    <h1>Hardware check</h1>
-    <span class="flex-1"></span>
-    <button class="icon" title="Re-detect hardware" disabled={refreshing} onclick={() => load(true)}>
-      {refreshing ? "…" : "↻"}
-    </button>
+<div class="wiz split">
+  <div class="wiz-head">
+    <div class="flex items-center gap-2">
+      <h1>Hardware check</h1>
+      <span class="flex-1"></span>
+      <button
+        class="icon"
+        title="Re-detect hardware"
+        disabled={refreshing}
+        onclick={() => load(true)}
+      >
+        {refreshing ? "…" : "↻"}
+      </button>
+    </div>
   </div>
+
+  <div class="wiz-body gap-4">
 
   {#if error}
     <p class="text-warn">Couldn't reach the engine: {error}</p>
@@ -88,9 +97,12 @@
       </button>
     </div>
 
-    <div class="flex-1"></div>
-    <div class="flex items-center justify-end gap-2">
-      <button class="mr-auto" onclick={back}>Back</button>
-    </div>
   {/if}
+  </div>
+
+  <!-- Outside the {#if}: Back used to render only once a report existed, so an unreachable engine
+       left Retry as the only control and no way out of the screen. -->
+  <div class="wiz-foot">
+    <button onclick={back}>Back</button>
+  </div>
 </div>
