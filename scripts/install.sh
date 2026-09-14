@@ -4,19 +4,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="$ROOT/backend"
-VENV="$BACKEND/.venv"
+# The .deb build sets INTERVIEWR_VENV to install into its bundled Python instead.
+VENV="${INTERVIEWR_VENV:-$BACKEND/.venv}"
 PY="$VENV/bin/python"
 
 WANT_GPU=1
 ASSUME_YES=0
+BUILD_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --cpu) WANT_GPU=0 ;;
     --yes|-y) ASSUME_YES=1 ;;
+    --build-only) BUILD_ONLY=1; ASSUME_YES=1 ;;
     --help|-h)
-      echo "usage: scripts/install.sh [--cpu] [--yes]"
-      echo "  --cpu   skip the Vulkan build and use the CPU wheel"
-      echo "  --yes   unattended: install build dependencies and pick the GPU without asking"
+      echo "usage: scripts/install.sh [--cpu] [--yes] [--build-only]"
+      echo "  --cpu         skip the Vulkan build and use the CPU wheel"
+      echo "  --yes         unattended: install build dependencies and pick the GPU without asking"
+      echo "  --build-only  compile only; skip every check that needs a GPU present (for packaging)"
       exit 0
       ;;
     *) echo "error: unknown option '$arg' (try --help)" >&2; exit 2 ;;
@@ -43,13 +47,18 @@ python3 - <<'EOF' || die "python 3.12+ required (found $(python3 -V 2>&1))"
 import sys
 raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
 EOF
-for tool in pw-record pactl; do
-  have "$tool" || die "$tool not found; the engine needs PipeWire (package: pipewire-utils / pulseaudio-utils)"
-done
-echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
+# PipeWire is only needed to run the engine, so a packaging build skips the check.
+if [ "$BUILD_ONLY" -eq 0 ]; then
+  for tool in pw-record pactl; do
+    have "$tool" || die "$tool not found; the engine needs PipeWire (package: pipewire-utils / pulseaudio-utils)"
+  done
+  echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
+else
+  echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), build-only (skipping runtime checks)"
+fi
 
 # 2. Venv: installs the engine without the [local] extra, which would overwrite a GPU build with the CPU-only wheel.
-say "Installing the engine into backend/.venv"
+say "Installing the engine into $VENV"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
 # Keep pip below 26: newer pip ignores PIP_CONSTRAINT for build tools, which step 5 relies on.
 "$PY" -m pip install --quiet 'pip<26'
@@ -75,16 +84,19 @@ if [ "$WANT_GPU" -eq 0 ]; then
 fi
 
 # 3. Vulkan detection: stop here rather than building a CPU-only version the user thinks is using the GPU.
-say "Looking for Vulkan"
-if ! have vulkaninfo || ! vulkaninfo --summary >/dev/null 2>&1; then
-  echo "  No working Vulkan runtime found."
-  echo "  Install your GPU's Vulkan driver (mesa-vulkan-drivers, or the NVIDIA driver), then"
-  echo "  re-run. To proceed on the CPU instead: scripts/install.sh --cpu"
-  exit 1
+# Skipped for --build-only, since a build container has no GPU and doesn't need one to compile.
+if [ "$BUILD_ONLY" -eq 0 ]; then
+  say "Looking for Vulkan"
+  if ! have vulkaninfo || ! vulkaninfo --summary >/dev/null 2>&1; then
+    echo "  No working Vulkan runtime found."
+    echo "  Install your GPU's Vulkan driver (mesa-vulkan-drivers, or the NVIDIA driver), then"
+    echo "  re-run. To proceed on the CPU instead: scripts/install.sh --cpu"
+    exit 1
+  fi
+  vulkaninfo --summary 2>/dev/null | sed -n 's/^\s*deviceName\s*=\s*/  GPU: /p'
 fi
-vulkaninfo --summary 2>/dev/null | sed -n 's/^\s*deviceName\s*=\s*/  GPU: /p'
 
-if gpu_ready; then
+if [ "$BUILD_ONLY" -eq 0 ] && gpu_ready; then
   say "GPU build already working, nothing to build"
 else
   # 4. Build deps, one sudo prompt, only for what is actually missing.
@@ -135,6 +147,15 @@ while IFS= read -r -d '' so; do
 done < <(find "$SITE" -maxdepth 1 \( -name 'libwhisper*.so*' -o -name 'libggml*.so*' \
   -o -name '_pywhispercpp*.so' \) -print0)
 echo "  set \$ORIGIN on $patched libraries"
+
+# 6b. Packaging build stops here: checks the Vulkan library was built, since the smoke test below needs a GPU.
+if [ "$BUILD_ONLY" -eq 1 ]; then
+  say "Checking the Vulkan backend compiled"
+  compgen -G "$SITE/libggml-vulkan.so*" >/dev/null ||
+    die "no libggml-vulkan in $SITE; the build fell back to the CPU wheel"
+  echo "  Device selection is left to first run, which is where the GPU is visible."
+  exit 0
+fi
 
 # 7. Smoke test: fail rather than silently falling back to the CPU.
 say "Verifying the GPU backend"
