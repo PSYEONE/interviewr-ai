@@ -721,7 +721,7 @@ pub fn run() {
             quit
         ])
         .setup(|app| {
-            // Start unpinned; the Pin toggle sets and persists the user's choice.
+            // Start unpinned; the wizard also turns pin and stealth off, and the panel's toggles save the user's choice.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(false);
                 size_to_screen(&win);

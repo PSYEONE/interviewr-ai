@@ -25,12 +25,17 @@ class WindowControls {
   stealth = $state(false);
   captureSupported = $state(true);
   collapsed = $state(false);
+  // True while the setup wizard shows; it has no pin or stealth buttons, so both stay off.
+  wizardMode = $state(false);
   #restoreSize: { width: number; height: number } | null = null;
-  #inited = false;
+  #ready: Promise<void> | null = null;
 
-  async init(): Promise<void> {
-    if (this.#inited) return;
-    this.#inited = true;
+  init(): Promise<void> {
+    this.#ready ??= this.#load();
+    return this.#ready;
+  }
+
+  async #load(): Promise<void> {
     try {
       this.pinned = await getPin();
       // Re-apply the pin at startup, since a new Wayland window doesn't always pick up the KWin rule.
@@ -50,7 +55,32 @@ class WindowControls {
     }
   }
 
+  // Turns pin and stealth off for the wizard, clearing any saved rule from an earlier install or session.
+  async enterWizard(): Promise<void> {
+    this.wizardMode = true;
+    await this.init(); // wait for the startup restore so it can't switch them back on
+    if (!this.wizardMode) return;
+    this.pinned = false;
+    try {
+      await setPin(false);
+    } catch {
+      /* compositor may reject */
+    }
+    if (!this.captureSupported) return;
+    this.stealth = false;
+    try {
+      await setStealth(false);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  leaveWizard(): void {
+    this.wizardMode = false;
+  }
+
   async togglePin(): Promise<void> {
+    if (this.wizardMode) return;
     this.pinned = !this.pinned;
     try {
       await setPin(this.pinned);
@@ -60,7 +90,7 @@ class WindowControls {
   }
 
   async toggleStealth(): Promise<void> {
-    if (!this.captureSupported) return;
+    if (!this.captureSupported || this.wizardMode) return;
     this.stealth = !this.stealth;
     try {
       await setStealth(this.stealth);
