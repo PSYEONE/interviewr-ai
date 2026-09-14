@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+
   import { minimizeWindow, quit, startDragging } from "../../lib/tauri";
   import type { SystemReport } from "../../lib/types";
   import CloudSetup from "./CloudSetup.svelte";
@@ -8,8 +10,14 @@
   import LocalSetup from "./LocalSetup.svelte";
   import PullStatus from "../PullStatus.svelte";
   import Welcome from "./Welcome.svelte";
+  import { windowControls } from "../../lib/windowControls.svelte";
 
   let { recheck }: { recheck: () => void } = $props();
+
+  onMount(() => {
+    void windowControls.enterWizard();
+    return () => windowControls.leaveWizard();
+  });
 
   type Step = "welcome" | "gpu" | "local" | "cloud" | "context" | "done";
   let step = $state<Step>("welcome");
