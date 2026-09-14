@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import logging
 import re
 import signal
 import sys
@@ -18,6 +19,8 @@ CHUNK_SAMPLES = 4800  # 0.3s at 16kHz
 CHUNK_BYTES = CHUNK_SAMPLES * 4  # f32 = 4 bytes per sample
 
 _PR_SET_PDEATHSIG = 1  # linux/prctl.h
+
+_log = logging.getLogger(__name__)
 
 
 def _die_with_parent() -> None:
@@ -100,8 +103,9 @@ async def capture_audio(
     device: str,
     rate: int = SAMPLE_RATE,
     chunk_samples: int = CHUNK_SAMPLES,
+    stall_s: float = 5.0,
 ) -> AsyncGenerator[np.ndarray, None]:
-    """Yields float32 audio chunks from a PipeWire source using pw-record."""
+    """Yields float32 audio chunks from a PipeWire source using pw-record; ends if pw-record exits or stalls."""
     chunk_bytes = chunk_samples * 4
     # --container raw stops pw-record writing a file header, which would be read as garbage audio (including a NaN).
     args = [
@@ -123,7 +127,12 @@ async def capture_audio(
     assert proc.stdout is not None
     try:
         while True:
-            data = await proc.stdout.readexactly(chunk_bytes)
+            try:
+                data = await asyncio.wait_for(proc.stdout.readexactly(chunk_bytes), stall_s)
+            except TimeoutError:
+                # pw-record sends silence as zeros, so no data at all means it's stuck.
+                _log.warning("pw-record sent no audio for %.0fs; restarting capture", stall_s)
+                return
             yield np.frombuffer(data, dtype=np.float32).copy()
     except asyncio.IncompleteReadError:
         pass

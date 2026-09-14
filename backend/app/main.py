@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             capture_prefs = CapturePrefs.of(settings)
             app.state.capture_prefs = capture_prefs
             producer = asyncio.create_task(run_producer(settings, session, bus, capture_prefs))
+            producer.add_done_callback(_log_producer_exit)
         else:
             _log.warning(
                 "LLM provider '%s' unhealthy; starting in setup mode", settings.llm_provider
@@ -162,6 +163,13 @@ async def _default_sink_or_none() -> str | None:
     except (RuntimeError, FileNotFoundError, OSError) as exc:  # noqa: BLE001
         _log.debug("no default sink: %s", exc)
         return None
+
+
+def _log_producer_exit(task: asyncio.Task[None]) -> None:
+    """Logs the transcript producer ending before shutdown, which would otherwise stop transcription silently."""
+    if task.cancelled():
+        return
+    _log.error("transcript producer stopped; restart the engine", exc_info=task.exception())
 
 
 async def _warm_llm(llm: LLMClient) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 
 import uvicorn
@@ -27,6 +28,9 @@ def main() -> None:
 
     # Exit if the overlay that launched us goes away (app/system/parent.py); startup work runs in the FastAPI lifespan.
     watch()
+    # Show the engine's own info logs (capture start and stop); other libraries stay at warnings.
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s:     %(name)s: %(message)s")
+    logging.getLogger("app").setLevel(logging.INFO)
     settings = get_settings()
     uvicorn.run("app.main:app", host=settings.host, port=settings.port, log_level="info")
 
