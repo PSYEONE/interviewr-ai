@@ -18,8 +18,7 @@ class WhisperTranscriber:
     ) -> None:
         from pywhispercpp.model import ContextParams, Model
 
-        # whisper.cpp defaults to Vulkan device 0, which on multi-GPU laptops is the
-        # weak integrated GPU. gpu_device >= 0 pins the discrete GPU instead.
+        # whisper.cpp uses Vulkan device 0 by default, often the integrated GPU; gpu_device picks another.
         ctx: ContextParams = {"use_gpu": use_gpu}
         if gpu_device >= 0:
             ctx["gpu_device"] = gpu_device
@@ -28,13 +27,11 @@ class WhisperTranscriber:
         )
 
     def warmup(self) -> None:
-        """Run one dummy inference up front. The first Vulkan transcribe pays a
-        one-time shader compile (~20s); do it at startup, not on the first utterance."""
+        """Runs one dummy transcription so the one-time Vulkan shader compile happens at startup."""
         self._model.transcribe(np.zeros(16000, dtype=np.float32))
 
     def transcribe_raw(self, audio: np.ndarray) -> str:
-        """Full transcription of a float32 buffer, cleaned. No dedup state: streaming
-        callers re-transcribe a growing buffer and compare whole hypotheses themselves."""
+        """Transcribes a float32 buffer and cleans the text, keeping no state between calls."""
         segments = self._model.transcribe(
             audio,
             temperature=0.0,  # greedy; no random sampling
@@ -47,29 +44,24 @@ class WhisperTranscriber:
 
 
 class Hypothesis(NamedTuple):
-    """One emission from the stream: ``final`` text is settled and permanent;
-    otherwise it is the tentative tail that replaces the previous tentative tail."""
+    """One stream result: final text is permanent, otherwise it replaces the previous tentative text."""
 
     text: str
     final: bool
 
 
-# Whisper emits non-speech annotations like [BLANK_AUDIO] or (wind blowing) on
-# ambiguous audio. Strip bracketed/parenthesized groups; spoken text rarely uses them.
+# Strips non-speech notes whisper adds on unclear audio, like [BLANK_AUDIO] or (wind blowing).
 _ANNOTATION = re.compile(r"\[[^\]]*\]|\([^)]*\)")
 
-# Don't run a partial transcription on less audio than this; whisper hallucinates
-# words on sub-second buffers.
+# Minimum audio before a partial transcription; whisper makes up words on very short buffers.
 PARTIAL_MIN_S = 1.0
 
-# Keep at most this much trailing silence when transcribing; whisper invents text
-# ("thank you", "I'd like to say") when it decodes a long silent tail.
+# Silence kept at the end of a buffer; whisper makes up text ("thank you") for long silent tails.
 TRIM_KEEP_S = 0.2
 
 
 def _collapse_repeats(words: list[str], limit: int = 2) -> list[str]:
-    """Drop runs of the same word longer than ``limit``. Looping repetition is a
-    classic whisper hallucination on ambiguous audio; real speech rarely repeats 3+."""
+    """Drops runs of the same word longer than ``limit``, a common whisper hallucination."""
     out: list[str] = []
     prev = ""
     run = 0
@@ -107,17 +99,7 @@ async def transcribe_stream(
     commit_margin_words: int = 2,
     emit_partials: bool = True,
 ) -> AsyncGenerator[Hypothesis, None]:
-    """Stream a live transcript using LocalAgreement-2.
-
-    Audio is segmented by silence as before, but instead of transcribing each
-    utterance once at the end, the growing buffer is re-transcribed every
-    ``partial_interval_s``. A word is committed (``final=True``) only once two
-    consecutive transcriptions agree on it; the unconfirmed tail is emitted as a
-    tentative hypothesis (``final=False``) the client renders dim and replaces in
-    place. On silence (``silence_hold_s``) or the ``max_utterance_s`` cap the buffer
-    gets one final transcription, the remainder is committed, the tail cleared, and
-    utterance state reset.
-    """
+    """Streams a live transcript, committing words once two back-to-back transcriptions agree on them."""
     loop = asyncio.get_event_loop()
     speech: list[np.ndarray] = []
     speech_s = 0.0  # above-threshold audio; gates out tiny noise blips
@@ -183,8 +165,7 @@ async def transcribe_stream(
             since_partial_s = 0.0
             hyp = await transcribe_buffer()
             agree = _common_prefix(prev_hyp, hyp)
-            # Hold back the last few agreed words: the live edge lacks right-context and
-            # whisper revises it, so two near-adjacent passes can agree on a wrong guess.
+            # Hold back the newest agreed words, since whisper often revises the most recent ones.
             safe = max(committed, agree - commit_margin_words)
             if safe > committed:
                 yield Hypothesis(" ".join(hyp[committed:safe]), True)

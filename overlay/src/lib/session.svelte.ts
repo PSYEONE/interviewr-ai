@@ -1,7 +1,4 @@
-// WS client as a Svelte 5 runes store: the connect/handle/retry loop, plus the interview's turn
-// log. Transcript arrives as a pending buffer with a live tail; each answer.start consumes that
-// buffer into a Turn, so past questions and answers survive instead of being overwritten.
-// Capped-exponential reconnect and a 20s keepalive ping.
+// WebSocket client store: connects to the engine (with reconnect and keepalive) and keeps the interview's questions and answers.
 
 import { wsUrl } from "./connection";
 import type { AnswerStyle, CommandType, ServerEvent } from "./types";
@@ -12,8 +9,7 @@ function _loadStyle(): AnswerStyle {
   return localStorage.getItem(_STYLE_KEY) === "bullets" ? "bullets" : "script";
 }
 
-// One question and the answer generated for it. The question comes from the engine on
-// answer.start, so the pairing is authoritative rather than re-derived from the transcript.
+// One question and its answer; the question text comes from the engine's answer.start event.
 export type Turn = { id: string; question: string; answer: string; done: boolean };
 
 export type Status =
@@ -26,17 +22,14 @@ export type Status =
 
 class Session {
   status = $state<Status>("offline");
-  // The audio source the engine resolved at capture start, so the bar can show what is actually
-  // being listened to rather than leaving a stale capture target indistinguishable from a live one.
+  // The audio source the engine is capturing from, shown in the top bar.
   captureSource = $state<string | null>(null);
   // Answered turns, oldest first: the scrollback the interview view renders.
   turns = $state<Turn[]>([]);
-  // Final transcript heard since the last answer, i.e. the not-yet-asked buffer. Mirrors the
-  // engine's own _parts, and is consumed into a Turn when an answer starts.
+  // Transcript heard since the last answer that hasn't been asked yet.
   pending = $state("");
   live = $state(""); // in-flight partial tail, replaced rather than appended
-  // Last conversation whose background-generated title landed; the dashboard watches this to
-  // patch the title into the history list in place (titles arrive after the session ends).
+  // Latest conversation title sent by the engine; the dashboard uses it to update the history list.
   lastTitled = $state<{ id: number; title: string } | null>(null);
   // Sticky answer formatting; persisted locally and re-sent to the engine on each connect.
   answerStyle = $state<AnswerStyle>(_loadStyle());
@@ -75,12 +68,7 @@ class Session {
     }
   }
 
-  /** Status, plus the capture label that has to move with it.
-   *
-   *  The engine names the source only when capture starts, so it is held for the rest of the
-   *  interview and dropped as soon as the state is no longer a capturing one. Every status change
-   *  goes through here, including a dropped connection, which otherwise left the bar claiming to
-   *  listen to an application while offline. */
+  /** Sets the status, and clears the capture source once the engine is no longer listening or thinking. */
   #setStatus(state: Status, source?: string | null): void {
     this.status = state;
     if (source) this.captureSource = source;
@@ -92,13 +80,11 @@ class Session {
     this.turns = [];
     this.pending = "";
     this.live = "";
-    // Leaving the interview stops capture. Don't wait for the engine's idle event to say so: if
-    // it arrives after the view is gone, the next interview opens on the old source.
+    // Clear the source now instead of waiting for the engine, so the next interview doesn't show the old one.
     this.captureSource = null;
   }
 
-  // The engine drops its buffer on "clear"; drop ours too, or the screen keeps showing text the
-  // engine has already forgotten and the next answer silently excludes it.
+  // Clears our copy of the pending transcript too, so the screen matches what the engine has.
   clearPending(): void {
     this.send("clear");
     this.pending = "";
@@ -163,8 +149,7 @@ class Session {
     }));
   }
 
-  // Errors attach to the turn in flight; with none (e.g. a failure before any answer) they get
-  // their own entry so the message is never swallowed.
+  // Attaches an error to the answer in progress, or adds it as its own entry if there isn't one.
   #noteError(message: string): void {
     const last = this.turns.at(-1);
     if (last && !last.done) {
@@ -189,8 +174,7 @@ class Session {
         break;
       case "answer.start":
         this.#curAnswer = ev.answer_id;
-        // The engine cleared its buffer to build this question, so ours goes with it. Anything
-        // spoken from here on arrives after this event and belongs to the next turn.
+        // The engine used the pending transcript for this question, so clear ours too.
         this.pending = "";
         this.turns = [
           ...this.turns,

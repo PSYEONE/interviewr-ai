@@ -1,6 +1,4 @@
-// The answer renderer's guarantee, stated so it can be run rather than reasoned about: model
-// output never becomes markup. It matters here because tauri.conf.json sets no CSP, the webview
-// can reach invoke, and answers are shaped by the user's own uploaded documents through RAG.
+// The answer renderer must never turn model output into HTML, since the webview has no CSP and can call Tauri commands.
 
 import { describe, expect, it } from "vitest";
 

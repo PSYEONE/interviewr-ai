@@ -73,8 +73,7 @@ def test_falls_back_to_node_name_when_unnamed() -> None:
 
 
 def test_a_stream_without_a_serial_is_skipped() -> None:
-    # The serial is what pactl calls an index; without it the stream cannot be moved, so listing
-    # it would offer the user something that silently does nothing.
+    # Without a serial (pactl's index) the stream can't be moved, so it isn't offered.
     dump: list[Any] = [
         {"id": 5, "info": {"props": {"media.class": "Stream/Output/Audio", "node.name": "x"}}}
     ]
@@ -82,8 +81,7 @@ def test_a_stream_without_a_serial_is_skipped() -> None:
 
 
 def test_our_own_loopback_is_not_offered() -> None:
-    """module-loopback's nodes have no application.name, so they used to be listed as
-    "output.loopback-2784-13". Selecting one would route our loopback into the sink it reads."""
+    """Our own loopback nodes aren't listed; picking one would feed the loopback back into itself."""
     dump: list[Any] = [
         {"id": 9, "info": {"props": {"media.class": "Stream/Output/Audio",
                                      "node.name": "output.loopback-2784-13",
@@ -119,8 +117,7 @@ def test_known_apps_is_empty_without_the_state_file(monkeypatch: pytest.MonkeyPa
 
 
 def test_foreign_streams_are_the_ones_to_evict() -> None:
-    """Switching the selected app used to leave the previous one in the sink, so a capture
-    contained both and the second selection only appeared to work."""
+    """Streams from any app other than the selected one get moved out of the capture sink."""
     assert _foreign([11, 22, 33], ours={22}) == [11, 33]
 
 

@@ -1,9 +1,4 @@
-"""Gemini streaming LLM client (BYOK via Google AI Studio free-tier keys).
-
-SDK and model ids are config-switchable; the import is lazy so a local-only install never
-needs `google-genai`. Conversation history lives in the Session; SYSTEM_PROMPT is injected
-as Gemini's `system_instruction`, never as a history turn.
-"""
+"""Gemini streaming client; the system prompt is passed as `system_instruction`, not as a message."""
 
 from __future__ import annotations
 

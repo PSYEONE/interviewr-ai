@@ -1,6 +1,4 @@
-// Customizable global shortcuts. Actions start unbound; the user assigns accelerators in Settings,
-// persisted locally (localStorage, an overlay concern, not engine .env) and registered with the
-// Tauri global-shortcut plugin. Callbacks dispatch to the session / window-control stores.
+// Global shortcuts: saved locally and registered with the Tauri plugin, or bound through the desktop portal on Wayland.
 
 import { register, unregister, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 import { listen } from "@tauri-apps/api/event";
@@ -37,17 +35,13 @@ export const HOTKEY_LABELS: Record<HotkeyAction, string> = {
 };
 
 const STORAGE_KEY = "interviewr.hotkeys";
-// Portal path: whether the user has opted in. A fresh session's ListShortcuts reports nothing
-// until that session has bound, so it cannot tell us about a previous grant; this can.
+// Portal path: remembers that the user turned shortcuts on, which a new portal session can't report.
 const PORTAL_OPT_IN_KEY = "interviewr.shortcuts.enabled";
 
-// Which mechanism can actually deliver a shortcut. "portal" = the compositor owns the binding
-// (Wayland), "plugin" = we grab it ourselves (X11/Windows/macOS), "none" = nothing can.
+// "portal" = the desktop owns the keys (Wayland), "plugin" = we register them (X11/Windows/macOS), "none" = unavailable.
 export type Backend = "portal" | "plugin" | "none";
 
-// Shown by the desktop's own shortcut dialog on the portal path, so it has to read as a sentence
-// to someone who has never seen this app. No "interviewr:" prefix: the desktop files these under
-// the app's own component now that it can identify us, and repeats the app name itself.
+// Shown in the desktop's own shortcut dialog, so each one should make sense to someone new to the app.
 const PORTAL_DESCRIPTIONS: Record<HotkeyAction, string> = {
   answer: "Answer the current question",
   clear: "Clear the pending transcript",
@@ -58,9 +52,7 @@ const PORTAL_DESCRIPTIONS: Record<HotkeyAction, string> = {
   collapse: "Collapse the overlay to its bars",
 };
 
-/** Turn the one portal error a user can act on into a sentence that says what to do.
- *  "An app id is required" means the desktop could not identify us; the Rust side knows which
- *  half is missing, and only it can tell them apart. */
+/** Turns the portal's "An app id is required" error into advice the user can act on; null for other errors. */
 async function explain(raw: string): Promise<string | null> {
   if (!raw.includes("An app id is required")) return null;
   const problem = await invoke<string | null>("shortcuts_app_id_problem").catch(() => null);
@@ -104,8 +96,7 @@ class Hotkeys {
     collapse: null,
   });
   error = $state<string | null>(null);
-  // Null until init() has asked the Rust side. The Settings UI branches on this: the portal path
-  // has no per-action Record button, because the compositor owns the binding.
+  // Null until init() has checked which backend works here; Settings shows different controls for each.
   backend = $state<Backend | null>(null);
   // Portal path only: what the compositor actually has bound, keyed by action.
   triggers = $state<Partial<Record<HotkeyAction, string>>>({});
@@ -153,8 +144,7 @@ class Hotkeys {
     }
 
     this.#load();
-    // The grabs live in the Rust process while #inited is webview state, so a dev reload would
-    // otherwise re-register over live grabs and every call would fail.
+    // Clear existing registrations first, so a dev reload doesn't fail registering them again.
     await unregisterAll().catch(() => {});
     const failed: string[] = [];
     for (const a of HOTKEY_ACTIONS) {
@@ -166,36 +156,24 @@ class Hotkeys {
         failed.push(`${HOTKEY_LABELS[a]} (${accel})`);
       }
     }
-    // Previously swallowed, so Settings showed a dead binding as though it were live.
+    // Report shortcuts that failed to register, so Settings doesn't show them as working.
     if (failed.length > 0) {
       this.error = `Not active, the combination is already taken: ${failed.join(", ")}`;
     }
   }
 
-  /** Portal path: the compositor holds the bindings, so there is nothing in localStorage to
-   *  restore and nothing for us to grab. Listen always; bind only once the user has opted in,
-   *  since binding is what raises the desktop's permission dialog. */
+  /** Portal path: listens for shortcut events, and re-binds only if the user enabled shortcuts before. */
   async #initPortal(): Promise<void> {
     await listen<string>("shortcut://activated", (e) => {
       if (HOTKEY_ACTIONS.includes(e.payload as HotkeyAction)) {
         dispatch(e.payload as HotkeyAction);
       }
     });
-    // The desktop owns the keys and tells us when one changes, which is the only way to follow an
-    // edit made in its own editor: ConfigureShortcuts returns when the editor opens, not when the
-    // user is done with it.
+    // Picks up key changes the user makes in the desktop's own shortcut editor.
     await listen<[string, string][]>("shortcut://changed", (e) => this.#applyTriggers(e.payload));
     if (localStorage.getItem(PORTAL_OPT_IN_KEY) !== "1") return;
 
-    // Ask before binding, so a permission dialog can never appear at startup. A desktop that still
-    // holds our grant answers with the actions it stored, and re-binding those is silent; one that
-    // has forgotten us answers with nothing, and binding would prompt for a permission the user
-    // did not ask for right now.
-    //
-    // Verified on KDE, whose portal backend loads the stored component when the session is created.
-    // A backend that stays empty until something has been bound would instead cost one click per
-    // launch. That is worse, but it is visible rather than surprising, and KDE is the only one
-    // testable here.
+    // Check what the desktop still has stored before binding, so no permission dialog pops up at startup (verified on KDE).
     let listed: [string, string][];
     try {
       listed = await invoke<[string, string][]>("shortcuts_list");
@@ -212,8 +190,7 @@ class Hotkeys {
     await this.enablePortal();
   }
 
-  /** Drop back to the un-enabled state, which is the only honest one when the desktop is not
-   *  holding our shortcuts: Settings then offers Enable, and the dialog follows that click. */
+  /** Resets to "not enabled" and shows `message`, so Settings offers the Enable button again. */
   #forget(message: string | null): void {
     this.enabled = false;
     localStorage.removeItem(PORTAL_OPT_IN_KEY);
@@ -225,9 +202,7 @@ class Hotkeys {
     const next: Partial<Record<HotkeyAction, string>> = {};
     for (const [id, trigger] of listed) {
       if (!HOTKEY_ACTIONS.includes(id as HotkeyAction)) continue;
-      // An empty string is kept, not dropped: "registered with no key" and "not registered at
-      // all" are different states and the UI says so. KDE separates multiple keys for one
-      // action with a tab, which would otherwise render as a run of whitespace.
+      // Empty triggers are kept (registered but no key set); KDE separates multiple keys with tabs, so join them with commas.
       next[id as HotkeyAction] = trigger.split(/[\t\n]+/).filter(Boolean).join(", ");
     }
     this.triggers = next;
@@ -244,15 +219,13 @@ class Hotkeys {
       localStorage.setItem(PORTAL_OPT_IN_KEY, "1");
       await this.refreshTriggers();
     } catch (e) {
-      // Nothing is bound, so nothing can be configured: stay on the Enable action rather than
-      // offering an editor with nothing behind it.
+      // Binding failed, so go back to offering the Enable button.
       const raw = e instanceof Error ? e.message : String(e);
       this.#forget((await explain(raw)) ?? `Couldn't register shortcuts with the desktop: ${raw}`);
     }
   }
 
-  /** Ask the compositor what it has bound. Its answer is the only truth: it owns the triggers
-   *  and can change them without telling us. */
+  /** Re-reads the keys the desktop has bound, since the user can change them outside the app. */
   async refreshTriggers(): Promise<void> {
     try {
       this.#applyTriggers(await invoke<[string, string][]>("shortcuts_list"));
@@ -261,13 +234,12 @@ class Hotkeys {
     }
   }
 
-  /** Portal path: hand binding to the desktop's own editor, the only thing that can set a
-   *  trigger on Wayland. */
+  /** Portal path: opens the desktop's own shortcut editor, the only way to set keys on Wayland. */
   async configure(): Promise<void> {
     this.error = null;
     try {
       await invoke("shortcuts_configure");
-      // The dialog is where the keys change, so re-read rather than wait for a restart.
+      // Refresh the displayed keys.
       await this.refreshTriggers();
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
@@ -296,7 +268,7 @@ class Hotkeys {
   }
 
   async clearBinding(action: HotkeyAction): Promise<void> {
-    this.error = null; // or a warning about this binding outlives the binding itself
+    this.error = null; // clear any warning about the binding being removed
     const accel = this.bindings[action];
     if (accel) await unregister(accel).catch(() => {});
     this.bindings[action] = null;

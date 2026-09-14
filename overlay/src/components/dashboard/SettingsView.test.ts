@@ -1,6 +1,4 @@
-// The Settings screen's two answerable-by-running questions: does the capture dropdown show the
-// value it loaded, and does Save send exactly what changed. Both were guessed at for several
-// rounds because nothing here could be executed.
+// Settings screen: the capture dropdown shows the saved value, and Save sends only what changed.
 
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -87,8 +85,7 @@ afterEach(() => {
 
 describe("the capture dropdown", () => {
   it("shows the saved application", async () => {
-    // The assertion that could not be answered for several rounds: .env said Brave and the
-    // dropdown showed Everything.
+    // Regression: .env said Brave but the dropdown showed Everything.
     await render();
     expect(capture().value).toBe("Brave");
   });
@@ -106,8 +103,7 @@ describe("the capture dropdown", () => {
   });
 
   it("shows it even when the app list is empty", async () => {
-    // What happens when /audio/apps fails: the saved value must still be selectable, or saving
-    // from this screen would quietly replace it with Everything.
+    // If /audio/apps fails, the saved app must still be selectable so saving doesn't replace it.
     getAudioApps.mockResolvedValue([]);
     await render();
     expect(capture().value).toBe("Brave");

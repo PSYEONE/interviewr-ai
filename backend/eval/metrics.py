@@ -1,9 +1,4 @@
-"""Normalized Word Error Rate via jiwer.
-
-Both reference and hypothesis are normalized the same way (lowercase, strip punctuation,
-collapse whitespace) so we measure real word errors, not whisper's casing/punctuation against
-LibriSpeech's uppercase-no-punctuation transcripts.
-"""
+"""Word error rate via jiwer, after lowercasing and removing punctuation from both texts so only real word errors count."""
 
 from __future__ import annotations
 

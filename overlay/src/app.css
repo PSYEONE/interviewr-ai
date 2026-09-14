@@ -1,8 +1,6 @@
 @import "tailwindcss";
 
-/* Single retheme point: palette + fonts. Paste portfolio tokens here to restyle.
-   Near-black/white base (matching the portfolio) but with a functional accent and
-   status colors the overlay relies on to signal state. */
+/* Theme colours and fonts, including the status colours the overlay uses to show state. */
 @theme {
   --color-bg: #0a0a0a;
   --color-fg: #ededed;
@@ -28,8 +26,7 @@
     height: 100vh;
     background: transparent;
     color: var(--color-fg);
-    /* Render native controls (select popups, checkboxes, scrollbars) dark, so dropdown option
-       text isn't white-on-white. */
+    /* Dark native controls, so dropdown options aren't white text on a white background. */
     color-scheme: dark;
     /* Fixed px (main.ts sets it once per display); no viewport units, so resizing stays smooth. */
     font-size: 16px;
@@ -92,8 +89,7 @@
   #dot[data-state="idle"],
   #dot[data-state="unconfigured"] { background: var(--color-bad); }
 
-  /* Collapsed to bar: hide the content but keep the component mounted, so scroll position and
-     the streaming answer survive an expand. The window is resized to the bars in JS. */
+  /* Collapsed: hide the chat but keep it on the page, so scroll position and a streaming answer survive. */
   body.collapsed #chat { display: none; }
 
   /* Interview chat log: one scroller for every turn. */
@@ -101,9 +97,7 @@
     flex: 1;
     overflow-y: auto;
   }
-  /* Use the window: a narrow reading column left ~200px of dead gutter each side at 1200px. The
-     cap is high enough that it only bites on an ultra-wide window, where unbroken 200-character
-     lines would be unreadable. Horizontal padding matches the old transcript pane. */
+  /* Wide reading column, capped so lines stay readable on very wide windows. */
   .log {
     display: flex;
     flex-direction: column;
@@ -113,8 +107,7 @@
     padding: 12px 14px 20px;
   }
   .turn { display: flex; flex-direction: column; }
-  /* Pinned while its own turn is on screen, so scrolling back always shows which question you
-     are looking at. Opaque, because the panel itself is translucent. */
+  /* The question stays pinned at the top while its answer scrolls; opaque because the panel is see-through. */
   .turn-q {
     position: sticky;
     top: 0;
@@ -126,11 +119,7 @@
     border-left: 2px solid rgb(255 255 255 / 0.18);
     background: var(--solid);
   }
-  /* Markdown supplies the block structure, but pre-wrap still matters: a model told to answer in
-     "bullet points, each a single line" often emits plain lines or "*" characters rather than
-     markdown "-", and those newlines survive inside a paragraph's text. Without this they collapse
-     to spaces and the whole answer runs together. Nothing is built from formatted HTML, so no
-     stray indentation leaks in. */
+  /* pre-wrap keeps line breaks when a model writes plain lines instead of a markdown list. */
   .turn-a {
     padding: 10px 12px;
     white-space: pre-wrap;
@@ -147,8 +136,7 @@
   .turn-a ul,
   .turn-a ol { margin: 0.6em 0; padding-left: 1.4em; }
   .turn-a li { margin: 0.25em 0; }
-  /* Tight lists: marked still wraps each item's content in a paragraph, so flatten the margins
-     instead of special-casing tight vs loose in the renderer. */
+  /* Remove the paragraph spacing inside list items so lists stay compact. */
   .turn-a li > p { margin: 0; }
   .turn-a li > ul,
   .turn-a li > ol { margin: 0.25em 0; }
@@ -165,9 +153,7 @@
     background: rgb(0 0 0 / 0.3);
   }
   .turn-a pre code { padding: 0; background: none; }
-  /* Heard but not yet asked. Readable rather than faded: you check it to decide whether the
-     engine heard the question correctly before hitting Answer. The dashed rule, not the colour,
-     is what marks it as not yet a turn. */
+  /* Heard but not yet asked: normal text colour so it's easy to check, marked with a dashed border. */
   .turn-pending {
     padding: 8px 12px;
     white-space: pre-wrap;
@@ -187,7 +173,7 @@
 }
 
 @layer components {
-  /* Sharp, square aesthetic with generous spacing (matching the Welcome edits). */
+  /* Base button style: square corners with generous padding. */
   button {
     @apply rounded-none border border-white/10 bg-white/5 px-2.5 py-1.5 text-sm text-fg transition;
   }
@@ -197,8 +183,7 @@
   button:disabled { @apply cursor-default opacity-40; }
   button:disabled:hover { @apply border-white/10 bg-white/5; }
   button.icon { @apply flex h-7 w-7 items-center justify-center p-0; }
-  /* Collapse chevron: base SVG points down (expand); rotate 180deg to point up (collapse).
-     Animating the swap keeps the toggle legible. */
+  /* Collapse chevron: points down to expand, rotates to point up to collapse. */
   .chevron svg { transition: transform 150ms ease; }
   .chevron.up svg { transform: rotate(180deg); }
   button.on { @apply border-transparent bg-accent text-black; }
@@ -212,19 +197,15 @@
   .wiz {
     @apply flex flex-1 flex-col gap-4 overflow-y-auto p-8;
   }
-  /* Opt-in variant for steps with a long list: the body scrolls under a pinned action row, so
-     Back/Continue never scroll away. Short single-screen steps keep the plain .wiz behaviour. */
+  /* Layout for screens with long lists: the body scrolls between a pinned header and footer. */
   .wiz.split { @apply min-h-0 gap-0 overflow-hidden p-0; }
   /* Pinned title row: the step name on the left, a hardware fact on the right. */
   .wiz-head { @apply flex shrink-0 flex-col gap-1 border-b border-white/10 px-8 py-5; }
   .wiz-body { @apply flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-8; }
   .wiz-foot { @apply flex shrink-0 items-center gap-4 border-t border-white/10 px-8 py-4; }
-  /* Footer actions share a width floor so Back and the primary match, and so a label that changes
-     ("Back" -> "Discard?", "Save" -> "Saving…") never resizes its button. 7rem clears the widest. */
+  /* Footer buttons share a minimum width, so they match and don't resize when their label changes. */
   .wiz-foot > button { @apply min-w-28; }
-  /* Transient status (errors, reclaim notices) sits above the footer, outside the scroll area,
-     so a failure can't be hidden below a long list. Ruled off like .wiz-head and .wiz-foot, and
-     padded on both sides so its contents never touch the action row beneath. */
+  /* Status messages sit above the footer, outside the scroll area, so they're always visible. */
   .wiz-status { @apply flex shrink-0 flex-col gap-1 border-t border-white/10 px-8 py-3; }
   /* All wizard buttons share the primary size (dark "secondary" + accent "primary" match). */
   .wiz button:not(.icon):not(.choice) { @apply px-4 py-2 text-base; }
@@ -245,15 +226,12 @@
     background: var(--solid);
     color: var(--color-fg);
   }
-  /* shrink-0 matters inside .wiz-body: a textarea has no min-content floor, so as a flex child it
-     compresses below its rows, nothing overflows, and the scroll container never scrolls. It also
-     makes the resize-y handle stick instead of being undone by the flexbox. */
+  /* shrink-0 stops textareas squashing inside the scrolling body, and keeps the resize handle working. */
   .wiz textarea {
     @apply w-full shrink-0 resize-y rounded-none border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-xs text-fg;
   }
 
-  /* Active-download strip, pinned under the title bar in both shells so a pull started on the
-     model picker stays visible (and cancellable) after you navigate away from it. */
+  /* Download progress strip under the title bar, visible on every screen while a model downloads. */
   #pullbar {
     @apply flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-2 text-sm;
     background: var(--bar-bg);
@@ -276,11 +254,9 @@
     @apply sticky top-0 z-10 pt-4 pb-2 text-lg font-semibold text-fg;
     background: var(--solid);
   }
-  /* History-row action button: a square that stretches to the row (title box) height, so the
-     padding around the icon scales with the row. */
+  /* History row action button: square, and as tall as the row. */
   .row-icon { @apply flex w-16 shrink-0 items-center justify-center p-0; }
-  /* Delete armed: first click highlights red, second click (in handler) deletes. Not scoped to
-     .row-icon so the model picker's text buttons can arm the same way. */
+  /* Armed delete: the first click turns the button red, the second click deletes. */
   button.armed,
   button.armed:hover { @apply border-bad bg-bad/15 text-bad; }
 
@@ -303,12 +279,9 @@
 
   .card { @apply rounded-none border border-white/10 bg-white/5 px-3 py-2.5; }
   .card.selected { @apply border-accent; }
-  /* Model-picker rows keep .card's padding; this only kills the stray mb-1 that `.wiz label` adds
-     to the <label> rows and the <div> pull row never gets, so the spacing between them is even.
-     Scoped under .wiz to outrank that rule. */
+  /* Removes the extra bottom margin that `.wiz label` adds, so model-picker rows are evenly spaced. */
   .wiz .card-row { @apply mb-0; }
-  /* Warning callout: something the user has to act on themselves. Tinted rather than filled, so
-     it reads as a notice against the translucent panel instead of a solid block. */
+  /* Warning callout for something the user needs to do themselves. */
   .card-warn {
     @apply rounded-none border border-warn/40 px-3 py-2.5;
     background: rgb(249 226 175 / 0.08);
@@ -332,8 +305,7 @@
   .bar-track { @apply h-1.5 overflow-hidden bg-white/10; }
   .bar-fill { @apply h-full bg-accent transition-[width] duration-200; }
 
-  /* Commands the user is meant to run. body sets user-select:none, so without this they cannot
-     be selected or copied at all. */
+  /* Commands the user copies; text selection is re-enabled because body turns it off. */
   .cmd {
     @apply w-full overflow-x-auto rounded-none bg-black/30 p-2 font-mono text-xs break-all
       whitespace-pre-wrap text-fg;

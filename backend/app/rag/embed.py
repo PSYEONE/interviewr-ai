@@ -1,9 +1,6 @@
-"""Embedder adapters + factory. Mirrors the LLM layer: one protocol, swappable backends.
+"""Embedding backends and factory: Ollama by default, or OpenAI or Gemini with an API key.
 
-Default is local Ollama (offline, on-brand). OpenAI and Gemini are BYOK cloud options for
-users without the hardware to run a local embed model. Cloud SDK imports are lazy so a
-local-only install never needs ``openai`` or ``google-genai``. Anthropic has no embeddings
-API, so it is deliberately not an option here.
+Anthropic has no embeddings API, so it isn't offered.
 """
 
 from __future__ import annotations

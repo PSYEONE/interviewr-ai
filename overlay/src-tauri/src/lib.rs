@@ -19,23 +19,14 @@ struct Connection {
     token: String,
 }
 
-/// The project root `.env` (the one beside `backend/`) as a map, parsed once so the overlay can
-/// reach the backend out of the box. Deliberately NOT loaded into this process's environment.
-///
-/// It used to be `dotenvy::from_path`, which sets the variables for real. The engine is spawned as
-/// a child and inherited them, and pydantic-settings ranks environment variables above the `.env`
-/// file, so every key present at launch was frozen for the life of the app: writing a new value to
-/// `.env` and reloading changed nothing, and only restarting the overlay appeared to help.
+/// Parsed `.env` values, kept in a map and never exported so the spawned engine can't inherit stale vars.
 static ENV_FILE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 fn load_env() {
     ENV_FILE.get_or_init(env_map);
 }
 
-/// The same precedence the engine uses in `config.py`: an explicit override, then a checkout's own
-/// root, then the XDG config dir. The two must agree, because `INTERVIEWR_AUTH_TOKEN` lives here
-/// and the overlay authenticates its own WebSocket with it: reading a different file than the engine
-/// means the overlay cannot connect to the engine it just launched.
+/// Finds `.env` in the same order as config.py: override, checkout root, then the XDG config dir.
 fn env_map() -> HashMap<String, String> {
     if let Some(dir) = std::env::var_os("INTERVIEWR_CONFIG_DIR") {
         if !dir.is_empty() {
@@ -51,9 +42,7 @@ fn env_map() -> HashMap<String, String> {
     parse_env_file(&xdg_config_dir().join(".env"))
 }
 
-/// `$XDG_CONFIG_HOME/interviewr`, or `~/.config/interviewr`. A relative XDG value is invalid per the
-/// spec and ignored rather than resolved against the cwd, which is exactly the unknown directory an
-/// installed launcher starts us in.
+/// `$XDG_CONFIG_HOME/interviewr` or `~/.config/interviewr`; relative XDG values are ignored.
 fn xdg_config_dir() -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -63,7 +52,7 @@ fn xdg_config_dir() -> PathBuf {
     base.join("interviewr")
 }
 
-/// Parse the nearest `.env` at or above `dir`. Returns a map and leaves the environment alone.
+/// Parses the nearest `.env` at or above `dir` into a map.
 fn read_env_file(mut dir: PathBuf) -> HashMap<String, String> {
     loop {
         let candidate = dir.join(".env");
@@ -83,8 +72,7 @@ fn parse_env_file(path: &Path) -> HashMap<String, String> {
     }
 }
 
-/// A setting for the overlay's own use, from the real environment first so an exported variable
-/// still wins, then `.env`. The engine reads `.env` itself and must not be handed a stale copy.
+/// Looks up a setting: real environment first, then `.env`.
 fn cfg(key: &str) -> Option<String> {
     std::env::var(key).ok().or_else(|| {
         ENV_FILE
@@ -111,10 +99,7 @@ fn quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-// Backend sidecar: the overlay owns the FastAPI engine as a child process so "apply settings"
-// is a supervised restart, not a manual one. We use plain std::process (no tauri-plugin-shell,
-// so no extra capabilities) and manage the lifecycle here. Bundling a Python runtime for
-// distribution is a separate future installer concern; this launches the project venv.
+// Engine sidecar: the overlay spawns and supervises the FastAPI engine as a child process.
 
 /// How many recent engine stderr lines we keep to explain a failure to the user.
 const STDERR_TAIL_LINES: usize = 25;
@@ -127,8 +112,7 @@ const MAX_INSTANT_CRASHES: u32 = 3;
 struct EngineState {
     /// PID of the live engine (== its process-group id on Unix), or None when down.
     child_pid: Mutex<Option<u32>>,
-    /// Does the overlay want the engine alive? Cleared right before an intentional kill so the
-    /// monitor can tell a planned restart/quit from a crash.
+    /// Whether the engine should be running; cleared before an intentional kill.
     should_run: AtomicBool,
     /// True only when this overlay spawned the engine (vs. a manually-run/external one).
     manage_engine: AtomicBool,
@@ -138,9 +122,7 @@ struct EngineState {
     instant_failures: AtomicU32,
     /// Ring buffer of the engine's most recent stderr lines.
     stderr_tail: Mutex<VecDeque<String>>,
-    /// Last fatal failure message, if any. Stored as well as emitted because the initial spawn
-    /// can fail before the webview has attached its `engine://failed` listener (events emitted
-    /// then are dropped); the frontend polls this to recover that case.
+    /// Last fatal error, kept so the UI can fetch one emitted before it was listening.
     last_error: Mutex<Option<String>>,
 }
 
@@ -149,9 +131,7 @@ struct EngineFailed {
     message: String,
 }
 
-/// Walk up from the working dir to find the backend (the dir containing `run_pipeline.py`).
-/// Deliberately not keyed on `.env`: the engine boots in setup mode without one, and the wizard
-/// is what creates `.env` in the first place.
+/// Finds the backend by walking up from the cwd, then at the installed location.
 fn find_backend_dir() -> Option<PathBuf> {
     walk_up_for_backend(std::env::current_dir().ok()?).or_else(installed_backend_dir)
 }
@@ -171,10 +151,7 @@ fn walk_up_for_backend(mut dir: PathBuf) -> Option<PathBuf> {
     }
 }
 
-/// The engine as a packaged install puts it, found relative to this executable rather than by
-/// absolute path so a non-`/usr` prefix still resolves: `<prefix>/bin/interviewr-overlay` means the
-/// payload is at `<prefix>/lib/interviewr/backend`. Tried only after the walk above, so running
-/// from a checkout still wins over an installed copy on the same machine.
+/// Installed engine at `<prefix>/lib/interviewr/backend`, relative to this executable.
 fn installed_backend_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let prefix = exe.parent()?.parent()?;
@@ -182,13 +159,7 @@ fn installed_backend_dir() -> Option<PathBuf> {
     dir.join("run_pipeline.py").is_file().then_some(dir)
 }
 
-/// The private interpreter belonging to `dir`, if there is one, preferring a checkout's own venv so
-/// running from a clone is never hijacked by an installed copy.
-///
-/// A checkout keeps `.venv` inside the backend. A package ships its interpreter as a sibling, since
-/// `/usr/lib/interviewr` holds both: `python/` is the bundled standalone build the .deb carries
-/// (the distro has no one Python to depend on across releases), and `venv/` covers an install that
-/// built one against the system instead.
+/// Engine interpreter: the checkout's `.venv`, else a packaged `python/` or `venv/` beside the backend.
 fn venv_python(dir: &Path) -> Option<PathBuf> {
     let relative = if cfg!(windows) {
         [
@@ -207,8 +178,7 @@ struct EngineCmd {
     dir: PathBuf,
 }
 
-/// Resolve the interpreter + working dir to launch `run_pipeline.py`. Prefers the project venv;
-/// both are overridable for packaged builds / non-standard layouts.
+/// Interpreter and working dir for `run_pipeline.py`; both overridable via env.
 fn engine_command() -> Result<EngineCmd, String> {
     let dir = match cfg("INTERVIEWR_BACKEND_DIR") {
         Some(d) if !d.trim().is_empty() => PathBuf::from(d),
@@ -229,8 +199,7 @@ fn engine_command() -> Result<EngineCmd, String> {
     Ok(EngineCmd { python, dir })
 }
 
-/// Is something already serving the engine port? If so we don't spawn a second one (lets the
-/// maintainer keep running the backend by hand in dev).
+/// Whether an engine is already listening on the port (e.g. one started by hand).
 fn engine_reachable() -> bool {
     use std::net::{TcpStream, ToSocketAddrs};
     let host = cfg("INTERVIEWR_HOST").unwrap_or_else(|| "127.0.0.1".into());
@@ -243,9 +212,7 @@ fn engine_reachable() -> bool {
     addrs.into_iter().any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok())
 }
 
-/// Kill the engine's whole process group so the `pw-record` capture subprocess dies with it.
-/// We shell out to `kill` (matching this file's other shell-outs) so we never need the Child
-/// handle, which the monitor thread owns for `wait()`.
+/// Kills the engine's process group so its `pw-record` child dies too.
 #[cfg(unix)]
 fn kill_group(pid: u32) {
     let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
@@ -277,20 +244,14 @@ fn engine_error_message(state: &EngineState) -> String {
     }
 }
 
-/// Launch the engine and supervise it. A stderr-reader thread tees logs and fills the ring
-/// buffer; a monitor thread waits on the child and, on an unexpected exit, respawns it (with a
-/// crash-loop guard) or surfaces `engine://failed`.
+/// Spawns the engine, logs its stderr, and respawns it on unexpected exit with a crash-loop guard.
 fn spawn_engine(app: &AppHandle) -> Result<(), String> {
     let cmd = engine_command()?;
     let mut command = Command::new(&cmd.python);
     command
         .arg("run_pipeline.py")
         .current_dir(&cmd.dir)
-        // The engine runs in its own process group (below) so killing it reaps pw-record, which
-        // also means a Ctrl+C aimed at the terminal never reaches it. If the overlay then dies
-        // without running stop_engine, the engine outlives it, keeps the port, and the next
-        // launch adopts it through engine_reachable() with whatever config it was started with.
-        // Handing it our pid lets it notice and exit on its own.
+        // Lets the engine exit on its own if the overlay dies without stopping it.
         .env("INTERVIEWR_PARENT_PID", std::process::id().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
@@ -391,8 +352,7 @@ fn do_restart(app: &AppHandle) -> Result<(), String> {
     spawn_engine(app)
 }
 
-/// Restart the engine to apply new settings. Returns `not_managed` when an external/manual
-/// engine owns the port, so the UI can fall back to asking the user to restart it.
+/// Restarts the engine to apply settings; `not_managed` if an external engine owns the port.
 #[tauri::command]
 async fn restart_engine(app: AppHandle) -> Result<(), String> {
     match tauri::async_runtime::spawn_blocking(move || do_restart(&app)).await {
@@ -407,8 +367,7 @@ fn engine_managed(state: State<'_, EngineState>) -> bool {
     state.manage_engine.load(Ordering::SeqCst)
 }
 
-/// Save text to a user-chosen file via a native Save dialog. Returns false if the user cancels.
-/// The webview's own `<a download>` is unreliable on WebKitGTK, so downloads go through here.
+/// Saves text through a native Save dialog (WebKitGTK downloads are unreliable); false if cancelled.
 #[tauri::command]
 async fn save_text(app: AppHandle, name: String, contents: String) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -425,15 +384,13 @@ async fn save_text(app: AppHandle, name: String, contents: String) -> Result<boo
     Ok(true)
 }
 
-/// Last fatal engine failure, if any. Lets the frontend recover a failure emitted before its
-/// `engine://failed` listener was attached (e.g. an initial-spawn error at startup).
+/// Last fatal engine error, for failures emitted before the UI was listening.
 #[tauri::command]
 fn engine_error(state: State<'_, EngineState>) -> Option<String> {
     state.last_error.lock().unwrap().clone()
 }
 
-/// Toggle always-on-top. The toolkit call works on X11/Windows/macOS; on KDE/Wayland it is a
-/// no-op, so we also drive a KWin "keep above" rule there.
+/// Toggles always-on-top: the toolkit call, plus a KWin keep-above rule since Wayland ignores it.
 #[tauri::command]
 fn set_pin(window: WebviewWindow, on: bool) -> Result<bool, String> {
     let _ = window.set_always_on_top(on);
@@ -442,10 +399,7 @@ fn set_pin(window: WebviewWindow, on: bool) -> Result<bool, String> {
     Ok(on)
 }
 
-// The overlay drives KWin window rules for two behaviors that an app cannot set on itself
-// under Wayland: keep-above (`above`) and hide-from-screencast (`excludefromcapture`, KDE
-// Plasma/KWin 6.6+; 6.7+ also excludes static screenshots). Both live in one rule matched on
-// the overlay's window class. Property keys are verbatim from KWin's rulesettings.kcfg.
+// KWin window rules for what Wayland won't let an app set on itself: keep-above, capture exclusion, taskbar.
 
 /// KWin rule identifiers, shared by all writers/readers so they never drift.
 #[cfg(target_os = "linux")]
@@ -455,12 +409,10 @@ const KWIN_FILE: &str = "kwinrulesrc";
 /// Window class the KWin rule + capture script match on (the overlay's app_id / WM_CLASS).
 #[cfg(target_os = "linux")]
 const OVERLAY_WMCLASS: &str = "interviewr-overlay";
-/// Persisted hide-from-capture intent. On 6.6 this rule key is inert (the script does the runtime
-/// work and the frontend re-applies it at startup); on 6.7+ KWin honors it natively.
+/// Rule key that persists hide-from-capture (applied natively on KWin 6.7+).
 #[cfg(target_os = "linux")]
 const KWIN_CAPTURE_KEY: &str = "excludefromcapture";
-/// Hide the overlay's taskbar/dock entry while stealth is on. A long-standing KWin rule key,
-/// honored natively (no runtime script needed), so it persists and applies across restarts.
+/// Rule key that hides the taskbar entry while stealth is on.
 #[cfg(target_os = "linux")]
 const KWIN_TASKBAR_KEY: &str = "skiptaskbar";
 
@@ -485,8 +437,7 @@ fn kwin_read(args: &[&str]) -> Option<String> {
     })
 }
 
-/// Make KWin re-read its rules. Without this the file is written but nothing applies until the next
-/// login, which reads as "pin is broken" while the config says it is on.
+/// Tells KWin to reload its rules so changes apply immediately.
 #[cfg(target_os = "linux")]
 fn kwin_reconfigure() {
     use std::process::Command;
@@ -497,9 +448,7 @@ fn kwin_reconfigure() {
             .map(|s| s.success())
             .unwrap_or(false)
     };
-    // dbus-send takes a different argument shape, so it cannot share the closure. It is worth the
-    // duplication: qdbus ships with Qt tooling that a minimal Plasma install may not pull in, while
-    // dbus-send comes with dbus itself.
+    // Fallback for systems without qdbus.
     let dbus_send = || {
         Command::new("dbus-send")
             .args([
@@ -512,8 +461,7 @@ fn kwin_reconfigure() {
             .map(|s| s.success())
             .unwrap_or(false)
     };
-    // Not surfaced on total failure: that means no D-Bus tooling at all, where the rule still takes
-    // effect at next login and an error would be noise.
+    // Failure is ignored; the rule still applies at next login.
     let _ = reconfigure("qdbus6") || reconfigure("qdbus") || dbus_send();
 }
 
@@ -540,9 +488,7 @@ fn kwin_version() -> Option<(u32, u32)> {
     None
 }
 
-/// The scriptable `excludeFromCapture` Window property exists in KWin 6.6+. We set it at runtime
-/// via a transient KWin script (the same thing the "Hide from Screencast" menu action does), so
-/// this works on 6.6, even though the *persistent* window rule only arrived in 6.7.
+/// Whether KWin can hide a window from capture at runtime (6.6+).
 #[cfg(target_os = "linux")]
 fn capture_supported() -> bool {
     matches!(kwin_version(), Some((maj, min)) if maj > 6 || (maj == 6 && min >= 6))
@@ -563,8 +509,7 @@ fn exclude_capture_script(on: bool) -> String {
     )
 }
 
-/// Load + run a one-shot KWin script over D-Bus, then stop it. KWin only loads scripts from a
-/// file path, so write a uniquely-named temp file (KWin dedupes by plugin name/path otherwise).
+/// Loads, runs and stops a one-shot KWin script from a uniquely named temp file.
 #[cfg(target_os = "linux")]
 fn kwin_run_script(js: &str) -> Result<(), String> {
     use std::process::Command;
@@ -610,8 +555,7 @@ fn kwin_run_script(js: &str) -> Result<(), String> {
     result
 }
 
-/// Ensure our single KWin window rule exists and matches the overlay by window class.
-/// Idempotent. Returns Err if the KDE config tools are absent (i.e. not KDE Plasma).
+/// Creates or updates the overlay's KWin rule; errors if the KDE config tools are missing.
 #[cfg(target_os = "linux")]
 fn ensure_kwin_rule() -> Result<(), String> {
     let set =
@@ -634,9 +578,7 @@ fn ensure_kwin_rule() -> Result<(), String> {
     Ok(())
 }
 
-/// Force a boolean KWin rule property (`<key>` + `<key>rule`=2 Force) on our rule, then reload
-/// KWin. KDE only (silently does nothing if kwriteconfig/qdbus are absent). Setting individual
-/// keys does not clobber the rule's other properties, so pin and hide-from-capture coexist.
+/// Forces a boolean property on the overlay's KWin rule, then reloads KWin.
 #[cfg(target_os = "linux")]
 fn set_kwin_rule_bool(key: &str, on: bool) -> Result<(), String> {
     ensure_kwin_rule()?;
@@ -648,8 +590,7 @@ fn set_kwin_rule_bool(key: &str, on: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Read a persisted boolean KWin rule property. None if unset (rule/key not established yet)
-/// or the KDE read tools are absent.
+/// Reads a boolean property from the overlay's KWin rule; None if unset or the tools are missing.
 #[cfg(target_os = "linux")]
 fn kwin_rule_bool_state(key: &str) -> Option<bool> {
     let val = kwin_read(&["--file", KWIN_FILE, "--group", KWIN_GROUP, "--key", key])?;
@@ -660,9 +601,7 @@ fn kwin_rule_bool_state(key: &str) -> Option<bool> {
     }
 }
 
-/// Pin state the UI initializes its toggle from, so it never disagrees with the window.
-/// On Linux this is the persisted KWin keep-above value; unset defaults to unpinned (the wizard
-/// and a fresh install start unpinned until the user pins the panel).
+/// Persisted pin state for the UI toggle; unpinned by default.
 #[tauri::command]
 fn get_pin() -> bool {
     #[cfg(target_os = "linux")]
@@ -671,19 +610,15 @@ fn get_pin() -> bool {
     return false;
 }
 
-/// Toggle stealth (hide from screen capture; KWin 6.6+, a no-op elsewhere). Persists the intent in
-/// the `excludefromcapture` rule (remembered on 6.6, honored natively on 6.7+) and applies it now
-/// via the runtime script for 6.6. Also hides the taskbar/dock entry via the `skiptaskbar` rule.
-/// Only PipeWire-portal capturers honor the capture part; a privacy/accessibility convenience,
-/// not an undetectability guarantee.
+/// Toggles stealth: hides the overlay from screen capture (KWin 6.6+) and from the taskbar.
 #[tauri::command]
 fn set_stealth(on: bool) -> Result<bool, String> {
     #[cfg(target_os = "linux")]
     {
-        set_kwin_rule_bool(KWIN_CAPTURE_KEY, on)?; // persist intent (+ native effect on 6.7+)
-        set_kwin_rule_bool(KWIN_TASKBAR_KEY, on)?; // hide the dock/taskbar entry (honored natively)
+        set_kwin_rule_bool(KWIN_CAPTURE_KEY, on)?; // persist (native on 6.7+)
+        set_kwin_rule_bool(KWIN_TASKBAR_KEY, on)?; // hide the taskbar entry
         if capture_supported() {
-            kwin_run_script(&exclude_capture_script(on))?; // runtime effect now (6.6)
+            kwin_run_script(&exclude_capture_script(on))?; // apply now on 6.6
         }
         return Ok(on);
     }
@@ -694,8 +629,7 @@ fn set_stealth(on: bool) -> Result<bool, String> {
     }
 }
 
-/// Persisted stealth preference for the UI to initialize from. Default OFF (opt-in). On 6.6
-/// the frontend re-runs the script at startup to re-apply this across restarts.
+/// Persisted stealth preference for the UI; off by default.
 #[tauri::command]
 fn get_stealth() -> bool {
     #[cfg(target_os = "linux")]
@@ -704,8 +638,7 @@ fn get_stealth() -> bool {
     return false;
 }
 
-/// Whether the hide-from-capture toggle can actually work here (KWin 6.6+). The UI disables the
-/// button when false instead of offering a control that silently does nothing.
+/// Whether hide-from-capture works on this KWin; the UI disables the button otherwise.
 #[tauri::command]
 fn get_capture_supported() -> bool {
     #[cfg(target_os = "linux")]
@@ -714,9 +647,7 @@ fn get_capture_supported() -> bool {
     return false;
 }
 
-/// Size the overlay relative to the monitor's logical resolution, so a fixed 420x600 isn't tiny
-/// on a 4K panel. Logical size already folds in the OS display scaling, so this looks right on a
-/// 1080p laptop and a HiDPI 4K alike. Clamped to sane bounds, then centered.
+/// Sizes the window to the monitor's logical resolution and centres it.
 fn size_to_screen(win: &WebviewWindow) {
     let Ok(Some(monitor)) = win.current_monitor() else {
         return;
@@ -763,12 +694,8 @@ fn shortcuts_app_id_problem() -> Option<String> {
 }
 
 pub fn run() {
-    // Before anything can open a portal connection: the GlobalShortcuts portal refuses a caller
-    // it cannot name, and the name comes from the systemd scope we are sitting in.
+    // Must run before any portal call: the shortcuts portal identifies us by our systemd scope.
     appid::ensure_scope();
-    // Always-on-top is enforced by a KWin window rule, not the toolkit: on native Wayland
-    // GTK ignores keep-above, and forcing XWayland to dodge that costs HiDPI scaling and
-    // normal window management. See ensure_kwin_rule below.
     load_env();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -794,8 +721,7 @@ pub fn run() {
             quit
         ])
         .setup(|app| {
-            // Start unpinned: the setup wizard has no pin control, so the window must not trap
-            // itself always-on-top. The panel's Pin toggle sets and persists the user's choice.
+            // Start unpinned; the Pin toggle sets and persists the user's choice.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(false);
                 size_to_screen(&win);
@@ -829,11 +755,7 @@ mod env_tests {
     use super::{read_env_file, xdg_config_dir};
     use std::path::PathBuf;
 
-    /// The regression this guards: `.env` used to be loaded with `dotenvy::from_path`, which sets
-    /// the variables for real. The engine inherits this process's environment, and
-    /// pydantic-settings ranks environment variables above the `.env` file, so every key present
-    /// at launch was pinned for the life of the app: saving a new value wrote the file, the engine
-    /// kept reading the stale variable, and only restarting the overlay appeared to fix it.
+    /// Reading `.env` must not export it, or the spawned engine would inherit stale settings.
     #[test]
     fn reading_the_env_file_does_not_set_process_variables() {
         let dir = std::env::temp_dir().join(format!("interviewr-env-{}", std::process::id()));
@@ -859,8 +781,7 @@ mod env_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Must match `config.py`'s `_xdg`, or an installed overlay reads a different `.env` than the
-    /// engine it launches and cannot authenticate to it.
+    /// Must match config.py's XDG lookup so the overlay and engine read the same `.env`.
     #[test]
     fn the_xdg_config_dir_matches_the_engines() {
         // SAFETY: single-threaded test; the variables are restored before returning.
@@ -873,8 +794,7 @@ mod env_tests {
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "/custom/cfg") };
         assert_eq!(xdg_config_dir(), PathBuf::from("/custom/cfg/interviewr"));
 
-        // Relative values are invalid per the spec. Honouring one would resolve it against the cwd,
-        // which for a desktop launch is an arbitrary directory.
+        // Relative XDG values are ignored.
         unsafe { std::env::set_var("XDG_CONFIG_HOME", "relative/cfg") };
         assert_eq!(xdg_config_dir(), PathBuf::from("/home/someone/.config/interviewr"));
 
@@ -891,14 +811,13 @@ mod env_tests {
     }
 }
 
-/// Locating the engine. A packaged install cannot use the cwd walk: launched from a desktop entry
-/// the working directory is `/` or `$HOME`, nowhere near `/usr/lib/interviewr`.
+/// Locating the engine in a checkout and in an installed layout.
 #[cfg(test)]
 mod layout_tests {
     use super::{venv_python, walk_up_for_backend};
     use std::path::PathBuf;
 
-    /// A scratch directory that cleans itself up, so a failing assert cannot leave one behind.
+    /// Temp directory removed on drop.
     struct Scratch(PathBuf);
 
     impl Scratch {
@@ -956,9 +875,7 @@ mod layout_tests {
         assert_eq!(venv_python(&backend), Some(python));
     }
 
-    /// The packaged layout: `/usr/lib/interviewr/{backend,python}`, so the interpreter is a sibling
-    /// of the backend rather than inside it. The .deb bundles its own interpreter because no single
-    /// system Python exists across the target releases.
+    /// Packaged layout: the bundled `python/` sits beside the backend.
     #[test]
     fn the_bundled_interpreter_is_found_beside_the_backend() {
         let s = Scratch::new("pkgpython");

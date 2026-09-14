@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
-# Set up the interviewr engine, including the GPU STT build that pip cannot do on its own.
-#
-# Three things go wrong if you just `pip install pywhispercpp`, all documented in
-# docs/linux-vulkan-build.md and all automated here:
-#
-#   1. pip fetches a prebuilt CPU-only wheel and silently ignores GGML_VULKAN=1, so STT runs on
-#      the CPU while appearing to work.
-#   2. A source build's .so files carry no $ORIGIN RPATH (auditwheel adds it for the prebuilt
-#      wheel), so importing fails with "libwhisper.so.1: cannot open shared object file".
-#   3. whisper.cpp uses Vulkan device 0, which on a laptop is usually the weak iGPU rather than
-#      the discrete card.
-#
-# Idempotent: re-run safely. An already-working GPU build is detected and the multi-minute
-# compile is skipped.
+# Sets up the engine and the Vulkan GPU build of pywhispercpp (details in docs/linux-vulkan-build.md); safe to re-run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,8 +23,7 @@ for arg in "$@"; do
   esac
 done
 
-# Colour only for a human at a terminal. Piping to a file or a log then stays readable instead of
-# filling with escape sequences, and NO_COLOR is the conventional way to ask for none.
+# Colour output only in an interactive terminal, and not when NO_COLOR is set.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
   BOLD=$'\033[1m'; CYAN=$'\033[36m'; GREEN=$'\033[32m'; RED=$'\033[31m'
   DIM=$'\033[2m'; RESET=$'\033[0m'
@@ -49,7 +35,7 @@ say() { printf '\n%s==%s %s%s%s\n' "$CYAN" "$RESET" "$BOLD" "$1" "$RESET"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 die() { printf '%serror:%s %s\n' "$RED" "$RESET" "$1" >&2; exit 1; }
 
-# 1. Preflight. Fail here with something actionable rather than deep inside pip.
+# 1. Preflight: check the basics before installing anything.
 say "Checking prerequisites"
 [ "$(uname -s)" = "Linux" ] || die "this installer is Linux-only (the engine captures via PipeWire)"
 have python3 || die "python3 not found"
@@ -62,30 +48,15 @@ for tool in pw-record pactl; do
 done
 echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 
-# 2. Venv. Reused when it already exists; pip decides if anything needs installing.
-#
-# Deliberately without the [local] extra, which is just pywhispercpp: installing it here would let
-# pip drop the prebuilt CPU wheel on top of an existing source build, silently undoing the GPU
-# backend and costing a half-hour rebuild. Whichever path below runs owns that package instead.
+# 2. Venv: installs the engine without the [local] extra, which would overwrite a GPU build with the CPU-only wheel.
 say "Installing the engine into backend/.venv"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
-# Pinned below 26 rather than upgraded. pip 26 stopped applying PIP_CONSTRAINT to build
-# dependencies, which is the only lever over the cmake that compiles pywhispercpp (see step 5 and
-# scripts/build-constraints.txt). Measured on 26.2.1: a `cmake<4` constraint is accepted in silence
-# and cmake 4.4.3 installed regardless. Both the pin and the constraint can go once pywhispercpp's
-# bundled whisper.cpp configures under CMake 4.
+# Keep pip below 26: newer pip ignores PIP_CONSTRAINT for build tools, which step 5 relies on.
 "$PY" -m pip install --quiet 'pip<26'
-# Not --quiet: on a fresh clone this downloads numpy and the rest, and pip's own collecting and
-# download output is the only sign the script has not hung.
+# Not --quiet, so a first install shows download progress instead of looking stuck.
 "$PY" -m pip install -e "$BACKEND"
 
-# Whether the GPU build is already in place. Used before building (to skip a long compile) and
-# after (as the thing that decides success), so it lives in one function.
-#
-# It has to read the process output, not system_info()'s return value: that returns whisper's CPU
-# feature string, while ggml prints the "ggml_vulkan: ..." line to stderr when it registers the
-# backend. Checking the return value looks right and is always false, which rebuilds every run and
-# then reports the finished build as broken.
+# Checks for the ggml_vulkan line, which ggml prints to stderr (system_info()'s return value never contains it).
 gpu_backend_line() {
   "$PY" -c 'from pywhispercpp.model import Model; Model.system_info()' 2>&1 | grep -m1 ggml_vulkan
 }
@@ -96,16 +67,14 @@ gpu_ready() {
 
 if [ "$WANT_GPU" -eq 0 ]; then
   say "Skipping the GPU build (--cpu)"
-  # --no-deps for the same reason as the GPU path: force-reinstall would otherwise rebuild the
-  # whole dependency tree. The plain install after it supplies anything missing.
+  # --no-deps avoids reinstalling every dependency; the second install fills in anything missing.
   "$PY" -m pip install --force-reinstall --no-deps pywhispercpp
   "$PY" -m pip install pywhispercpp
   echo "  CPU build installed. Transcription will be slower but works on any machine."
   exit 0
 fi
 
-# 3. Vulkan detection. No Vulkan means no GPU path at all, and saying so is better than
-#    producing a CPU build the user believes is GPU-accelerated.
+# 3. Vulkan detection: stop here rather than building a CPU-only version the user thinks is using the GPU.
 say "Looking for Vulkan"
 if ! have vulkaninfo || ! vulkaninfo --summary >/dev/null 2>&1; then
   echo "  No working Vulkan runtime found."
@@ -120,9 +89,7 @@ if gpu_ready; then
 else
   # 4. Build deps, one sudo prompt, only for what is actually missing.
   say "Checking build dependencies"
-  # Named for the Debian/Ubuntu packages, each checked by the artefact cmake actually looks for.
-  # SPIRV-Headers and glslangValidator are needed from pywhispercpp 1.5.1 onward; 1.5.0 built
-  # without them, so a machine with a working older build can still fail a fresh one.
+  # Debian/Ubuntu package names; glslang-tools and spirv-headers are required from pywhispercpp 1.5.1 onward.
   pkgs=()
   have cmake || pkgs+=(cmake)
   have g++ || pkgs+=(g++)
@@ -145,33 +112,18 @@ else
     echo "  all present"
   fi
 
-  # 5. Source build. --no-binary is what stops pip substituting the prebuilt CPU wheel.
-  #
-  #    Named for the one package, NOT `:all:`. `:all:` also applies to the build dependencies, so
-  #    pip compiles cmake, ninja and setuptools from source first, single-threaded. Measured: 42
-  #    minutes spent entirely inside "Installing build dependencies", never reaching whisper.
+  # 5. Build from source: --no-binary stops pip using the CPU-only wheel (name the package, not :all:, or pip compiles cmake too).
   say "Building pywhispercpp with Vulkan"
   echo "  Compiling the Vulkan shaders takes a few minutes. It runs once."
-  #    --no-deps keeps --force-reinstall from tearing down and rebuilding the whole dependency
-  #    tree: without it pip uninstalls and reinstalls identical versions of numpy, certifi and
-  #    idna, which is 40-odd MB of churn and leaves a window where numpy is missing if the build
-  #    fails. The follow-up install below is what actually supplies the dependencies.
-  #
-  #    PIP_CONSTRAINT keeps cmake 4 out of pip's isolated build environment, where apt's cmake is
-  #    never used. It only takes effect on the pip pinned in step 2.
+  # --no-deps avoids reinstalling every dependency; PIP_CONSTRAINT keeps the build on cmake 3 (see build-constraints.txt).
   GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" PIP_CONSTRAINT="$ROOT/scripts/build-constraints.txt" \
     "$PY" -m pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 
-  # pywhispercpp needs platformdirs, requests and tqdm, and step 2 deliberately skips the [local]
-  # extra, so nothing else brings them in. With the package already installed pip reports
-  # "Requirement already satisfied" and fills in only what is missing, leaving the source build
-  # untouched.
+  # Installs pywhispercpp's own dependencies without touching the source build.
   "$PY" -m pip install pywhispercpp
 fi
 
-# 6. RPATH. The libraries sit beside the extension in site-packages, which the loader does not
-#    search; $ORIGIN means "look next to me". Never touch libvulkan.so.1: that has to keep
-#    resolving to the system ICD loader or it cannot reach the driver.
+# 6. Sets an $ORIGIN RPATH so the compiled libraries find each other in site-packages (libvulkan.so.1 is left alone).
 say "Pointing the extension at its own libraries"
 "$PY" -m pip install --quiet patchelf
 SITE="$("$PY" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
@@ -184,7 +136,7 @@ done < <(find "$SITE" -maxdepth 1 \( -name 'libwhisper*.so*' -o -name 'libggml*.
   -o -name '_pywhispercpp*.so' \) -print0)
 echo "  set \$ORIGIN on $patched libraries"
 
-# 7. Smoke test. The whole point: never report success on a silent CPU fallback.
+# 7. Smoke test: fail rather than silently falling back to the CPU.
 say "Verifying the GPU backend"
 if ! gpu_ready; then
   echo "  The build finished but Model.system_info() shows no ggml_vulkan line, so STT would" >&2
@@ -192,18 +144,12 @@ if ! gpu_ready; then
   echo "  the CPU build deliberately." >&2
   exit 1
 fi
-# ggml's own enumeration, which is the one whisper indexes into. Deliberately not vulkaninfo's:
-# ggml drops software rasterisers like llvmpipe, so the two lists disagree and telling the user
-# to pick from the wrong one is how you end up on the wrong GPU.
+# Uses ggml's device list rather than vulkaninfo's, because that's the numbering whisper uses.
 devices=$("$PY" -c 'from pywhispercpp.model import Model; Model.system_info()' 2>&1 |
   grep -E '^ggml_vulkan: [0-9]+ = ' || true)
 printf '%s%s%s\n' "$GREEN" "$(echo "$devices" | sed 's/^/  /')" "$RESET"
 
-# 8. Pick the device. Choosing wrong is the third gotcha and it does not look like an error: STT
-#    just runs on the iGPU, taking seconds per segment instead of milliseconds.
-#
-#    "uma" is unified memory, so uma:1 is an integrated GPU sharing system RAM and uma:0 is a
-#    discrete card. That labels each entry without guessing from the product name.
+# 8. Pick the GPU for transcription; "uma: 1" marks an integrated GPU and "uma: 0" a discrete one.
 names=(); integrated=()
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -213,8 +159,7 @@ while IFS= read -r line; do
   case "$line" in *"uma: 1"*) integrated[idx]=1 ;; *) integrated[idx]=0 ;; esac
 done <<< "$devices"
 
-# Update the key in place, or append it, leaving every other line alone. Plain KEY=value, which is
-# what config_store._write_env produces and what the engine reads back.
+# Sets INTERVIEWR_WHISPER_GPU_DEVICE in .env, updating the existing line if there is one.
 set_gpu_device() {
   local value="$1" key="INTERVIEWR_WHISPER_GPU_DEVICE"
   [ -f "$ROOT/.env" ] || cp "$ROOT/.env.example" "$ROOT/.env"
@@ -225,8 +170,7 @@ set_gpu_device() {
   fi
 }
 
-# What to suggest, or to choose outright when there is nobody to ask: the sole discrete card if
-# there is exactly one, otherwise whisper's own default of device 0.
+# Default choice: the only discrete GPU if there is exactly one, otherwise device 0.
 default=0
 discrete=()
 for i in "${!names[@]}"; do
@@ -237,10 +181,7 @@ done
 if [ "${#names[@]}" -le 1 ]; then
   echo "  Transcription will use ${names[0]:-the only device}."
 elif [ ! -t 0 ] || [ "$ASSUME_YES" -eq 1 ]; then
-  # No terminal, or the user asked not to be asked. Never block on input nobody will give, but
-  # do not hand back a config file to edit either: picking the discrete card is what the prompt
-  # would have suggested, and leaving whisper on device 0 is the documented way to end up
-  # transcribing on the iGPU at seconds per segment instead of milliseconds.
+  # No terminal, or --yes: pick the discrete GPU automatically instead of prompting.
   if [ "${#discrete[@]}" -eq 1 ]; then
     set_gpu_device "$default"
     echo "  Picked ${names[$default]} (device $default) without asking. Change it in Settings."
@@ -258,9 +199,7 @@ else
   while true; do
     read -r -p "  Which should transcription use? [$default] " choice
     choice="${choice:-$default}"
-    # The digits test is load-bearing, not belt-and-braces: bash evaluates an array subscript
-    # arithmetically, so names[abc] resolves to names[0] and names[-1] to the last element. Both
-    # would sail through a bare existence check and write nonsense the engine cannot parse.
+    # Digits only: bash would read names[abc] as names[0] and names[-1] as the last entry.
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${names[$choice]+x}" ]; then break; fi
     echo "  Pick one of the numbers listed above."
   done
@@ -268,7 +207,5 @@ else
   echo "  Using ${names[$choice]} (device $choice)."
 fi
 say "Next steps"
-# Deliberately no `ollama pull` here. The app ranks the model catalog against the VRAM it detects,
-# so naming one up front risks a multi-gigabyte download of the wrong size. It also owns the Ollama
-# install command, which lives in ollama_admin.INSTALL_COMMAND and should not be copied.
+# No ollama pull here: the app recommends a model that fits the GPU's VRAM on first run.
 echo "  Run the overlay:  cd overlay && npm install && npm run tauri dev"

@@ -21,8 +21,7 @@
 
   const EMBED_MODEL = "nomic-embed-text";
 
-  // Ollama reports a bare tag as `name:latest` while .env stores it either way, so compare on the
-  // normalized tag everywhere a config value meets an /api/tags value.
+  // Ollama may report a bare tag as "name:latest", so tags are compared without that suffix.
   function baseTag(name: string): string {
     return name.endsWith(":latest") ? name.slice(0, -":latest".length) : name;
   }
@@ -38,8 +37,7 @@
   // `report` is set once by the Wizard before this screen mounts, so seeding from it is correct.
   // svelte-ignore state_referenced_locally
   let info = $state<SystemReport>(report);
-  // Nothing is pre-picked when a model is already running: that row isn't selectable, so Continue
-  // stays disabled until a genuinely different model is chosen. First run keeps the recommendation.
+  // Nothing is preselected when a model is already running; on first run the recommended one is.
   // svelte-ignore state_referenced_locally
   let selected = $state<string>(
     current?.llm_provider === "ollama" && current.llm_model
@@ -51,8 +49,7 @@
   let armed = $state<string | null>(null);
   let deleting = $state(false);
   let error = $state<string | null>(null);
-  // Failures from the "Pull any model" field show inline beside it: a mistyped tag is about that
-  // input, so the message belongs next to it rather than in the strip above the footer.
+  // Error for the "Pull any model" field, shown inside that field.
   let customError = $state<string | null>(null);
   // Progress lives in the shared store so it survives leaving this screen; PullStatus renders it.
   let pulling = $derived(pull.busy);
@@ -82,8 +79,7 @@
     return info.ollama.models.some((m) => sameTag(m.name, name));
   }
 
-  // Curated catalog (ranked + fit-labelled) first, then any other installed model not in it, so a
-  // previously-pulled or custom tag stays selectable. The embed model is excluded (it's not an LLM).
+  // Curated models first, then any other installed models; the embedding model isn't listed since it isn't a chat model.
   let rows = $derived.by<Row[]>(() => {
     const catalog = info.recommendation.catalog;
     const inCatalog = new Set(catalog.map((m) => m.name));
@@ -108,8 +104,7 @@
         fit: null,
       });
     }
-    // The configured model may have been removed from Ollama since. Keep a row for it so "current"
-    // always has somewhere to sit and the missing download is obvious.
+    // Keep a row for the configured model even if it has since been removed from Ollama.
     if (currentModel && !out.some((r) => sameTag(r.name, currentModel))) {
       out.unshift({
         name: currentModel,
@@ -131,9 +126,7 @@
     return `${(mb / 1024).toFixed(mb < 10240 ? 1 : 0)} GB`;
   }
 
-  // ModelInfo.size is raw bytes, unlike the megabytes used elsewhere in the report. This is what
-  // Ollama reports for the tag; tags that share a blob each report the full size, so deleting one
-  // of them frees nothing. Stated as "on disk", never as "frees N GB".
+  // Size Ollama reports for the tag, in bytes; tags that share files each report the full size.
   function diskSize(name: string): string {
     const bytes = info.ollama.models.find((m) => sameTag(m.name, name))?.size ?? 0;
     return bytes > 0 ? `${(bytes / 1024 ** 3).toFixed(1)} GB on disk` : "";
@@ -154,8 +147,7 @@
       hasModels: d.models_mb !== null,
       free: d.free_mb,
       total: d.total_mb,
-      // Interrupted downloads. Ollama keeps these to resume from and never prunes them, and no
-      // manifest references them, so nothing else in any UI can show that the space is in use.
+      // Space used by interrupted downloads, which Ollama never cleans up.
       partial: d.partial_mb,
       reclaim: `sudo rm -f '${d.path}/blobs/'*-partial*`,
       modelsPct: (models / d.total_mb) * 100,
@@ -179,9 +171,7 @@
     }
   }
 
-  // Reclaiming residue happens outside the app (a sudo rm in a terminal), so the only moment the
-  // answer can have changed is when the window comes back. Guarded on there being residue at all,
-  // so once it is cleared this stops firing and costs nothing.
+  // Re-checks disk space when the window regains focus, in case the user cleared interrupted downloads in a terminal.
   let recheckingDisk = false;
   async function recheckDisk(): Promise<void> {
     if (recheckingDisk || !info.disk || info.disk.partial_mb <= 0) return;
@@ -203,9 +193,7 @@
     }
   }
 
-  // A pull outlives the screen that started it, so the refresh cannot belong to the caller alone:
-  // leaving mid-download and coming back leaves this instance showing Download for a model that
-  // has since landed. Plain `let`, so the effect depends on pull.settled and nothing else.
+  // Refreshes when any download finishes, including one started before this screen was opened.
   let handled = pull.settled;
   $effect(() => {
     if (pull.settled === handled) return;
@@ -217,20 +205,17 @@
     if (pulling || !model) return;
     error = null;
     try {
-      // A cancel is a normal outcome, not a failure: it must never paint the red error line.
-      // Either way the disk figures moved, so refresh on both paths.
+      // A cancelled download isn't an error, so it doesn't show the error line.
       await pull.run(model);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
-    // Claim the completion before awaiting, so the effect above skips a pull we are refreshing for
-    // anyway. /system/info re-probes the GPUs and Ollama, so doing it twice is worth avoiding.
+    // Mark this download as handled so the effect above doesn't refresh a second time.
     handled = pull.settled;
     await refresh();
   }
 
-  // Pulling an answering model is an explicit choice, so select it once it lands. Re-pulling the
-  // model already in use is a repair, not a choice, so that row uses plain download().
+  // Selects a newly downloaded model; re-downloading the model already in use doesn't change the selection.
   async function pullAndSelect(model: string): Promise<void> {
     await download(model);
     if (installed(model)) selected = model;
@@ -243,16 +228,15 @@
     try {
       await pull.run(tag);
     } catch (e) {
-      // Inside the field there is only room for a verdict; the tag it refers to is right there.
+      // Short message, since it's shown inside the input field.
       const status = (e as { status?: number }).status;
       customError =
         status === 404 ? "Model not found" : e instanceof Error ? e.message : String(e);
     }
-    handled = pull.settled; // as in download(): this refresh is the one the effect would have run
+    handled = pull.settled; // refreshed below, so the effect doesn't need to
     await refresh(); // installed() reads `info`, so the check below needs the fresh report
     if (!installed(tag)) return;
-    // Pulling a model by name is an explicit choice, so select it once it lands. Re-pulling the
-    // one already in use is a repair, not a choice, and must not change the selection.
+    // Select the downloaded model, unless it's the one already in use.
     if (!sameTag(tag, currentModel)) selected = tag;
     customModel = "";
   }
@@ -268,16 +252,14 @@
 </script>
 
 {#snippet rowAction(text: string)}
-  <!-- Every row button reserves the width of the longest label ("Download") in a shared grid
-       cell, so Delete/Confirm/Download all match and arming swaps text without moving anything. -->
+  <!-- Reserves the width of "Download" so the Delete, Confirm and Download buttons are all the same size. -->
   <span class="grid">
     <span class="invisible col-start-1 row-start-1">Download</span>
     <span class="col-start-1 row-start-1">{text}</span>
   </span>
 {/snippet}
 
-<!-- Both events: WebKitGTK's focus behaviour is unverified, and whichever arrives first makes the
-     other a no-op via the in-flight guard. -->
+<!-- Both events are handled; the in-flight check stops the disk being checked twice. -->
 <svelte:window onfocus={recheckDisk} />
 <svelte:document onvisibilitychange={() => !document.hidden && recheckDisk()} />
 
@@ -285,8 +267,7 @@
   <div class="wiz-head">
     <div class="flex items-baseline justify-between gap-3">
       <h1 class="shrink-0">Local model</h1>
-      <!-- Title size, but the label stays light and dim so only the number reads as a headline.
-           Truncates rather than pushing the title off on a narrow window. -->
+      <!-- Available VRAM next to the title; truncates on a narrow window. -->
       <span class="min-w-0 truncate text-2xl font-normal">
         {#if info.recommendation.vram_mb}
           <span class="text-dim">Available VRAM:</span>
@@ -321,9 +302,7 @@
 
       <div class="card card-row flex items-center gap-2">
         <span class="text-dim shrink-0 text-xs">Pull any model:</span>
-        <!-- The verdict sits inside the field, at the far end: it is about what was typed there.
-             pointer-events-none so it never blocks a click into the input, and the input gains
-             right padding while it shows so a long tag can't run underneath it. -->
+        <!-- The error shows inside the input; pointer-events-none keeps the input clickable underneath. -->
         <span class="relative min-w-0 flex-1">
           <input
             class="w-full"
@@ -353,16 +332,14 @@
           class:selected={selected === m.name}
         >
           {#if isCurrent}
-            <!-- Its own radio group: a disabled radio sharing name="model" would be unchecked the
-                 moment another row is picked, and this one is only here to hold the column. -->
+            <!-- Separate radio group, so this row stays checked when another model is picked. -->
             <input type="radio" name="model-current" checked disabled />
           {:else}
             <input type="radio" name="model" value={m.name} bind:group={selected} />
           {/if}
           <span class="min-w-0 flex-1">
             <span>{m.label}</span>
-            <!-- Measured facts only, under the name so the top line stays scannable. The size is
-                 exact (no tilde); the VRAM figure is an estimate and is marked as one. -->
+            <!-- Model details under the name; the download size is exact, the VRAM figure is an estimate. -->
             <span class="text-dim block text-[11px]">
               {#if m.params}<span>{m.params}</span>{/if}
               {#if m.quant}<span> · {m.quant}</span>{/if}
@@ -385,8 +362,7 @@
           {#if installed(m.name)}
             <span class="badge">installed</span>
             {#if manage && !isCurrent}
-              <!-- preventDefault: this button sits inside the row's <label>, which would
-                   otherwise also select the radio on the way past. -->
+              <!-- preventDefault stops the click also selecting this row's radio button. -->
               <button
                 class:armed={armed === m.name}
                 disabled={pulling || deleting}
@@ -455,9 +431,7 @@
     {/if}
   </div>
 
-  <!-- Not while a pull is running. Ollama streams a download into blobs/*-partial*, which is the
-       same glob the backend measures, so mid-download this would name the file being written and
-       tell the user to delete it. -->
+  <!-- Hidden during a download, because the file being downloaded also counts as an interrupted one. -->
   {#if error || (disk && disk.partial > 0 && !pulling)}
     <div class="wiz-status">
       {#if error}<p class="text-warn text-xs">{error}</p>{/if}

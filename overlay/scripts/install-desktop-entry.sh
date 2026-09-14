@@ -1,20 +1,13 @@
 #!/usr/bin/env bash
-# Give the overlay a desktop entry, which the XDG portal needs before it will name us.
-#
-# The portal derives an app id from the systemd scope the process runs in (the app claims one
-# itself, see src-tauri/src/appid.rs) and then refuses to use that id unless a matching .desktop
-# file exists. Packaged builds get one from the Tauri bundle, which names it after productName;
-# this installs the same file for a run from source. Idempotent; re-run safely.
+# Installs a desktop entry for running from source, which the XDG portal needs before global shortcuts work; safe to re-run.
 set -euo pipefail
 
-# Must match APP_ID in src-tauri/src/appid.rs and productName in tauri.conf.json, because that is
-# the file name tauri-bundler writes and therefore the id an installed build resolves to.
+# Must match APP_ID in src-tauri/src/appid.rs and productName in tauri.conf.json.
 APP_ID="interviewr-overlay"
 DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 FILE="$DIR/$APP_ID.desktop"
 
-# Point Exec at the built binary when one exists, so launching from the menu works too. The
-# desktop entry's identity matters even when it is never launched from here.
+# Point Exec at a built binary if there is one, so launching from the app menu works too.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 exec_path="$root/src-tauri/target/release/$APP_ID"
 [ -x "$exec_path" ] || exec_path="$root/src-tauri/target/debug/$APP_ID"
@@ -33,8 +26,7 @@ Categories=Utility;
 StartupWMClass=$APP_ID
 EOF
 
-# An earlier version of this script installed the entry under the bundle identifier. No scope name
-# ever asks for that one, so it is dead weight and a second menu entry.
+# Remove the entry an older version of this script created under a different name.
 rm -f "$DIR/dev.interviewr.overlay.desktop"
 
 # Refresh the desktop database so the portal sees the entry without a re-login.

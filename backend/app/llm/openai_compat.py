@@ -1,9 +1,4 @@
-"""OpenAI-compatible streaming LLM client.
-
-Serves any provider that speaks the OpenAI chat-completions API: Groq today (free,
-low-latency, via its /openai/v1 base URL) and real OpenAI in Phase 2 (same class, default
-base URL). The import is lazy so a local-only install never needs `openai`.
-"""
+"""Streaming client for OpenAI-compatible chat APIs (OpenAI and Groq); openai is imported lazily so local installs don't need it."""
 
 from __future__ import annotations
 
@@ -50,8 +45,7 @@ class OpenAICompatClient:
     async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
         """Stream tokens. The system prompt is prepended; messages are already OpenAI-shaped."""
         payload: list[Message] = [{"role": "system", "content": self._system_prompt}, *messages]
-        # Message is structurally OpenAI's chat param shape; cast bridges the per-role
-        # TypedDict union the SDK declares (and keeps strict mypy happy with or without openai installed).
+        # Message already matches OpenAI's format; the cast satisfies the SDK's stricter per-role types.
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=cast(Any, payload),

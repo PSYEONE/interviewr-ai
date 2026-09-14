@@ -1,9 +1,4 @@
-"""WebSocket event/command schema and an in-process broadcast bus.
-
-The engine publishes typed events to a set of subscribers and never assumes a
-single client. ``EventBus.publish`` is synchronous and never blocks, so a slow or
-dead subscriber can never stall the producer loop.
-"""
+"""WebSocket event and command types, plus a broadcast bus whose publish never blocks on a slow client."""
 
 from __future__ import annotations
 
@@ -26,8 +21,7 @@ class TranscriptEvent(BaseModel):
 class AnswerStartEvent(BaseModel):
     type: Literal["answer.start"] = "answer.start"
     answer_id: str
-    # The exact transcript snapshot this answer was generated from, so any client can pair the
-    # two into a turn without re-deriving the split from its own transcript stream.
+    # The transcript this answer was generated from, so clients can pair the question and answer.
     question: str
     source_chars: int
 
@@ -47,8 +41,7 @@ class AnswerDoneEvent(BaseModel):
 class StatusEvent(BaseModel):
     type: Literal["status"] = "status"
     state: Literal["idle", "listening", "thinking", "unconfigured"]
-    # What capture is actually listening to, resolved at capture start: the isolated application,
-    # or "system audio". Without it a stale capture target looks identical to a working one.
+    # What capture is listening to (an app name or "system audio"), set when capture starts.
     source: str | None = None
 
 

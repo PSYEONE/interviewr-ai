@@ -1,9 +1,6 @@
-"""Live RAG smoke test against a real Ollama embedder. Run after `ollama pull nomic-embed-text`.
+"""Manual RAG check against a real Ollama embedder: prints what two questions retrieve from a small resume and job description.
 
-    .venv/bin/python scripts/rag_smoke.py
-
-Ingests a tiny resume + JD, asks two questions, and prints the retrieved chunks so the
-embed API shape and end-to-end retrieval can be eyeballed. Not part of the unit suite.
+Run after `ollama pull nomic-embed-text`:  .venv/bin/python scripts/rag_smoke.py
 """
 
 from __future__ import annotations

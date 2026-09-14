@@ -1,5 +1,4 @@
-// Shared pin / stealth window state so the bar buttons and global hotkeys stay in sync. Wraps the
-// Rust commands and holds the live toggle state in one place (a Svelte 5 runes store).
+// Shared pin, stealth and collapse state, so the bar buttons and global shortcuts stay in sync.
 
 import { tick } from "svelte";
 
@@ -14,8 +13,7 @@ import {
   setStealth,
 } from "./tauri";
 
-// Combined height of the two interview bars (logical px), measured after content is hidden,
-// plus the 1px body border top+bottom. The collapsed strip resizes to exactly this.
+// Height of the two interview bars plus the 1px border top and bottom; the collapsed window uses this height.
 function barsHeight(): number {
   const bar = document.getElementById("bar");
   const controls = document.getElementById("controls");
@@ -35,8 +33,7 @@ class WindowControls {
     this.#inited = true;
     try {
       this.pinned = await getPin();
-      // The persisted KWin keep-above rule should auto-apply at window creation, but on Wayland a
-      // fresh window does not always pick it up; re-assert it so a pinned preference actually pins.
+      // Re-apply the pin at startup, since a new Wayland window doesn't always pick up the KWin rule.
       if (this.pinned) await setPin(true);
     } catch {
       /* keep default */
@@ -72,9 +69,7 @@ class WindowControls {
     }
   }
 
-  // Collapse the overlay to just its two bars (hide transcript + answer, shrink the window),
-  // or expand back to the remembered size. Only meaningful in the interview view, which owns
-  // the #controls bar; a hotkey pressed elsewhere is a no-op.
+  // Collapses the overlay to just its two bars, or expands it back to the saved size (interview view only).
   async toggleCollapse(): Promise<void> {
     if (!document.getElementById("controls")) return; // interview view only
     try {
@@ -98,8 +93,7 @@ class WindowControls {
     }
   }
 
-  // Leaving the interview while collapsed must restore the window, or the dashboard is stranded
-  // at strip height. Restores from the saved size without measuring (the bars may be gone).
+  // Restores the window size when leaving the interview while collapsed.
   resetCollapse(): void {
     if (!this.collapsed) return;
     this.collapsed = false;

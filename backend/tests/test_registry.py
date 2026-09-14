@@ -96,7 +96,7 @@ async def test_manifest_layers_is_none_when_the_registry_is_unreachable() -> Non
     assert await manifest_layers("phi4", transport=httpx.MockTransport(fail)) is None
 
 
-# --- Hugging Face -----------------------------------------------------------------------------
+# Hugging Face tags.
 
 
 def test_parse_hf_ref_accepts_both_hosts_and_defaults_to_latest() -> None:

@@ -1,9 +1,4 @@
-"""POST /ollama/delete over the ASGI app: the in-use guards, plus 404 and success.
-
-Injects app.state.settings directly and uses an ASGI transport, which skips the lifespan
-(no LLM, producer or audio). OllamaAdmin is monkeypatched because the route builds its own
-and gives no way to inject a mock transport.
-"""
+"""POST /ollama/delete: refusing models that are in use, plus 404 and success (OllamaAdmin is monkeypatched)."""
 
 from __future__ import annotations
 

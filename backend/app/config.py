@@ -10,31 +10,25 @@ from pathlib import Path
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# backend/ dir (parents[1]); repo root (parents[2]) from backend/app/config.py.
+# The backend/ folder and the repo root, located from this file.
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _is_checkout() -> bool:
-    """Whether the engine is running from a source checkout rather than an installed copy.
-
-    A clone always has a `.git` and is writable by the user running it. An installed tree under
-    /usr/lib has neither, so this is what keeps the dev layout (config and databases beside the
-    source) while an installed copy uses the XDG directories instead.
-    """
+    """Whether we're running from a git checkout (has .git and is writable) rather than an installed copy."""
     return (_REPO_ROOT / ".git").is_dir() and os.access(_REPO_ROOT, os.W_OK)
 
 
 def _xdg(var: str, fallback: str) -> Path:
-    """The interviewr subdirectory of an XDG base dir. Relative values are invalid per the spec
-    and are ignored rather than resolved against the cwd."""
+    """The interviewr folder inside an XDG base directory; relative values are ignored."""
     value = os.environ.get(var, "")
     base = Path(value) if value.startswith("/") else Path.home() / fallback
     return base / "interviewr"
 
 
 def config_dir() -> Path:
-    """Directory holding `.env`. Overridable for packaged layouts that are neither of the two."""
+    """Directory holding `.env`: INTERVIEWR_CONFIG_DIR, else the checkout root, else ~/.config/interviewr."""
     if override := os.environ.get("INTERVIEWR_CONFIG_DIR"):
         return Path(override)
     return _REPO_ROOT if _is_checkout() else _xdg("XDG_CONFIG_HOME", ".config")
@@ -89,8 +83,7 @@ class Settings(BaseSettings):
 
     # audio
     audio_device: str = ""  # PipeWire source name; empty = auto-detect default sink monitor
-    # application.name to isolate into the engine's own null sink; empty = capture everything.
-    # Takes precedence over audio_device. See app/audio/routing.py.
+    # App to capture on its own (empty = all system audio); takes precedence over audio_device.
     audio_capture_app: str = ""
 
     # stt
@@ -100,8 +93,7 @@ class Settings(BaseSettings):
     whisper_gpu_device: int = -1  # Vulkan device index; -1 = default (0). Pin the discrete GPU on iGPU+dGPU laptops
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
     vad_silence_hold_s: float = 0.7  # trailing silence that ends an utterance
-    vad_max_utterance_s: float = 15.0  # force a flush in continuous speech; bounds buffer/cost,
-    # not latency (incremental commits handle that). Low values chop sentences and hurt accuracy.
+    vad_max_utterance_s: float = 15.0  # force a flush during long continuous speech; low values cut sentences and hurt accuracy
     stt_emit_partials: bool = True  # stream a live tentative tail (off = commit-only, cheaper on CPU)
     stt_partial_interval_s: float = 0.4  # how often to re-transcribe for the live tail
     stt_commit_margin_words: int = 3  # hold back this many live-edge words before committing
@@ -147,8 +139,7 @@ class Settings(BaseSettings):
     @field_validator("stt_provider", "llm_provider", "embed_provider", mode="before")
     @classmethod
     def _blank_provider_to_default(cls, v: object, info: ValidationInfo) -> object:
-        # A blank provider line in .env (e.g. `INTERVIEWR_LLM_PROVIDER=`) means "unset", not an
-        # invalid enum: fall back to the field default instead of crashing config load.
+        # A blank provider in .env means "use the default" rather than an invalid value.
         if v == "" and info.field_name is not None:
             return cls.model_fields[info.field_name].get_default()
         return v
@@ -166,9 +157,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_llm(self) -> "Settings":
-        # An empty llm_model is the "unconfigured" state: the setup wizard fills it in and the
-        # engine boots in setup mode rather than failing. Once a model is set, a BYOK cloud
-        # provider also needs its key, validated here with a named var, not deep in a request.
+        # No model yet means setup mode; once a model is set, cloud providers need their API key.
         if not self.llm_model:
             return self
         required_key = {

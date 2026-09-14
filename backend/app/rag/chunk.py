@@ -1,10 +1,4 @@
-"""Document text extraction and chunking.
-
-Extraction covers the formats resumes/JDs actually ship in: plain text, markdown, PDF,
-DOCX. Chunking packs whole paragraphs up to a character budget and carries a short overlap
-tail across the boundary, so a fact split across the cut is still retrievable from both
-chunks (the same idea as Natively's overlap windows).
-"""
+"""Extracts text from txt, md, pdf and docx files and splits it into overlapping chunks."""
 
 from __future__ import annotations
 
@@ -18,11 +12,7 @@ _TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text"}
 
 
 def extract_text(filename: str, data: bytes) -> str:
-    """Decode/parse an uploaded document into plain text.
-
-    Dispatches on the filename suffix. Raises ValueError for unsupported types so the
-    caller can return a clean 4xx instead of ingesting garbage.
-    """
+    """Turns an uploaded document into plain text based on its extension; raises ValueError for unsupported types."""
     suffix = Path(filename).suffix.lower()
     if suffix in _TEXT_SUFFIXES or suffix == "":
         return _normalize(data.decode("utf-8", errors="replace"))
@@ -57,11 +47,9 @@ def _normalize(text: str) -> str:
 
 
 def chunk_text(text: str, chunk_chars: int, overlap: int) -> list[Chunk]:
-    """Split normalized text into overlapping chunks on paragraph boundaries.
+    """Packs paragraphs into chunks of up to ``chunk_chars``, repeating the last ``overlap`` chars at the start of the next.
 
-    Paragraphs are packed greedily up to ``chunk_chars``; when a chunk closes, an overlap
-    tail of up to ``overlap`` chars from its end seeds the next chunk. A single paragraph
-    longer than ``chunk_chars`` is hard-split so no chunk exceeds the budget by much.
+    Paragraphs longer than ``chunk_chars`` are first split on word boundaries.
     """
     if chunk_chars <= 0:
         raise ValueError("chunk_chars must be positive")

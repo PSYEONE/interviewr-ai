@@ -1,8 +1,4 @@
-// The active model download, owned above the screens that start it.
-//
-// A pull outlives the component that kicked it off: leaving the model picker used to unmount
-// LocalSetup while the fetch kept running, so the download continued with nothing tracking it and
-// no way to stop it. Holding it here lets PullStatus show and cancel it from anywhere.
+// The current model download, kept outside the screens so it can be shown and cancelled from anywhere.
 
 import { pullModel } from "./api";
 
@@ -15,8 +11,7 @@ class Pull {
   checking = $state<string | null>(null);
   // Set briefly between the user hitting Cancel and the request actually unwinding.
   cancelling = $state(false);
-  // Bumped whenever a pull settles, however it ends. A screen that was not mounted when the pull
-  // started still needs to re-read its model list, and the instance that called run() may be gone.
+  // Increases whenever a download ends, however it ends, so any open screen can refresh its model list.
   settled = $state(0);
 
   #controller: AbortController | null = null;

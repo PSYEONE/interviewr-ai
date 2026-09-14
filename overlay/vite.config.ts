@@ -9,9 +9,7 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: { target: "esnext", outDir: "dist", emptyOutDir: true },
-  // Svelte 5 ships separate browser and server entry points. Vitest resolves the server one by
-  // default, where mount() throws lifecycle_function_unavailable. The app build already resolves
-  // browser, so stating it here changes only the test run.
+  // Makes Vitest use Svelte's browser build, where mount() works; the app build already uses it.
   resolve: { conditions: ["browser"] },
   test: {
     environment: "jsdom",

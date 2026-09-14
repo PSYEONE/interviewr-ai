@@ -2,9 +2,7 @@
   import { minimizeWindow, quit } from "../lib/tauri";
   import { windowControls as wc } from "../lib/windowControls.svelte";
 
-  // Window controls shared by the live panel bar and the dashboard bar. Pin/Stealth state lives in
-  // the windowControls store so global hotkeys and these buttons stay in sync. The settings cog is
-  // optional (only the dashboard passes onSettings). init() runs once in App.svelte on mount.
+  // Window buttons for the interview and dashboard bars; the settings button only appears when onSettings is passed.
   let { onSettings }: { onSettings?: () => void } = $props();
 </script>
 

@@ -1,9 +1,4 @@
-"""Session state: live transcript buffer, conversation history, answer generation.
-
-The buffer and history moved here out of the LLM client so the continuously-running
-producer (which appends transcript) and the command-triggered answer path (any WS
-client) share one source of truth.
-"""
+"""Session state: live transcript buffer, conversation history and answer generation."""
 
 from __future__ import annotations
 
@@ -31,12 +26,7 @@ _FALLBACK_TITLE_WORDS = 8
 
 
 def _fallback_title(turns: list[TurnRecord]) -> str:
-    """A deterministic label from the first question, used until (or instead of) an LLM title.
-
-    Written the moment a conversation is finalized so it is never left unlabelled: the LLM call
-    can time out, error, or be cancelled by shutdown, and any of those used to leave title NULL
-    and the UI showing "Conversation 25".
-    """
+    """A title from the first question, stored before the LLM title is attempted."""
     question = turns[0]["question"].strip() if turns else ""
     if not question:
         return ""
@@ -44,8 +34,7 @@ def _fallback_title(turns: list[TurnRecord]) -> str:
     title = " ".join(words[:_FALLBACK_TITLE_WORDS])
     return (title + "...") if len(words) > _FALLBACK_TITLE_WORDS else title
 
-# The answer styles the client can flip between. Fixed: only the directive text behind each is
-# user-editable, so validation must key off this and never off the directives themselves.
+# Answer styles the client can switch between; only their directive text is editable.
 _STYLES = ("script", "bullets")
 
 
@@ -72,23 +61,18 @@ class Session:
         self._history: list[Message] = []
         self._seq = 0
         self._gen_task: asyncio.Task[None] | None = None
-        # The conversation answered turns are persisted under; None until the first turn, and
-        # reset to None on reset() so a new topic opens a fresh conversation.
+        # Conversation new turns are saved under; None until the first turn and after reset().
         self._conversation_id: int | None = None
         # In-flight best-effort title-generation tasks (one per finalized conversation).
         self._title_tasks: set[asyncio.Task[None]] = set()
-        # Conversations whose finalization (title generation) is in flight; hidden from the
-        # history list until the title lands so the raw first question is never shown as a title.
+        # Conversations hidden from history until their title is generated.
         self._finalizing: set[int] = set()
-        # Capture gating. The producer captures system audio only while _capture_on is set.
-        # Capture runs when intent is set (inside an interview) AND a client is connected; the
-        # subscriber gate stops a manually-run backend from capturing once the last client goes.
+        # Capture runs only while an interview is active and a client is connected.
         self._capture_intent = False
         self._capture_on = asyncio.Event()
         self._capture_off = asyncio.Event()
         self._recompute_capture()
-        # Answer formatting, flipped live by the client (sticky until changed). The directive text
-        # is config, refreshed by POST /settings/reload without a restart.
+        # Answer style chosen by the client; the directive text comes from config.
         self._answer_style = "script"
         self._style_directives = dict(style_directives or STYLE_DIRECTIVES)
 
@@ -123,8 +107,7 @@ class Session:
 
     @property
     def pending_conversation_ids(self) -> set[int]:
-        """Conversations the history list hides: the open (not-yet-finalized) one and any whose
-        title is still being generated. They appear once finalized and titled."""
+        """Conversations hidden from the history list: the open one and any still being titled."""
         ids = set(self._finalizing)
         if self._conversation_id is not None:
             ids.add(self._conversation_id)
@@ -157,15 +140,13 @@ class Session:
         self._bus.publish(TranscriptEvent(text=text, seq=self._seq))
 
     def publish_partial(self, text: str) -> None:
-        """Broadcast a tentative (not-yet-settled) transcript tail. Deliberately does
-        not touch _parts/_history, so the LLM only ever answers on committed text."""
+        """Broadcasts a tentative transcript tail without adding it to the buffer."""
         self._bus.publish(TranscriptEvent(text=text, final=False, seq=self._seq))
 
     def request_answer(self) -> None:
         """Toggle: answer from the buffered transcript + history, then clear the buffer."""
         transcript = " ".join(self._parts).strip()
-        # Snapshot + clear synchronously (no await between) so speech that arrives during
-        # generation accumulates into the next question instead of being lost.
+        # Cleared synchronously so speech during generation goes into the next question.
         self._parts = []
         if not transcript:
             self._bus.publish(
@@ -199,9 +180,7 @@ class Session:
                 answer_id=answer_id, question=transcript, source_chars=len(transcript)
             )
         )
-        # Retrieved RAG context augments only the message sent to the LLM; history keeps the
-        # raw transcript (below) so each turn retrieves fresh and context never accretes. The
-        # answer-style directive rides the same ephemeral message, never the stored history.
+        # RAG context and the style directive go only into this request, not the stored history.
         prompt = await self._with_context(transcript)
         directive = self._style_directive()
         if directive:
@@ -224,8 +203,7 @@ class Session:
             self._bus.publish(StatusEvent(state="listening"))
 
     async def _with_context(self, transcript: str) -> str:
-        """Prepend retrieved resume/JD context to the question. Best-effort: any failure
-        falls back to the bare transcript so RAG can never break an answer."""
+        """Prepends retrieved context to the question; falls back to the bare transcript on failure."""
         if self._retriever is None:
             return transcript
         try:
@@ -249,8 +227,7 @@ class Session:
         self._persist_turn(transcript, answer)
 
     def _persist_turn(self, question: str, answer: str) -> None:
-        """Append the completed turn to the on-disk history. Best-effort: a storage failure must
-        never break answering (same stance as RAG)."""
+        """Saves the turn to on-disk history; failures are logged, not raised."""
         if not self._history_enabled or self._history_store is None:
             return
         try:
@@ -271,8 +248,7 @@ class Session:
         task.add_done_callback(self._title_tasks.discard)
 
     async def _finalize_conversation(self, conv_id: int) -> None:
-        """Generate and store a short LLM title for a conversation. Best-effort and bounded; on
-        any failure the title stays NULL and the UI falls back to the first question."""
+        """Stores a fallback title, then tries to replace it with a short LLM title."""
         if self._history_store is None:
             return
         self._finalizing.add(conv_id)
@@ -280,8 +256,7 @@ class Session:
             detail = self._history_store.get_conversation(conv_id)
             if detail is None or not detail["turns"] or detail["title"]:
                 return
-            # Land a usable title before touching the LLM. Everything after this point is an
-            # upgrade, so a timeout or a cancelled task can no longer leave the row unlabelled.
+            # Store the fallback first so a failed LLM call still leaves a title.
             fallback = _fallback_title(detail["turns"])
             if fallback:
                 self._history_store.set_title(conv_id, fallback)
@@ -299,8 +274,7 @@ class Session:
             self._finalizing.discard(conv_id)
 
     async def _generate_title(self, turns: list[TurnRecord]) -> str:
-        """Ask the LLM for a short label from the conversation's questions. The adapter prepends
-        its own system prompt, so the instruction is explicit to keep the output title-only."""
+        """Asks the LLM for a short title from the conversation's questions."""
         questions = "\n".join(f"- {t['question']}" for t in turns[:8])
         prompt = (
             "Summarize this interview/meeting conversation as a short title of 3 to 6 words. "
@@ -322,8 +296,7 @@ class Session:
                 await self._gen_task
             except asyncio.CancelledError:
                 pass
-        # Title the conversation we are leaving (the LLM is still open at this point in the
-        # lifespan teardown). Bounded by the per-call timeout; failure just leaves it untitled.
+        # Title the open conversation while the LLM is still available.
         conv_id = self._conversation_id
         if conv_id is not None and self._history_store is not None and self._history_enabled:
             await self._finalize_conversation(conv_id)

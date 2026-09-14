@@ -1,11 +1,6 @@
-"""Shared RAG types and the provider-agnostic Embedder protocol.
+"""Shared RAG types and the provider-agnostic Embedder protocol (Ollama, OpenAI or Gemini).
 
-The retriever talks to one Embedder. Backends (Ollama local, OpenAI/Gemini cloud) are
-adapters behind this protocol, exactly like the LLM layer, so the user can choose
-offline-first or a cloud key without the rest of the engine learning which is in use.
-
-One hard rule lives here: query vectors must come from the same model as the stored
-vectors. ``model_id`` is the identity used to detect and reject a mismatch.
+Queries must use the same embedding model as the stored vectors; ``model_id`` is how a mismatch is caught.
 """
 
 from __future__ import annotations
@@ -57,12 +52,7 @@ _KIND_LABEL: dict[DocKind, str] = {
 
 
 def format_context(chunks: Sequence[Retrieved]) -> str:
-    """Render retrieved chunks into a preamble for the answer turn.
-
-    Returns "" when there is nothing to inject, so the caller can fall back to the
-    bare transcript. The preamble is prepended to the *current* user message only and
-    never committed to history, so each turn retrieves fresh against the live question.
-    """
+    """Formats retrieved chunks as context for the current question (never stored in history); "" when there are none."""
     if not chunks:
         return ""
     lines = [

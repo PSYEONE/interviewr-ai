@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
-"""Regenerate app/system/catalog.json from the Ollama registry.
+"""Regenerates app/system/catalog.json (download size, parameters, quantisation, family) from the Ollama registry.
 
-The curated list (which models we offer, and their blurbs) lives in hardware.py and is never
-touched here. This only fills in the facts: exact download size, parameter count, quantisation
-and family, all read from each tag's manifest and config blob. Run it when models change; a
-scheduled workflow opens a PR when the output differs.
-
-Usage:  python3 scripts/refresh_catalog.py [--check]
-
---check exits non-zero if the committed file is out of date, without writing.
+The list of offered models lives in hardware.py. Use --check to fail without writing if the committed file is out of date.
 """
 
 from __future__ import annotations
@@ -80,11 +73,7 @@ def _serialize(data: dict[str, object]) -> str:
 
 
 def stamp_for(fresh_models: object, current: dict[str, object], today: str) -> str:
-    """Today's date, or the previous stamp when the facts are unchanged.
-
-    Without this the date alone would differ on every run, so the scheduled workflow would open a
-    PR every single day containing nothing but a new timestamp.
-    """
+    """Today's date, or the previous date if nothing changed, so the scheduled workflow doesn't open date-only PRs."""
     previous = current.get("generated_at")
     if current.get("models") == fresh_models and isinstance(previous, str) and previous:
         return previous

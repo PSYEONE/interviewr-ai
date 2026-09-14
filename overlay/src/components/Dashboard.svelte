@@ -41,8 +41,7 @@
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
   }
-  // The detail header used to blank the preview, which made an untitled conversation render as
-  // "Conversation 25". Fall back to its first question, exactly like the list does.
+  // Untitled conversations fall back to their first question, the same as in the list.
   function firstQuestion(c: ConversationDetail): string {
     return c.turns[0]?.question ?? "";
   }
@@ -84,8 +83,7 @@
     }
   }
 
-  // Filesystem-safe slug so a saved export says what it contains, not just which row it was.
-  // Non-ASCII characters drop out entirely; an empty result falls back to the bare id.
+  // Filename-safe version of the title for exported files; empty if nothing usable is left.
   function slug(text: string): string {
     return text
       .toLowerCase()
@@ -113,16 +111,14 @@
     void startDragging();
   }
 
-  // The WS subscription is owned here, at the dashboard level, so it stays open across both the
-  // home screen and the interview view and keeps receiving broadcast events on either.
+  // The WebSocket connection starts here so it stays open on both the home screen and the interview view.
   onMount(() => {
     session.start();
     void loadHistory();
   });
   onDestroy(() => session.stop());
 
-  // Titles are generated server-side after a conversation is finalized and arrive over the WS.
-  // Reloading on each one reflects the new title and surfaces the now-finalized conversation.
+  // Reload history when the engine sends a newly generated conversation title.
   $effect(() => {
     if (session.lastTitled !== null) void loadHistory();
   });

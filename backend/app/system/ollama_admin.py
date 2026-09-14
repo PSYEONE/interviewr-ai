@@ -1,10 +1,4 @@
-"""Ollama lifecycle + model management for the setup flow.
-
-Generation stays in ``llm/ollama.py``; this is the admin surface the onboarding wizard
-drives: is Ollama installed and running, which models are local, and pull a new one with
-streamed progress. We never silently install Ollama (running ``curl | sh`` as the user is a
-privileged action); we surface the official command for the UI to run on explicit confirm.
-"""
+"""Ollama setup and model management: install and running checks, listing, pulling and deleting models."""
 
 from __future__ import annotations
 
@@ -112,11 +106,8 @@ class OllamaAdmin:
                 )
 
     async def delete_model(self, model: str) -> bool:
-        """Remove a pulled model. False when Ollama doesn't have it.
-
-        Mutating, so transport errors propagate (same contract as pull_model). A 404 is a
-        normal answer here, not a failure. Note httpx's .delete() takes no json= kwarg.
-        """
+        """Removes a downloaded model; False if Ollama doesn't have it, and other errors are raised."""
+        # .request is used because httpx's .delete() can't send a JSON body.
         resp = await self._client.request("DELETE", "/api/delete", json={"model": model})
         if resp.status_code == 404:
             return False
