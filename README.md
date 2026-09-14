@@ -75,6 +75,11 @@ command if it is missing, recommends an LLM that fits your GPU's VRAM and downlo
 fetches a whisper model. That is why there is no `ollama pull` step here, since naming a model
 up front would ignore what the wizard knows about your hardware.
 
+A checkout keeps its config and databases beside the source (`.env` at the repo root,
+`backend/data/`). An installed copy, which has no writable source tree, uses
+`~/.config/interviewr/` and `~/.local/share/interviewr/` instead; `INTERVIEWR_CONFIG_DIR` and
+`INTERVIEWR_STATE_DIR` override either.
+
 To run the engine on its own:
 
 ```bash

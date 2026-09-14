@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -9,11 +10,45 @@ from pathlib import Path
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root is three levels up from this file (backend/app/config.py).
-# Resolve .env absolutely so it loads regardless of the process cwd.
-_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
-# backend/ dir (parents[1]); the default RAG db lives under backend/data/.
+# backend/ dir (parents[1]); repo root (parents[2]) from backend/app/config.py.
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _is_checkout() -> bool:
+    """Whether the engine is running from a source checkout rather than an installed copy.
+
+    A clone always has a `.git` and is writable by the user running it. An installed tree under
+    /usr/lib has neither, so this is what keeps the dev layout (config and databases beside the
+    source) while an installed copy uses the XDG directories instead.
+    """
+    return (_REPO_ROOT / ".git").is_dir() and os.access(_REPO_ROOT, os.W_OK)
+
+
+def _xdg(var: str, fallback: str) -> Path:
+    """The interviewr subdirectory of an XDG base dir. Relative values are invalid per the spec
+    and are ignored rather than resolved against the cwd."""
+    value = os.environ.get(var, "")
+    base = Path(value) if value.startswith("/") else Path.home() / fallback
+    return base / "interviewr"
+
+
+def config_dir() -> Path:
+    """Directory holding `.env`. Overridable for packaged layouts that are neither of the two."""
+    if override := os.environ.get("INTERVIEWR_CONFIG_DIR"):
+        return Path(override)
+    return _REPO_ROOT if _is_checkout() else _xdg("XDG_CONFIG_HOME", ".config")
+
+
+def state_dir() -> Path:
+    """Directory holding the RAG and history databases."""
+    if override := os.environ.get("INTERVIEWR_STATE_DIR"):
+        return Path(override)
+    return _BACKEND_DIR / "data" if _is_checkout() else _xdg("XDG_DATA_HOME", ".local/share")
+
+
+# Resolved absolutely so it loads regardless of the process cwd.
+_ENV_FILE = config_dir() / ".env"
 
 
 class STTProvider(StrEnum):
@@ -95,7 +130,7 @@ class Settings(BaseSettings):
     rag_min_score: float = 0.0  # drop matches below this cosine score (0 = keep top_k)
     rag_chunk_chars: int = 1000
     rag_chunk_overlap: int = 200
-    rag_db_path: str = ""  # empty = backend/data/rag.sqlite3
+    rag_db_path: str = ""  # empty = rag.sqlite3 in state_dir()
     resume_path: str = ""  # optional: ingest this file at startup (headless/dev convenience)
     job_desc_path: str = ""  # optional: ingest this file at startup
 
@@ -107,7 +142,7 @@ class Settings(BaseSettings):
 
     # conversation history (local-only persistence of answered Q&A turns)
     history_enabled: bool = True  # persist turns to local sqlite; off = nothing is written
-    history_db_path: str = ""  # empty = backend/data/history.sqlite3
+    history_db_path: str = ""  # empty = history.sqlite3 in state_dir()
 
     @field_validator("stt_provider", "llm_provider", "embed_provider", mode="before")
     @classmethod
@@ -166,14 +201,10 @@ class Settings(BaseSettings):
         return Path(self.ollama_models_dir) if self.ollama_models_dir else None
 
     def resolved_rag_db_path(self) -> Path:
-        return Path(self.rag_db_path) if self.rag_db_path else _BACKEND_DIR / "data" / "rag.sqlite3"
+        return Path(self.rag_db_path) if self.rag_db_path else state_dir() / "rag.sqlite3"
 
     def resolved_history_db_path(self) -> Path:
-        return (
-            Path(self.history_db_path)
-            if self.history_db_path
-            else _BACKEND_DIR / "data" / "history.sqlite3"
-        )
+        return Path(self.history_db_path) if self.history_db_path else state_dir() / "history.sqlite3"
 
 
 @lru_cache

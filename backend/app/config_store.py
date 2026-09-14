@@ -147,6 +147,9 @@ def _needs_quoting(text: str) -> bool:
 
 def _write_env(updates: dict[str, object], path: Path) -> None:
     """Update or append `INTERVIEWR_<FIELD>` lines, leaving the rest of .env intact."""
+    # On an installed copy the config dir is ~/.config/interviewr, which nothing has created yet
+    # when the wizard saves for the first time.
+    path.parent.mkdir(parents=True, exist_ok=True)
     pending = {f"INTERVIEWR_{key.upper()}": _fmt(val) for key, val in updates.items()}
     lines = path.read_text().splitlines() if path.exists() else []
     out: list[str] = []
