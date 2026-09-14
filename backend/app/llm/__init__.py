@@ -1,7 +1,4 @@
-"""LLM provider factory. Maps settings.llm_provider to a concrete LLMClient.
-
-Adapter modules are imported per-branch so an unused provider's SDK is never required.
-"""
+"""Builds the LLM client for settings.llm_provider, importing each provider's SDK only when it's used."""
 
 from __future__ import annotations
 

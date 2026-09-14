@@ -1,9 +1,6 @@
-"""Local conversation-history store: answered Q&A turns grouped into conversations.
+"""SQLite store for conversation history: answered questions grouped into conversations.
 
-Plain sqlite, mirroring ``app/rag/store.py`` (row factory, executescript schema, ``with`` writes,
-TypedDict records). Turns are short text, so there is no vector/index machinery here. A
-conversation groups the turns answered between resets/boots; an optional LLM-generated ``title``
-labels it and stays NULL until finalized, in which case the UI falls back to the first question.
+A conversation's ``title`` stays NULL until one is generated; the UI shows the first question until then.
 """
 
 from __future__ import annotations

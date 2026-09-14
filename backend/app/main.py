@@ -86,24 +86,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ready = False
     app.state.capture_prefs = None
 
-    # A crashed engine leaves its null sink and loopback loaded, which the user would otherwise
-    # have to unload by hand. Reconcile to "nothing of ours exists" before doing anything else.
+    # Remove any null sink left behind by a crashed engine.
     await audio_routing.cleanup(await _default_sink_or_none())
 
-    # History persists regardless of LLM config so the endpoints serve past conversations even
-    # in setup mode; the live Session only writes to it when configured + enabled.
+    # History is available even in setup mode so past conversations can still be browsed.
     history = HistoryStore(settings.resolved_history_db_path())
     app.state.history = history
 
-    # Setup mode: with no model (or an unhealthy LLM) the engine still serves the capability,
-    # settings, and model-pull endpoints so the wizard can configure it; only the audio+LLM
-    # session/producer is paused. A fully configured, healthy LLM boots the live pipeline.
+    # Setup mode: without a model or a healthy LLM, only the configuration endpoints run.
     llm: LLMClient | None = None
     warmup_task: asyncio.Task[None] | None = None
     producer: asyncio.Task[None] | None = None
 
-    # RAG depends only on the embedder, not the LLM, so start it regardless of LLM config. This
-    # lets the wizard's Context step (CV / job-description upload) work even in setup mode.
+    # RAG only needs the embedder, so it starts even in setup mode.
     retriever: Retriever | None = await _start_retriever(settings)
     app.state.retriever = retriever
 
@@ -125,9 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.session = session
             app.state.llm = llm
             app.state.ready = True
-            # Warm the LLM in the background. Live transcription must not wait on the model
-            # loading into VRAM (~seconds at boot); the LLM is only needed once a client asks
-            # for an answer, and keep_alive holds it warm after that.
+            # Warm the LLM in the background so transcription doesn't wait for it to load.
             warmup_task = asyncio.create_task(_warm_llm(llm))
             capture_prefs = CapturePrefs.of(settings)
             app.state.capture_prefs = capture_prefs
@@ -157,15 +150,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await llm.close()
         if retriever is not None:
             await retriever.close()
-        # Hand the user's audio back before going away, so stopping the engine never leaves a
-        # call routed into a sink that no longer has anything listening to it.
+        # Return the user's audio to the default sink before shutting down.
         await audio_routing.cleanup(await _default_sink_or_none())
         history.close()
 
 
 async def _default_sink_or_none() -> str | None:
-    """The default sink, or None on a machine with no working PipeWire. Cleanup still runs: it
-    just cannot move streams back, which is moot when there is no audio server."""
+    """The default sink, or None when PipeWire isn't available."""
     try:
         return await get_default_sink()
     except (RuntimeError, FileNotFoundError, OSError) as exc:  # noqa: BLE001
@@ -182,8 +173,7 @@ async def _warm_llm(llm: LLMClient) -> None:
 
 
 async def _start_retriever(settings: Settings) -> Retriever | None:
-    """Build the retriever and bootstrap configured docs. RAG is an enhancement: if the
-    embedder is unreachable, log and run without it rather than blocking transcription."""
+    """Builds the retriever and ingests configured docs; None if the embedder is unreachable."""
     retriever = build_retriever(settings)
     if retriever is None:
         return None
@@ -218,9 +208,7 @@ async def _bootstrap_documents(settings: Settings, retriever: Retriever) -> None
 
 app = FastAPI(title="interviewr-ai", version="0.0.0", lifespan=lifespan)
 
-# The overlay (and a future browser client) call the HTTP API via fetch() from the webview,
-# which enforces CORS; the WS is exempt. Allow only local + Tauri origins. Requests stay
-# token-gated, and no credentials/cookies are used (the auth token rides an explicit header).
+# Allow the overlay's local and Tauri origins; requests are still token-gated.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(
@@ -246,8 +234,7 @@ async def health(request: Request) -> dict[str, object]:
 
 def _token_ok(settings: Settings, token: str) -> bool:
     if not settings.auth_token:
-        # No token configured: allow only on a localhost bind (dev convenience). A
-        # non-local bind requires a token via the enable_remote_viewer guard in config.
+        # No token configured: only allowed on a localhost bind.
         return settings.host == "127.0.0.1"
     return hmac.compare_digest(token, settings.auth_token)
 
@@ -363,10 +350,7 @@ async def add_document(
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
 ) -> DocumentRecord:
-    """Ingest a resume/JD/notes doc from an uploaded file OR a raw-text field.
-
-    The overlay's drag-drop (Phase 3) becomes a multipart POST here; pasted notes use `text`.
-    """
+    """Ingests a resume, job description or notes from an uploaded file or a text field."""
     _require_auth(request)
     retriever = _get_retriever(request)
     try:
@@ -418,15 +402,10 @@ def _local_ollama(base_url: str) -> bool:
 
 
 async def _guard_pull(settings: Settings, model: str) -> None:
-    """Refuse a pull that can't succeed, before a byte moves: an unknown tag, or one that won't fit.
-
-    Fails open on every genuine unknown (remote daemon, unlocatable model store, a registry that
-    won't answer): a lookup failure must never block a download that would have worked.
-    """
+    """Rejects a pull for an unknown tag or one that won't fit on disk; allows it when unsure."""
     resolution, layers = await resolve_model(model)
     if resolution == "missing":
-        # The registry positively denied it, so the pull would fail after the UI had already
-        # committed to a progress bar. Say so up front instead.
+        # The registry says this tag doesn't exist.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"no model called '{model}'"
         )
@@ -450,11 +429,7 @@ async def _guard_pull(settings: Settings, model: str) -> None:
 
 
 def _guard_model_in_use(settings: Settings, model: str) -> None:
-    """Refuse to delete a model the engine is wired to; removing it breaks the live pipeline.
-
-    Enforced here, not just in the overlay: the engine serves any number of clients and
-    can't assume the Tauri UI is the only caller.
-    """
+    """Rejects deleting the model currently used for answers or retrieval."""
     tag = normalize_tag(model)
     if settings.llm_provider == "ollama" and normalize_tag(settings.llm_model) == tag:
         raise HTTPException(
@@ -482,9 +457,7 @@ async def system_info(request: Request) -> SystemReport:
 
 @app.get("/system/disk")
 async def system_disk(request: Request) -> DiskInfo | None:
-    """Just the disk figures. Separate from /system/info because that one shells out to
-    vulkaninfo/nvidia-smi and calls Ollama, ~1000x the cost, and the UI re-checks this whenever
-    the window regains focus to notice reclaimed space."""
+    """Disk figures only; much cheaper than /system/info, so the UI can re-check it on focus."""
     _require_auth(request)
     settings: Settings = request.app.state.settings
     return await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
@@ -492,11 +465,7 @@ async def system_disk(request: Request) -> DiskInfo | None:
 
 @app.get("/audio/apps")
 async def audio_apps(request: Request) -> list[str]:
-    """Applications the user can capture from.
-
-    The union of what is playing now and what has played on this machine before, so a browser
-    that is open but silent can still be chosen; PipeWire has no node for a silent application.
-    """
+    """Apps the user can capture from: those playing now and those that have played before."""
     _require_auth(request)
     live = {a.name for a in await audio_routing.list_apps()}
     return sorted(live | set(audio_routing.known_apps()))
@@ -512,15 +481,12 @@ async def ollama_pull(request: Request, body: PullRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         admin = OllamaAdmin(settings.ollama_base_url)
         try:
-            # aclosing: a bare `async for` never closes its iterator, so without this the inner
-            # generator's `async with client.stream(...)` unwinds only if the cancellation happens
-            # to arrive at its innermost await. A client hanging up mid-pull must always reach it.
+            # aclosing makes sure the Ollama stream is closed if the client disconnects.
             async with aclosing(admin.pull_model(body.model)) as progress_stream:
                 async for progress in progress_stream:
                     yield progress.model_dump_json() + "\n"
         finally:
-            # Runs inside an already-cancelled scope on the disconnect path, where a bare await can
-            # be re-cancelled before the pool closes.
+            # Shielded so closing isn't itself cancelled on the disconnect path.
             with anyio.CancelScope(shield=True):
                 await admin.close()
 
@@ -557,7 +523,7 @@ async def read_settings(request: Request) -> ConfigView:
 
 @app.post("/settings")
 async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bool]:
-    """Validate and persist config to .env. The engine must restart to apply (Phase 3c)."""
+    """Validates and saves config to .env; the engine must restart to apply it."""
     _require_auth(request)
     settings: Settings = request.app.state.settings
     try:
@@ -569,9 +535,7 @@ async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bo
 
 @app.post("/settings/reload")
 async def reload_settings(request: Request) -> dict[str, bool]:
-    """Apply already-persisted *cheap* settings to the running engine with no restart: refresh the
-    config cache and poke the live retriever / session / LLM. Heavy changes (providers, models,
-    keys, audio) still need a restart, which the caller decides by diffing the changed fields."""
+    """Applies saved lightweight settings to the running engine without a restart."""
     _require_auth(request)
     get_settings.cache_clear()
     fresh = get_settings()
@@ -586,8 +550,7 @@ async def reload_settings(request: Request) -> dict[str, bool]:
         session.set_style_directives(effective_style_directives(fresh))
     prefs: CapturePrefs | None = request.app.state.capture_prefs
     if prefs is not None:
-        # The producer re-reads this at each capture start, so a new target applies to the next
-        # interview without restarting the engine.
+        # Takes effect at the next capture start.
         prefs.update(fresh)
     set_keep_alive = getattr(request.app.state.llm, "set_keep_alive", None)
     if callable(set_keep_alive):
@@ -610,8 +573,7 @@ def _attachment(filename: str) -> dict[str, str]:
 
 @app.get("/history")
 async def list_history(request: Request) -> list[ConversationRecord]:
-    """Conversations newest-first, each with a turn count and first-question preview. The open
-    (not-yet-finalized) conversation is hidden until reset() finalizes and titles it."""
+    """Conversations newest first, hiding any still being finalized."""
     _require_auth(request)
     convs = _get_history(request).list_conversations()
     session: Session | None = getattr(request.app.state, "session", None)

@@ -1,5 +1,4 @@
-// Typed HTTP client for the backend capability/settings endpoints. These run over fetch() and
-// are therefore CORS-gated (the backend allows local + Tauri origins); the WS is separate.
+// Typed HTTP client for the engine's REST endpoints (the WebSocket connection lives in session.svelte.ts).
 
 import { authHeaders, httpBase } from "./connection";
 import { saveText } from "./tauri";
@@ -19,8 +18,7 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await resp.json()) as T;
 }
 
-// The backend's 409 bodies are user-facing guidance (a model in use, a pull that won't fit), so
-// unwrap FastAPI's {"detail": ...} envelope rather than showing raw JSON or a bare status code.
+// Returns the backend's error message from FastAPI's {"detail": ...} body, or the raw response text.
 async function failure(resp: Response, what: string): Promise<string> {
   const body = await resp.text();
   try {
@@ -35,13 +33,10 @@ async function failure(resp: Response, what: string): Promise<string> {
 export const getHealth = (): Promise<Health> => getJSON<Health>("/health");
 export const getSettings = (): Promise<ConfigView> => getJSON<ConfigView>("/settings");
 
-// Apps that are playing now, plus ones that have played before so a silent browser is still
-// selectable. Refreshable because a newly launched app only appears once it makes a sound.
+// Apps that are playing now or have played before, so a silent browser can still be picked.
 export const getAudioApps = (): Promise<string[]> => getJSON<string[]>("/audio/apps");
 
-// Poll /health until `pred` holds or `timeoutMs` elapses. Used after an engine restart to wait
-// for the fresh process to come up and report the new config. Returns the matching Health, or
-// throws on timeout. Unreachable health (engine still restarting) counts as "not yet".
+// Polls /health until `pred` is true or it times out; used to wait for the engine after a restart.
 export async function waitForHealth(
   pred: (h: Health) => boolean,
   timeoutMs = 30000,
@@ -60,9 +55,7 @@ export async function waitForHealth(
   }
 }
 
-// Detecting GPUs shells out to vulkaninfo/nvidia-smi/Ollama, so cache the result module-side:
-// it survives the wizard step components unmounting on back-navigation. `force` re-probes (used
-// by the refresh button and after a model pull). The cache is refreshed on every real fetch.
+// Cached because the hardware probe is slow; `force` runs it again.
 let _systemReport: SystemReport | null = null;
 export async function getSystemInfo(force = false): Promise<SystemReport> {
   if (!force && _systemReport) return _systemReport;
@@ -70,12 +63,10 @@ export async function getSystemInfo(force = false): Promise<SystemReport> {
   return _systemReport;
 }
 
-// Just the disk figures, without /system/info's GPU probe and Ollama call (~1000x the cost). The
-// model picker re-checks this on window focus to notice space reclaimed outside the app.
+// Disk figures only, much cheaper than getSystemInfo(); used to re-check when the window regains focus.
 export async function getDisk(): Promise<DiskInfo | null> {
   const disk = await getJSON<DiskInfo | null>("/system/disk");
-  // Keep the cached report in step, or a later unforced getSystemInfo() would resurrect the stale
-  // figure and the reclaim warning would reappear.
+  // Update the cached report too, so it doesn't bring back the old figures later.
   if (_systemReport) _systemReport = { ..._systemReport, disk };
   return disk;
 }
@@ -99,8 +90,7 @@ export async function deleteDocument(id: number): Promise<void> {
   if (!resp.ok) throw new Error(`DELETE /documents/${id} -> ${resp.status}`);
 }
 
-// Upload a resume / job-description (or pasted text) for RAG grounding. Multipart, so the
-// browser sets the content-type + boundary itself. Returns 503 when RAG isn't available yet.
+// Uploads a resume, job description or notes file for RAG; the engine returns 503 if RAG isn't available.
 export async function uploadDocument(kind: string, file: File): Promise<DocumentRecord> {
   const form = new FormData();
   form.append("kind", kind);
@@ -136,9 +126,7 @@ export async function clearHistory(): Promise<void> {
   if (!resp.ok) throw new Error(`DELETE /history -> ${resp.status}`);
 }
 
-// Fetch an export endpoint (auth header attached) and save it through the native Save dialog.
-// Resolves false if the user cancels. Uses the Rust save_text command, not a webview download,
-// which is unreliable on WebKitGTK.
+// Downloads an export and saves it through the native Save dialog; resolves false if the user cancels.
 export async function downloadExport(path: string, filename: string): Promise<boolean> {
   const resp = await fetch(`${await httpBase()}${path}`, { headers: await authHeaders() });
   if (!resp.ok) throw new Error(`GET ${path} -> ${resp.status}`);
@@ -163,9 +151,7 @@ export async function reloadSettings(): Promise<void> {
   if (!resp.ok) throw new Error((await resp.text()) || `POST /settings/reload -> ${resp.status}`);
 }
 
-// Remove a pulled Ollama model. POST rather than DELETE because tags carry ':' and can carry '/'.
-// The backend refuses (409) models the engine is wired to, so surface its detail verbatim.
-// Callers should follow with getSystemInfo(true) to refresh the cached report.
+// Removes a downloaded Ollama model (POST, since tags can contain ':' and '/'); errors carry the engine's reason.
 export async function deleteOllamaModel(model: string): Promise<void> {
   const resp = await fetch(`${await httpBase()}/ollama/delete`, {
     method: "POST",
@@ -182,8 +168,7 @@ export async function pullModel(
   signal?: AbortSignal,
   onStart?: () => void,
 ): Promise<void> {
-  // The signal covers the pre-body window too: the server runs a registry lookup for the disk
-  // pre-check before the first byte, and a cancel during that must still take effect.
+  // The abort signal also cancels the engine's checks that run before the download starts.
   const resp = await fetch(`${await httpBase()}/ollama/pull`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
@@ -191,15 +176,13 @@ export async function pullModel(
     signal,
   });
   if (!resp.ok) {
-    // Attach the status so callers can distinguish "no such model" (404) from a real failure and
-    // phrase it for the space they have.
+    // Keep the status so callers can tell "model not found" (404) apart from other failures.
     const err = new Error(await failure(resp, `pull ${model}`)) as Error & { status?: number };
     err.status = resp.status;
     throw err;
   }
   if (!resp.body) throw new Error(`pull ${model} -> no response body`);
-  // Only now is a download genuinely under way: the server has already resolved the tag and
-  // checked the disk, so a rejected pull never flashes a progress bar.
+  // Called once the download has really started, so a rejected pull never shows a progress bar.
   onStart?.();
 
   const reader = resp.body.getReader();

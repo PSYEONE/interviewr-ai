@@ -19,11 +19,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class CapturePrefs:
-    """Where to capture from, mutable so POST /settings/reload can change it with no restart.
-
-    The producer is handed this instead of a Settings snapshot, which reload replaces wholesale
-    and so could never reach a long-running task. Same idea as Retriever.set_top_k.
-    """
+    """Capture target, updated in place by POST /settings/reload so the running producer sees changes."""
 
     device: str = ""
     app: str = ""
@@ -41,7 +37,7 @@ async def resolve_device(prefs: CapturePrefs) -> str:
     """The PipeWire source to record, applying the app-isolation routing as a side effect."""
     if prefs.app:
         return await routing.reconcile(prefs.app)
-    # Also tears down a null sink left over from app mode, and hands back the default monitor.
+    # Also removes any leftover null sink from app mode and returns the default monitor.
     fallback = await routing.reconcile("")
     return prefs.device or fallback
 
@@ -49,13 +45,7 @@ async def resolve_device(prefs: CapturePrefs) -> str:
 async def run_producer(
     settings: Settings, session: Session, bus: EventBus, prefs: CapturePrefs | None = None
 ) -> None:
-    """Transcribe captured audio into the session, but only while capture is active.
-
-    Capture runs only inside an interview: the session is paused on the dashboard and
-    resumed/paused as the user enters and leaves. Pausing tears the capture stream down so
-    pw-record actually stops, rather than reading and discarding audio. No LLM call here:
-    answers are generated on demand via a client command. Runs for the server's lifetime.
-    """
+    """Transcribes captured audio into the session while an interview is active; runs for the server's lifetime."""
     prefs = prefs if prefs is not None else CapturePrefs.of(settings)
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
@@ -67,9 +57,7 @@ async def run_producer(
     bus.publish(StatusEvent(state="idle"))
     while True:
         await session.wait_capture_start()
-        # Resolved per capture start, not once: it makes the capture target a live setting (no
-        # engine restart), and re-routes an app that has been relaunched since the last interview,
-        # which WirePlumber will not do for us.
+        # Resolved at each capture start, so setting changes apply and relaunched apps get re-routed.
         device = await resolve_device(prefs)
         source = prefs.app or "system audio"
         _log.info("capturing %s (device %s)", source, device)
@@ -87,8 +75,7 @@ async def run_producer(
         )
         feed = asyncio.ensure_future(_feed(transcript_stream, session, settings))
         stop = asyncio.ensure_future(session.wait_capture_stop())
-        # Scoped to the interview, so choosing an app in Settings never re-routes the user's
-        # audio while they are just sitting on the dashboard.
+        # Only route app audio during an interview, not while the user is on the dashboard.
         router = asyncio.ensure_future(routing.watch(prefs.app))
         try:
             done, _ = await asyncio.wait({feed, stop}, return_when=asyncio.FIRST_COMPLETED)
@@ -97,18 +84,14 @@ async def run_producer(
             feed.cancel()
             router.cancel()
             await asyncio.gather(stop, feed, router, return_exceptions=True)
-            # Close both: transcribe_stream does not finalize its source, so the capture stream
-            # is closed explicitly to run capture_audio's finally and terminate pw-record.
+            # Close both streams explicitly so pw-record is terminated.
             await transcript_stream.aclose()
             await audio_stream.aclose()
-            # Give the user's audio back when the interview ends. Leaving the sink loaded meant
-            # our routing outlived the interview, and any app WirePlumber remembers pointing at
-            # it would silently rejoin a sink nothing was capturing.
+            # Hand the user's audio back to the default sink when the interview ends.
             if prefs.app:
                 await routing.cleanup(await get_default_sink())
             bus.publish(StatusEvent(state="idle"))
-        # Feed ending while capture was never paused means pw-record died; back off so a
-        # persistent failure cannot spin this loop hot (wait_capture_start returns at once).
+        # Capture ended without a pause, so pw-record probably died; wait before retrying.
         if feed in done and stop not in done:
             await asyncio.sleep(1.0)
 

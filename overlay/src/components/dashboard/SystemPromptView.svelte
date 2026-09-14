@@ -7,9 +7,7 @@
 
   let { back }: { back: () => void } = $props();
 
-  // Every field here is prompt text the model sees. Only system_prompt is baked into the LLM
-  // adapter at build time, so only it needs a restart; the style directives are read per answer
-  // and take effect on a reload.
+  // Changing the system prompt restarts the engine; the answer style prompts apply without a restart.
   type Field = "system_prompt" | "answer_style_script" | "answer_style_bullets";
   const FIELDS: { key: Field; title: string }[] = [
     { key: "system_prompt", title: "System prompt" },

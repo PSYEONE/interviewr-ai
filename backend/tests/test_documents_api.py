@@ -1,8 +1,4 @@
-"""HTTP /documents endpoints over the ASGI app, with a fake embedder (no Ollama, no audio).
-
-Drives the real routing + Retriever + DocumentStore by injecting app.state directly and
-using an ASGI transport, which skips the lifespan (so no LLM/producer/audio is started).
-"""
+"""/documents endpoints with a fake embedder; app.state is set directly so no LLM or audio starts."""
 
 from __future__ import annotations
 

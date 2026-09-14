@@ -1,11 +1,4 @@
-"""Read the current effective config (secrets redacted) and apply changes safely.
-
-A change is validated by constructing the real ``Settings`` model with the merged values, so
-a bad provider/key/model combo is rejected by the same validators that guard startup, before
-anything is written. Only an allow-listed set of fields is writable, and writes touch just
-those keys in ``.env`` (preserving the user's comments/layout). Secret values are never echoed
-back; ``GET /settings`` exposes only whether each key is set.
-"""
+"""Reads the current config (with secrets hidden) and validates changes before saving them to .env."""
 
 from __future__ import annotations
 
@@ -16,8 +9,7 @@ from pydantic import BaseModel
 from .config import _ENV_FILE, Settings
 from .llm.base import effective_style_directives, effective_system_prompt
 
-# Fields the wizard / settings page may change. Deliberately excludes transport/security
-# fields (host, port, enable_remote_viewer) which are not part of the setup flow.
+# Fields the wizard and settings screen may change (host, port and remote access are left out on purpose).
 _WRITABLE: frozenset[str] = frozenset(
     {
         "stt_provider",
@@ -62,8 +54,7 @@ class ConfigView(BaseModel):
     rag_top_k: int
     history_enabled: bool
     audio_capture_app: str
-    # Prompt text is sent resolved so the UI can show the built-in default in an editable box
-    # without shipping a copy of it.
+    # Prompts are sent with the built-in defaults filled in, so the UI can show and edit them.
     system_prompt: str
     answer_style_script: str
     answer_style_bullets: str
@@ -105,8 +96,7 @@ def current_config(settings: Settings) -> ConfigView:
 def apply_config(
     settings: Settings, updates: dict[str, object], *, env_path: Path | None = None
 ) -> None:
-    """Validate `updates` against the merged config and write them to .env. Raises ValueError
-    on an unknown field or a combination the Settings validators reject."""
+    """Validates `updates` against the full config and writes them to .env; raises ValueError if they're invalid."""
     unknown = sorted(set(updates) - _WRITABLE)
     if unknown:
         raise ValueError(f"unknown or non-writable settings: {unknown}")
@@ -124,9 +114,7 @@ def _fmt(value: object) -> str:
     text = str(value)
     if not _needs_quoting(text):
         return text
-    # dotenv reads an unquoted value as `[^\r\n]*`, then strips ` #...` and trailing space, so
-    # prose loses everything past the first newline or comment marker. Inside double quotes it
-    # decodes \\, \" and \n, which is exactly what this escapes.
+    # Quote values dotenv would otherwise cut off at a newline or "#"; these are the escapes it decodes.
     escaped = (
         text.replace("\\", "\\\\")
         .replace('"', '\\"')
@@ -147,8 +135,7 @@ def _needs_quoting(text: str) -> bool:
 
 def _write_env(updates: dict[str, object], path: Path) -> None:
     """Update or append `INTERVIEWR_<FIELD>` lines, leaving the rest of .env intact."""
-    # On an installed copy the config dir is ~/.config/interviewr, which nothing has created yet
-    # when the wizard saves for the first time.
+    # The config folder may not exist yet the first time an installed copy saves.
     path.parent.mkdir(parents=True, exist_ok=True)
     pending = {f"INTERVIEWR_{key.upper()}": _fmt(val) for key, val in updates.items()}
     lines = path.read_text().splitlines() if path.exists() else []

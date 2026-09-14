@@ -1,10 +1,4 @@
-"""Anthropic (Claude) streaming LLM client (BYOK).
-
-SDK and model id are config-switchable; the import is lazy so a local-only install never
-needs `anthropic`. Conversation history lives in the Session; SYSTEM_PROMPT is passed as
-Anthropic's top-level `system` parameter, never as a history turn (the Messages API only
-accepts user/assistant roles in `messages`).
-"""
+"""Anthropic (Claude) streaming client; the system prompt goes in the API's separate `system` parameter, not the messages."""
 
 from __future__ import annotations
 

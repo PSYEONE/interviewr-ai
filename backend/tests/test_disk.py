@@ -75,7 +75,7 @@ def test_probe_disk_is_none_when_the_store_is_missing(tmp_path: Path) -> None:
     assert probe_disk(tmp_path / "absent") is None
 
 
-# --- interrupted downloads ---------------------------------------------------------------------
+# Interrupted downloads.
 
 
 def _sparse(path: Path, apparent: int, written: int) -> None:

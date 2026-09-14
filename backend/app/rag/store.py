@@ -1,13 +1,6 @@
-"""Persistent chunk store with exact (brute-force) cosine search.
+"""SQLite chunk store with exact cosine search done in numpy.
 
-A resume + a job description is tens-to-low-hundreds of chunks, so an ANN index is
-premature; a single normalized matrix-vector product gives exact top-k in well under a
-millisecond. We persist to plain sqlite (vectors as float32 BLOBs) and do the similarity in
-numpy. Deliberately not sqlite-vec: this project's Python sqlite3 lacks enable_load_extension,
-and brute-force is both simpler and exact at this scale.
-
-The whole store shares one embedding model: ``meta.model_id`` records it, and writes from a
-different model are rejected so query and stored vectors always live in the same space.
+There are few enough chunks that no vector index is needed. Each store holds vectors from one embedding model only (``meta.model_id``).
 """
 
 from __future__ import annotations

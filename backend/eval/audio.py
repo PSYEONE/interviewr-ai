@@ -1,7 +1,4 @@
-"""Decode arbitrary audio files to the float32 PCM the STT pipeline expects.
-
-ffmpeg handles every container/codec and resampling in one subprocess, matching the
-project's subprocess-audio approach (pw-record) and avoiding a libsndfile/scipy dep."""
+"""Decodes audio files to the float32 PCM the STT pipeline expects, using ffmpeg."""
 
 from __future__ import annotations
 

@@ -1,38 +1,19 @@
-//! Make the desktop able to identify us, which the GlobalShortcuts portal requires.
-//!
-//! `xdg-desktop-portal` refuses a shortcut request from a caller with an empty app id ("An app id
-//! is required"). For a non-sandboxed app it derives that id from the systemd user unit the
-//! process sits in, via `sd_pid_get_user_unit`, and then insists the matching `.desktop` file
-//! exists. The unit name must look like `app[-<launcher>]-<AppID>-<RANDOM>.scope`; systemd's
-//! DESKTOP_ENVIRONMENTS.md calls the random suffix mandatory, and the portal's regex enforces it.
-//!
-//! A desktop environment does this for us when it launches the app. Nothing does it for a binary
-//! started from a terminal, so a dev run inherits the terminal's unit and the shortcuts land in
-//! the terminal's group, or, in a hand-made scope with no random suffix, resolve to nothing at
-//! all. So we put ourselves in a correctly named scope before anything talks to the portal.
+//! Puts the process in a named systemd scope so the GlobalShortcuts portal can identify the app.
 
 use std::process::id as pid;
 
-/// The id we claim. `tauri-bundler` writes `usr/share/applications/{productName}.desktop`, so this
-/// is what an installed build resolves to; dev has to match or the two would write their shortcuts
-/// into different components.
+/// App id we claim; matches the `.desktop` file tauri-bundler installs.
 pub const APP_ID: &str = "interviewr-overlay";
 
-/// The same id inside a unit name. `-` is systemd's path separator there, so it is escaped, and
-/// the portal unescapes it back. Leaving it bare would resolve to "overlay": the regex reads
-/// `interviewr-` as the optional launcher prefix.
+/// APP_ID escaped for a unit name (a bare `-` would be read as a launcher prefix).
 const UNIT_APP_ID: &str = r"interviewr\x2doverlay";
 
-/// Put this process in an `app-...` scope named after [`APP_ID`], unless something already did.
-///
-/// Best effort by design: every failure here leaves the app exactly as it was, and the portal
-/// path reports the consequence itself through [`diagnose`].
+/// Moves this process into an `app-<APP_ID>-<pid>.scope` unless it already has our id; best effort.
 pub fn ensure_scope() {
     if resolved_app_id().as_deref() == Some(APP_ID) {
         return;
     }
-    // Sandboxed builds get their id from the sandbox, not from the cgroup, and moving them would
-    // be both pointless and wrong.
+    // Sandboxed builds get their id from the sandbox.
     if std::path::Path::new("/.flatpak-info").exists() || std::env::var_os("SNAP").is_some() {
         return;
     }
@@ -41,10 +22,7 @@ pub fn ensure_scope() {
     }
 }
 
-/// What the portal would resolve our app id to right now, or None if it would give up.
-///
-/// This mirrors `get_app_from_pid` in xdg-desktop-portal's `xdp-app-info-host.c`. It is a
-/// reimplementation of someone else's parser, so the tests below carry real unit names.
+/// App id the portal would resolve for us (mirrors xdg-desktop-portal's `get_app_from_pid`).
 pub fn resolved_app_id() -> Option<String> {
     let id = parse_unit_name(&current_unit()?)?;
     if id.is_empty() {
@@ -54,8 +32,7 @@ pub fn resolved_app_id() -> Option<String> {
     }
 }
 
-/// Whether `<APP_ID>.desktop` is where the portal will look for it. A correct scope is not enough:
-/// the portal drops the id when the entry is missing.
+/// Whether `<APP_ID>.desktop` is installed; the portal rejects the id without it.
 pub fn desktop_entry_present() -> bool {
     let file = format!("{APP_ID}.desktop");
     let home = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or_else(|| {
@@ -96,9 +73,7 @@ fn unit_from_cgroup(path: &str) -> Option<String> {
     path.trim_end().rsplit('/').find(|s| is_unit(s)).map(str::to_string)
 }
 
-/// A cgroup directory is only a unit if it could be named as one. Konsole nests a `tab(N).scope`
-/// per tab, which is not a unit: parentheses are outside systemd's charset, so systemd looks
-/// through it to the scope above, and so must we.
+/// Whether a cgroup segment is a real unit name (skips Konsole's `tab(N).scope`).
 fn is_unit(segment: &str) -> bool {
     (segment.ends_with(".scope") || segment.ends_with(".service") || segment.ends_with(".slice"))
         && segment
@@ -128,9 +103,7 @@ fn parse_unit_name(unit: &str) -> Option<String> {
     Some(unescape(matched.unwrap_or("")))
 }
 
-/// Try the optional `[[:alnum:]]+-` launcher prefix first, as a greedy `?` group does, then
-/// without it. Within each, take the shortest capture whose remainder satisfies `ends`, which is
-/// what a lazy `(.+?)` means.
+/// Lazy regex match: tries with the optional launcher prefix, then without.
 fn lazy_match(body: &str, ends: impl Fn(&str, usize) -> bool) -> Option<&str> {
     let launcher = body
         .find('-')
@@ -172,11 +145,7 @@ fn unescape(s: &str) -> String {
     out
 }
 
-/// Ask the systemd user manager to move us into a fresh scope of our own.
-///
-/// This is what `systemd-run --user --scope` does, minus the extra process: the manager owns both
-/// the cgroup we are in and the one it creates, so it can migrate us. A short-lived runtime is
-/// enough, because a transient unit outlives the connection that asked for it.
+/// Asks the systemd user manager to start a transient scope containing this process.
 fn start_scope() -> Result<(), String> {
     let name = format!("app-{UNIT_APP_ID}-{}.scope", pid());
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -213,14 +182,13 @@ mod tests {
 
     #[test]
     fn a_scope_without_the_random_suffix_resolves_to_nothing() {
-        // The reported bug: `systemd-run --unit=app-dev.interviewr.overlay` produced this, and the
-        // portal answered "An app id is required".
+        // No random suffix: the portal answered "An app id is required".
         assert_eq!(id("app-dev.interviewr.overlay.scope"), "");
     }
 
     #[test]
     fn a_terminal_launch_resolves_to_the_terminal() {
-        // Not a failure, which is why it went unnoticed: it binds, into Konsole's component.
+        // Binds, but into Konsole's shortcuts.
         assert_eq!(id("app-org.kde.konsole-3544.scope"), "org.kde.konsole");
     }
 
@@ -231,7 +199,7 @@ mod tests {
 
     #[test]
     fn an_unescaped_dash_is_read_as_a_launcher_prefix() {
-        // The trap the escaping exists to avoid: "interviewr-" looks like `app-<launcher>-`.
+        // Why UNIT_APP_ID escapes the dash.
         assert_eq!(id("app-interviewr-overlay-99.scope"), "overlay");
     }
 
@@ -250,8 +218,7 @@ mod tests {
 
     #[test]
     fn a_nested_non_unit_cgroup_is_looked_through() {
-        // Konsole's real layout: the per-tab directory is not a unit, so the answer is the scope
-        // above it. Reading the deepest segment instead would see no `app-` prefix at all.
+        // Konsole's per-tab directory isn't a unit, so the scope above it is used.
         let path = "/user.slice/user-1000.slice/user@1000.service/app.slice\
                     /app-org.kde.konsole-3544.scope/tab(3564).scope";
         assert_eq!(

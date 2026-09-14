@@ -1,8 +1,4 @@
-"""HTTP /history endpoints over the ASGI app with an injected store (no lifespan/LLM/audio).
-
-Mirrors test_documents_api.py: app.state is set directly and an ASGI transport skips the
-lifespan, so no audio/LLM/producer is started.
-"""
+"""/history endpoints with an injected store; app.state is set directly so no LLM or audio starts."""
 
 from __future__ import annotations
 

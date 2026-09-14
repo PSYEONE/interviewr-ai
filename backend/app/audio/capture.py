@@ -21,9 +21,7 @@ _PR_SET_PDEATHSIG = 1  # linux/prctl.h
 
 
 def _die_with_parent() -> None:
-    """Child-side (post-fork) hook: ask the kernel to SIGTERM this process when the backend
-    dies, so pw-record can never outlive the engine even if the engine is SIGKILLed or crashes
-    and skips graceful teardown. Linux-only; a no-op (and best-effort) elsewhere."""
+    """Runs in the pw-record child process: asks the kernel to stop it if the engine dies (Linux only)."""
     if sys.platform != "linux":
         return
     try:
@@ -33,8 +31,7 @@ def _die_with_parent() -> None:
 
 TargetKind = Literal["monitor", "mic", "app"]
 
-# Pull the human-meaningful segment out of an ALSA HiFi node name,
-# e.g. ...HiFi__Speaker__sink.monitor -> "Speaker", ...HiFi__Mic1__source -> "Mic1".
+# Picks the readable part of an ALSA HiFi node name, e.g. ...HiFi__Speaker__sink.monitor -> "Speaker".
 _HIFI_RE = re.compile(r"HiFi__(.+?)__(?:sink|source)")
 
 
@@ -56,12 +53,7 @@ def _label_for(name: str, kind: TargetKind) -> str:
 
 
 async def list_capture_targets() -> list[CaptureTarget]:
-    """List available PipeWire capture sources, monitors first.
-
-    Monitors are system-audio output taps (what you want to capture a call or video).
-    Mics are real input devices. Per-application stream capture (sink-inputs) is not
-    enumerated yet; it needs node-level targeting. See TODO.md.
-    """
+    """Lists PipeWire capture sources: system audio monitors first, then microphones."""
     proc = await asyncio.create_subprocess_exec(
         "pactl", "list", "short", "sources",
         stdout=asyncio.subprocess.PIPE,
@@ -109,22 +101,14 @@ async def capture_audio(
     rate: int = SAMPLE_RATE,
     chunk_samples: int = CHUNK_SAMPLES,
 ) -> AsyncGenerator[np.ndarray, None]:
-    """Yield float32 numpy arrays of audio from a PipeWire source.
-
-    For a sink monitor (``<sink>.monitor``) we must target the sink node and set
-    ``stream.capture.sink=true``. Passing the ``.monitor`` name to ``--target``
-    makes pw-record silently fall back to the default source (the mic) whenever
-    the sink is idle, which captures the user instead of the system audio.
-    """
+    """Yields float32 audio chunks from a PipeWire source using pw-record."""
     chunk_bytes = chunk_samples * 4
-    # --container raw or pw-record writes a 24-byte AU header first (".snd" magic, encoding 6),
-    # which we would read as 6 float32 samples of garbage, one of them NaN. A single NaN
-    # propagates through whisper's mel computation, so the first utterance of every capture was
-    # being fed poison.
+    # --container raw stops pw-record writing a file header, which would be read as garbage audio (including a NaN).
     args = [
         "pw-record", "--container", "raw",
         "--rate", str(rate), "--channels", "1", "--format", "f32",
     ]
+    # Record a monitor by targeting its sink; the .monitor name makes pw-record fall back to the mic when the sink is idle.
     if device.endswith(".monitor"):
         args += ["-P", "stream.capture.sink=true", "--target", device[: -len(".monitor")]]
     else:

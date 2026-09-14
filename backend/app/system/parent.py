@@ -1,14 +1,6 @@
-"""Exit when the process that launched us is gone.
+"""Shuts the engine down when the overlay that launched it exits, so an orphaned engine can't keep holding the port.
 
-The overlay runs the engine in its own process group so that killing it also reaps the pw-record
-capture child. The side effect is that a Ctrl+C aimed at the terminal never reaches the engine, so
-an overlay that dies without running its shutdown path leaves the engine running and holding the
-port. The next overlay launch probes that port, finds it served, and adopts the orphan, inheriting
-whatever configuration it started with. That is invisible: the app looks fine and silently ignores
-every settings change.
-
-The overlay passes its pid in INTERVIEWR_PARENT_PID. Nothing happens when it is unset, which is the
-case for a manually run engine.
+The overlay passes its pid in INTERVIEWR_PARENT_PID; a manually started engine has none and is left alone.
 """
 
 from __future__ import annotations
@@ -58,8 +50,7 @@ def watch(poll_seconds: float = _POLL_SECONDS) -> None:
             if _stop.wait(poll_seconds):
                 return
         _log.warning("overlay (pid %s) is gone; shutting the engine down", pid)
-        # os._exit, not sys.exit: this is a daemon thread, and the point is to release the port
-        # rather than unwind cleanly through a server that has no client left.
+        # os._exit, because sys.exit from a background thread wouldn't stop the server.
         os._exit(0)
 
     _stop = threading.Event()

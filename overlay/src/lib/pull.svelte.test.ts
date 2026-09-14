@@ -1,9 +1,4 @@
-// The settled counter, which is how a screen learns a download finished.
-//
-// A pull outlives the component that started it, so the model picker cannot rely on its own
-// await returning: leaving mid-download and coming back leaves a different instance mounted, and
-// only this counter tells it to re-read. It has to bump however the pull ends, including the two
-// paths that never reach the happy case.
+// pull.settled must go up however a download ends, because that's how the model picker knows to refresh.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

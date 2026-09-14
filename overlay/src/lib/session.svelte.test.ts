@@ -1,6 +1,4 @@
-// The capture-source label's lifecycle. The engine sends the source only when capture starts, so
-// holding it too long is a bug that shows the previous interview's source at the start of the next
-// one, and clearing it too eagerly blanks the label mid-interview.
+// The capture-source label: set when capture starts, kept through the interview, cleared when it ends.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,8 +55,7 @@ describe("captureSource", () => {
   it("survives later statuses that carry no source", async () => {
     const ws = await connect();
     emit(ws, { type: "status", state: "listening", source: "Brave" });
-    // The engine reports thinking and listening throughout without repeating the source; blanking
-    // the label on those would make it flicker for the whole interview.
+    // Later statuses don't repeat the source, so clearing on them would make the label flicker.
     emit(ws, { type: "status", state: "thinking" });
     expect(session.captureSource).toBe("Brave");
     emit(ws, { type: "status", state: "listening" });
@@ -73,8 +70,7 @@ describe("captureSource", () => {
   });
 
   it("is dropped when the connection goes", async () => {
-    // "offline" is set client-side on close, never sent by the engine, so this has to go through
-    // the real close handler. That path used to leave the bar claiming to listen to an app.
+    // "offline" comes from the client's own close handler rather than the engine, so test that path directly.
     const ws = await connect();
     emit(ws, { type: "status", state: "listening", source: "Brave" });
     ws.onclose?.(); // not stop() first: that clears via its own path and would hide a regression
@@ -84,8 +80,7 @@ describe("captureSource", () => {
   });
 
   it("is cleared by leaving the interview, without waiting for the engine", async () => {
-    // The idle event can land after the view is gone. Relying on it alone meant the next
-    // interview opened showing the previous source.
+    // Don't wait for the engine's idle event, which can arrive after the next interview has started.
     const ws = await connect();
     emit(ws, { type: "status", state: "listening", source: "Brave" });
     session.resetView();

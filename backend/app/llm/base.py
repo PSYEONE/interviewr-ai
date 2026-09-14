@@ -1,9 +1,4 @@
-"""Shared LLM types and the provider-agnostic client protocol.
-
-The engine talks to one LLMClient. Providers are adapters behind this protocol so
-overlay/transport code never learns which model is answering. SYSTEM_PROMPT and the
-Message shape live here because every adapter prepends the former and consumes the latter.
-"""
+"""Shared LLM types, the built-in prompts, and the provider-agnostic LLMClient protocol."""
 
 from __future__ import annotations
 
@@ -21,9 +16,7 @@ SYSTEM_PROMPT = (
     "Be direct and brief."
 )
 
-# Form-only directives appended to the question, one per answer style the client flips between.
-# They shape the answer, not the model's role, which is why they live beside the system prompt and
-# are overridable the same way.
+# Formatting instructions added to the question for each answer style; users can override them like the system prompt.
 STYLE_DIRECTIVES: dict[str, str] = {
     "script": (
         "STYLE: Answer as a natural first-person spoken script, what the candidate would say "

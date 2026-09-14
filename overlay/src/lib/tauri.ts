@@ -1,5 +1,4 @@
-// Typed wrappers over the overlay's Rust commands (overlay/src-tauri/src/lib.rs) and the
-// window drag.
+// Typed wrappers for the overlay's Rust commands (src-tauri/src/lib.rs) and window controls.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -16,15 +15,13 @@ export const getCaptureSupported = (): Promise<boolean> =>
   invoke<boolean>("get_capture_supported");
 export const quit = (): Promise<void> => invoke("quit");
 
-// Save text to a user-chosen file via a native dialog (the webview's own download is unreliable
-// on WebKitGTK). Resolves false if the user cancels.
+// Saves text through a native Save dialog (webview downloads are unreliable on WebKitGTK); false if cancelled.
 export const saveText = (name: string, contents: string): Promise<boolean> =>
   invoke<boolean>("save_text", { name, contents });
 export const startDragging = (): Promise<void> => getCurrentWindow().startDragging();
 export const minimizeWindow = (): Promise<void> => getCurrentWindow().minimize();
 
-// Window size in logical px (innerSize is physical; divide by the scale factor). Used by the
-// collapse-to-bar toggle to remember and restore the overlay's size.
+// Window size in logical pixels; used to remember and restore the size when collapsing.
 export async function getInnerSize(): Promise<{ width: number; height: number }> {
   const win = getCurrentWindow();
   const [size, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
@@ -36,19 +33,15 @@ export const setInnerSize = (width: number, height: number): Promise<void> =>
 export const setMinInnerSize = (width: number, height: number): Promise<void> =>
   getCurrentWindow().setMinSize(new LogicalSize(width, height));
 
-// Engine sidecar. restartEngine rejects with "not_managed" when an external/manual backend
-// owns the port (dev), so callers can fall back to a manual-restart prompt.
+// Rejects with "not_managed" when the engine was started by hand, so the UI can ask for a manual restart.
 export const restartEngine = (): Promise<void> => invoke("restart_engine");
 export const engineManaged = (): Promise<boolean> => invoke<boolean>("engine_managed");
 
-// Last fatal engine failure, or null. Polled in the offline path to recover a failure that was
-// emitted (engine://failed) before this webview attached its listener (e.g. an initial-spawn
-// error at startup).
+// Last fatal engine error, for a failure that happened before the UI started listening.
 export const engineError = (): Promise<string | null> =>
   invoke<string | null>("engine_error");
 
-// Fired by Rust when the engine gives up (crash-loop) or fails to start; payload is the
-// stderr tail so the UI can tell the user what actually went wrong.
+// Fires when the engine fails to start or keeps crashing; the payload is its recent error output.
 export function onEngineFailed(cb: (message: string) => void): Promise<UnlistenFn> {
   return listen<{ message: string }>("engine://failed", (e) => cb(e.payload.message));
 }

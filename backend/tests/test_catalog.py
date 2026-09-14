@@ -52,12 +52,7 @@ def test_sizes_are_plausible_for_a_q4_build() -> None:
 
 @pytest.mark.network
 def test_catalog_json_is_current() -> None:
-    """Fails when a tag is removed, renamed or re-quantised upstream.
-
-    This is the staleness guard the old "Verified against ollama.com (June 2026)" comment only
-    claimed. Excluded from the default run so the suite stays offline; the scheduled workflow
-    runs `scripts/refresh_catalog.py --check`, which asserts the same thing.
-    """
+    """Fails when a tag is removed, renamed or re-quantised upstream (a network test, skipped by default)."""
     fresh = asyncio.run(build())
     current = json.loads(_CATALOG_JSON.read_text())
     assert current["models"] == fresh["models"], "run scripts/refresh_catalog.py"

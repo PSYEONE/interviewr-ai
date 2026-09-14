@@ -1,9 +1,4 @@
-"""Where config and state live, which differs between a checkout and an installed copy.
-
-Packaging moved these off the source tree. The dev layout has to stay exactly where it was, because
-the maintainer's .env and databases are already there, and an installed copy under /usr/lib has
-nowhere writable so it has to land in the XDG directories instead.
-"""
+"""Where config and databases live: beside the source in a checkout, in the XDG directories when installed."""
 
 from __future__ import annotations
 
@@ -64,8 +59,7 @@ class TestInstalled:
     def test_a_relative_xdg_value_is_ignored(
         self, home: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The spec says a relative XDG path is invalid and must be ignored. Resolving it against
-        # the cwd would scatter config into whatever directory the engine happened to start in.
+        # Relative XDG paths are invalid per the spec, so they're ignored.
         as_checkout(monkeypatch, False)
         monkeypatch.setenv("XDG_CONFIG_HOME", "relative/path")
         assert config.config_dir() == home / ".config" / "interviewr"

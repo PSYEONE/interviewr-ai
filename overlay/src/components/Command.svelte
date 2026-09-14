@@ -1,7 +1,5 @@
 <script lang="ts">
-  // A shell command the user is meant to run. Selectable (body sets user-select:none) with a copy
-  // button; WebKitGTK's clipboard support is inconsistent, so the button reports failure rather
-  // than silently doing nothing, and selecting the text by hand always works.
+  // A command for the user to run: selectable text plus a Copy button that reports failures (WebKitGTK's clipboard is unreliable).
   let {
     command,
     note,

@@ -1,7 +1,4 @@
-"""System-capability surface for the setup flow: GPU/RAM probe, local-LLM verdict, and
-Ollama status. Composed into a single ``SystemReport`` the onboarding wizard's GPU-check
-screen consumes. Backend-owned so any client (overlay, phone, browser) can drive it.
-"""
+"""Report for the setup screens: GPUs and RAM, a local-LLM recommendation, and Ollama status, combined into one ``SystemReport``."""
 
 from __future__ import annotations
 

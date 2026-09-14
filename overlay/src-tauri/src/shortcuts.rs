@@ -1,12 +1,4 @@
-//! Global shortcuts on Wayland, via the XDG GlobalShortcuts portal.
-//!
-//! `tauri-plugin-global-shortcut` sits on `global-hotkey`, which is X11-only: every linux build
-//! routes to an `XGrabKey` backend with no Wayland path. Under a Wayland session XWayland is
-//! usually running, so the grab *succeeds* and the plugin reports success, but the compositor
-//! never routes keys to XWayland's root and the shortcut is inert. A silent success is worse than
-//! a failure, so on Wayland we use the portal instead and let the compositor own the binding.
-//!
-//! The plugin keeps the X11/Windows/macOS path, where it genuinely works.
+//! Global shortcuts: the XDG portal on Wayland, the Tauri plugin on X11/Windows/macOS.
 
 use std::sync::Arc;
 
@@ -22,8 +14,7 @@ use tokio::sync::Mutex;
 /// Emitted to the webview with the activated shortcut id as payload.
 pub const ACTIVATED_EVENT: &str = "shortcut://activated";
 
-/// Emitted when the desktop changes a trigger, with the same payload as [`list`]. The compositor
-/// owns the keys, so this is the only way to know a key changed without asking repeatedly.
+/// Emitted when the desktop changes a trigger, with the same payload as [`list`].
 pub const CHANGED_EVENT: &str = "shortcut://changed";
 
 /// Which mechanism can actually deliver a global shortcut here.
@@ -31,8 +22,7 @@ pub fn backend() -> &'static str {
     decide(is_wayland(), portal_present)
 }
 
-/// The decision itself, separated from the probing so it can be tested without a session bus.
-/// `portal` is lazy: on X11 the answer never depends on it, so don't pay for the probe.
+/// Picks the backend; `portal` is only probed on Wayland.
 fn decide(wayland: bool, portal: impl FnOnce() -> bool) -> &'static str {
     if !wayland {
         // X11, including the app forced onto XWayland: the plugin's grabs work.
@@ -40,8 +30,7 @@ fn decide(wayland: bool, portal: impl FnOnce() -> bool) -> &'static str {
     } else if portal() {
         "portal"
     } else {
-        // Wayland without the portal: nothing can bind a global key. Say so rather than
-        // registering something that will never fire.
+        // Wayland without the portal: nothing can bind a global key.
         "none"
     }
 }
@@ -72,8 +61,7 @@ fn portal_present() -> bool {
 
 type ShortcutSession = Session<GlobalShortcuts>;
 
-/// The proxy is kept beside the session on purpose. Dropping either silently unbinds everything,
-/// and the `Activated` stream is only useful while both are alive.
+/// Portal proxy and session; dropping either unbinds every shortcut.
 struct Portal {
     proxy: GlobalShortcuts,
     session: ShortcutSession,
@@ -84,8 +72,7 @@ pub struct PortalState {
     inner: Arc<Mutex<Option<Portal>>>,
 }
 
-/// The session, created on first use. Creating one raises no dialog and, on KDE, loads whatever
-/// the desktop has already stored for us, which is what lets [`list`] answer before any bind.
+/// Creates the portal session on first use and forwards activation and change signals to the webview.
 async fn ensure<'a>(app: &AppHandle, slot: &'a mut Option<Portal>) -> Result<&'a Portal, String> {
     if slot.is_none() {
         let proxy = GlobalShortcuts::new().await.map_err(err)?;
@@ -116,11 +103,7 @@ async fn ensure<'a>(app: &AppHandle, slot: &'a mut Option<Portal>) -> Result<&'a
     Ok(slot.as_ref().expect("just filled"))
 }
 
-/// Bind `shortcuts` (id, human description) with the compositor.
-///
-/// The description is what the desktop shows in its own confirmation dialog, so it has to read
-/// as a sentence to someone who has never seen this app. The compositor picks the final trigger;
-/// we do not get to insist on one.
+/// Binds (id, description) pairs; the compositor picks the actual keys.
 pub async fn bind(app: &AppHandle, shortcuts: Vec<(String, String)>) -> Result<(), String> {
     let state = app.state::<PortalState>().inner.clone();
     let mut slot = state.lock().await;
@@ -139,13 +122,7 @@ pub async fn bind(app: &AppHandle, shortcuts: Vec<(String, String)>) -> Result<(
     Ok(())
 }
 
-/// What the compositor currently has for us, as (action id, human-readable trigger).
-///
-/// `trigger_description` is the portal's own rendering of the key, which is the only correct
-/// thing to show: the compositor picks the trigger and can change it behind our back.
-///
-/// This answers before anything is bound, which is the point: a non-empty answer means the desktop
-/// still holds our permission, so re-binding is silent. See `#initPortal` in hotkeys.svelte.ts.
+/// Current bindings as (action id, trigger description); works before anything is bound.
 pub async fn list(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
     let state = app.state::<PortalState>().inner.clone();
     let mut slot = state.lock().await;
@@ -160,8 +137,7 @@ pub async fn list(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
     Ok(pairs(listed.shortcuts()))
 }
 
-/// The wire shape the webview reads, shared by [`list`] and [`CHANGED_EVENT`] so the two cannot
-/// drift apart.
+/// Shared wire format for [`list`] and [`CHANGED_EVENT`].
 fn pairs(shortcuts: &[Shortcut]) -> Vec<(String, String)> {
     shortcuts
         .iter()
@@ -169,8 +145,7 @@ fn pairs(shortcuts: &[Shortcut]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Open the desktop's own shortcut editor. On Wayland the compositor owns the binding, so this
-/// replaces the in-app key-capture widget rather than supplementing it.
+/// Opens the desktop's own shortcut editor.
 pub async fn configure(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<PortalState>().inner.clone();
     let mut slot = state.lock().await;
@@ -204,7 +179,7 @@ mod tests {
 
     #[test]
     fn wayland_without_the_portal_admits_it_cannot() {
-        // The bug this replaces: the plugin would report success here and never fire.
+        // The plugin would report success here and never fire.
         assert_eq!(decide(true, || false), "none");
     }
 }

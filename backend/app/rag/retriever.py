@@ -1,10 +1,4 @@
-"""Retriever: the one object the engine uses for RAG.
-
-Ties an Embedder to a DocumentStore. Ingest = extract -> chunk -> embed -> persist.
-Retrieve = embed the live question -> exact cosine search. Retrieval is best-effort: it
-never raises into the answer path (a down embedder or a model mismatch yields no context,
-not a failed answer).
-"""
+"""Retriever: stores documents (extract, chunk, embed, save) and finds context for a question; a retrieval failure never breaks an answer."""
 
 from __future__ import annotations
 

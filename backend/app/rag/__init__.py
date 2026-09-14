@@ -1,8 +1,4 @@
-"""RAG package: resume + job-description retrieval, injected into the answer turn.
-
-``build_retriever`` is the single entry point; it returns None when RAG is disabled so the
-engine can skip it without special-casing each call site.
-"""
+"""RAG over the resume and job description; ``build_retriever`` returns None when RAG is disabled."""
 
 from __future__ import annotations
 

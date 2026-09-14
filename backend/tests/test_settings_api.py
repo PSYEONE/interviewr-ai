@@ -61,11 +61,7 @@ def test_apply_writes_only_changed_keys(tmp_path: Path) -> None:
 
 
 def test_apply_round_trips_prose(tmp_path: Path) -> None:
-    """A prompt is prose, not a token: newlines, # and quotes must survive the .env round trip.
-
-    Unquoted, dotenv reads a value as `[^\\r\\n]*`, strips ` #...` and rstrips, so every one of
-    these silently truncated or lost characters on the way back in.
-    """
+    """Prompts with newlines, # and quotes must survive being written to .env and read back."""
     env = tmp_path / ".env"
     prompt = 'Be terse.\nUse #1 as the example.\nSay "hello" first. '
     apply_config(_settings(), {"system_prompt": prompt}, env_path=env)
@@ -73,8 +69,7 @@ def test_apply_round_trips_prose(tmp_path: Path) -> None:
 
 
 def test_apply_twice_leaves_no_residue(tmp_path: Path) -> None:
-    # A multi-line value written raw leaves orphan lines that later writes cannot recognise as
-    # part of a key, so they accumulate.
+    # Multi-line values must be replaced cleanly, without leftover lines building up.
     env = tmp_path / ".env"
     apply_config(_settings(), {"system_prompt": "one\ntwo"}, env_path=env)
     apply_config(_settings(), {"system_prompt": "three\nfour"}, env_path=env)
@@ -85,12 +80,9 @@ def test_apply_twice_leaves_no_residue(tmp_path: Path) -> None:
 def test_an_environment_variable_outranks_the_env_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Why the overlay must not export `.env` into its own environment.
+    """Environment variables beat .env, which is why the overlay must not export .env to the engine it spawns.
 
-    The engine is spawned as a child and inherits it, and this precedence means a value present
-    at launch then wins forever: POST /settings rewrites the file, the engine keeps reading the
-    variable, and only relaunching the whole app appears to help. See read_env_file in
-    overlay/src-tauri/src/lib.rs.
+    See read_env_file in overlay/src-tauri/src/lib.rs.
     """
     env = tmp_path / ".env"
     apply_config(_settings(), {"audio_capture_app": "FromFile"}, env_path=env)

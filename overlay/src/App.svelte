@@ -12,18 +12,15 @@
   let view = $state<View>("loading");
   let errorMsg = $state("");
 
-  // First-run is backend truth: configured=false (no model set) -> wizard, else the panel.
-  // The engine being unreachable just means "waiting" while the sidecar boots it.
+  // Shows the wizard until a model is configured, otherwise the dashboard; keeps retrying while the engine starts.
   async function decide(): Promise<void> {
     if (view === "error") return; // a hard engine failure takes precedence over polling
     try {
       const health = await getHealth();
-      // Gated on `configured` only (not `ready`): a configured-but-unhealthy engine still lands
-      // on the dashboard, so a broken model can be fixed from there instead of being stuck.
+      // Only checks "configured", so an engine with a broken model still opens the dashboard where it can be fixed.
       view = health.configured ? "dashboard" : "wizard";
     } catch {
-      // Engine unreachable. Recover a failure whose engine://failed event we may have missed
-      // (e.g. a spawn error before this listener attached); otherwise keep waiting for boot.
+      // Engine unreachable: check for a startup failure reported before we were listening, otherwise keep waiting.
       const err = await engineError().catch(() => null);
       if (err) {
         errorMsg = err;
@@ -35,8 +32,7 @@
     }
   }
 
-  // The sidecar gave up on the engine (crash-loop or failed start). Show what went wrong
-  // instead of an endless "waiting" spinner.
+  // Restarts the engine after it failed to start or kept crashing.
   async function retry(): Promise<void> {
     view = "loading";
     errorMsg = "";

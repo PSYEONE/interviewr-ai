@@ -1,14 +1,4 @@
-// Render the markdown subset an answer actually contains (lists, emphasis, code) into real DOM.
-//
-// marked is used only as a lexer: this never builds an HTML string, and every leaf lands via
-// textContent or createTextNode. So raw HTML in model output renders as visible characters and
-// can never execute. That guarantee is structural rather than a sanitiser setting, which matters
-// here because tauri.conf.json sets no CSP, the webview can reach `invoke`, and answers are
-// influenced by the user's uploaded documents through RAG.
-//
-// Headings, tables and blockquotes are out of scope and fall through to their source text. Links
-// and images fall through to their label only, dropping the URL, which costs nothing while the
-// model is local and cannot browse. Either way no navigable or loadable node is ever created.
+// Renders an answer's markdown as DOM using text-only nodes, so model output can never inject HTML; unsupported syntax shows as plain text.
 
 import { marked, type Token, type Tokens } from "marked";
 
@@ -65,8 +55,7 @@ function appendBlocks(into: Node, tokens: Token[]): void {
         }
         for (const item of list.items) {
           const li = document.createElement("li");
-          // Items always hold block tokens; a tight list's paragraph margins are flattened in CSS
-          // rather than by special-casing here, which keeps nested lists working.
+          // Spacing inside list items is handled in CSS, which keeps nested lists working.
           appendBlocks(li, item.tokens ?? []);
           el.appendChild(li);
         }
@@ -98,8 +87,7 @@ function appendBlocks(into: Node, tokens: Token[]): void {
   }
 }
 
-/** Svelte action: `<div use:markdown={text}></div>`. Rebuilds on every change, including each
- *  streamed token, so partially-written markdown simply renders as far as it parses. */
+/** Svelte action: renders markdown into the element and re-renders on every update, including each streamed token. */
 export function markdown(node: HTMLElement, text: string): { update: (t: string) => void } {
   const render = (value: string): void => {
     node.textContent = "";

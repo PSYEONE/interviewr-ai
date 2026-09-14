@@ -1,9 +1,4 @@
-"""Disk capacity around Ollama's model store, for the pull pre-check and the UI's usage bar.
-
-Best-effort like the rest of ``system/``: a missing or unreadable models directory degrades to
-``None`` rather than raising, and callers must treat ``None`` as "unknown, don't block anything".
-Arithmetic lives in pure argument-taking helpers so it is testable without a real filesystem.
-"""
+"""Disk space around Ollama's model store, for the pre-download check and the UI's usage bar."""
 
 from __future__ import annotations
 
@@ -15,8 +10,7 @@ from pydantic import BaseModel
 
 _MB = 1024 * 1024
 
-# Where Ollama keeps blobs when OLLAMA_MODELS isn't set. The user install writes under $HOME; the
-# Linux package runs as its own service user, so the systemd path is a real and common case.
+# Other places Ollama keeps models when OLLAMA_MODELS isn't set (the system service installs here).
 _MODELS_DIR_CANDIDATES = (
     Path("/usr/share/ollama/.ollama/models"),
     Path("/var/lib/ollama/.ollama/models"),
@@ -37,11 +31,7 @@ def blob_name(digest: str) -> str:
 
 
 def missing_bytes(layers: list[tuple[str, int]], present: set[str]) -> int:
-    """Bytes a pull would actually fetch, skipping layers already in the blob store.
-
-    Tags routinely share blobs (a `:latest` and its version tag are usually the same manifest),
-    so charging the full manifest size would refuse pulls that cost nothing.
-    """
+    """Bytes a pull would actually download, skipping layers already on disk (tags often share them)."""
     return sum(size for digest, size in layers if blob_name(digest) not in present)
 
 
@@ -57,7 +47,7 @@ def resolve_models_dir(override: Path | None) -> Path | None:
     """The configured models directory, else the first default location that exists."""
     if override is not None:
         return override if override.is_dir() else None
-    # Computed per call, not at import, so the home path can't be baked in before tests set it.
+    # Checked at call time rather than import time, so tests can change the home directory.
     for candidate in (Path.home() / ".ollama" / "models", *_MODELS_DIR_CANDIDATES):
         if candidate.is_dir():
             return candidate
@@ -65,11 +55,7 @@ def resolve_models_dir(override: Path | None) -> Path | None:
 
 
 def _allocated(path: str) -> int:
-    """Blocks actually committed to disk, which is not the file's length.
-
-    Ollama preallocates a download's full length as a sparse file, so an interrupted 40 GB pull
-    reports 40 GB via getsize while occupying only what it managed to fetch.
-    """
+    """Disk space a file really uses, not its length (Ollama preallocates downloads as sparse files)."""
     return int(os.stat(path).st_blocks) * 512
 
 
@@ -85,12 +71,7 @@ def _dir_size_bytes(path: Path) -> int | None:
 
 
 def partial_paths(models_dir: Path) -> list[Path]:
-    """Files left behind by interrupted downloads.
-
-    Ollama never removes these: it globs them to resume a later pull, and deletes them only on a
-    successful completion. Nothing references them from a manifest, so `ollama list` cannot show
-    them and `ollama rm` cannot reclaim them.
-    """
+    """Files left by interrupted downloads, which Ollama keeps for resuming and never cleans up."""
     try:
         return sorted((models_dir / "blobs").glob("*-partial*"))
     except OSError:

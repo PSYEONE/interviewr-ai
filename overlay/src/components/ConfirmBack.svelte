@@ -1,7 +1,5 @@
 <script lang="ts">
-  // Back button that refuses to throw away unsaved edits on one click: while `dirty`, the first
-  // click only arms it (red, "Discard?") and the second leaves. Same arm-then-confirm idiom as the
-  // model picker's Delete, sharing its `button.armed` styling.
+  // Back button that protects unsaved edits: while `dirty`, the first click turns it red ("Discard?") and the second leaves.
   let {
     dirty,
     back,

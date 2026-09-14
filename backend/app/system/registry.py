@@ -1,13 +1,4 @@
-"""Model download sizes, read before a pull starts.
-
-A pull's own progress stream reports `total` per layer and never announces the whole download up
-front, so the only way to know what a model costs before fetching it is its manifest. Hugging Face
-serves the same Ollama-native manifest as registry.ollama.ai, so `hf.co/...` tags resolve through
-the identical path, quant selection included.
-
-Everything here fails open: an unknown tag, a bad quant, a private repo or an unreachable network
-returns None, and the caller must let the pull proceed rather than blocking on a failed lookup.
-"""
+"""Looks up a model's download size from its registry manifest before pulling; a failed lookup never blocks a pull."""
 
 from __future__ import annotations
 
@@ -22,17 +13,12 @@ _REGISTRY = "https://registry.ollama.ai"
 _HF_REGISTRY = "https://huggingface.co"
 _HF_HOSTS = ("hf.co/", "huggingface.co/")
 
-# "missing" means a registry positively denied the tag; "unknown" means we could not find
-# out, and the caller must fall open rather than block a pull that would have worked.
+# "missing" = the registry says the tag doesn't exist; "unknown" = we couldn't find out, so allow the pull.
 Resolution = Literal["found", "missing", "unknown"]
 
 
 def parse_tag(tag: str) -> tuple[str, str] | None:
-    """Split an Ollama tag into (repository, version), or None for another registry.
-
-    `phi4` -> ("library/phi4", "latest"); `llama3.1:8b` -> ("library/llama3.1", "8b");
-    `user/model:v1` -> ("user/model", "v1"). A leading host (`hf.co/...`) isn't ours to query.
-    """
+    """Splits an Ollama tag into (repository, version), e.g. `llama3.1:8b` -> ("library/llama3.1", "8b"); None for other registries."""
     name = tag.strip()
     if not name:
         return None
@@ -49,12 +35,7 @@ def parse_tag(tag: str) -> tuple[str, str] | None:
 
 
 def parse_hf_ref(tag: str) -> tuple[str, str] | None:
-    """Split a Hugging Face tag into (repo, quant), or None if it isn't one.
-
-    `hf.co/user/repo` -> ("user/repo", "latest"); `hf.co/user/repo:Q8_0` -> ("user/repo", "Q8_0").
-    Both `hf.co` and `huggingface.co` are valid hosts. Resolving what "latest" means (Q4_K_M when
-    present, otherwise a reasonable quant in the repo) is the registry's job, not ours.
-    """
+    """Splits a Hugging Face tag into (repo, quant), e.g. `hf.co/user/repo:Q8_0` -> ("user/repo", "Q8_0"); None otherwise."""
     name = tag.strip()
     for host in _HF_HOSTS:
         if name.lower().startswith(host):
@@ -71,8 +52,7 @@ def parse_hf_ref(tag: str) -> tuple[str, str] | None:
 async def _manifest_layers(
     base: str, repo: str, version: str, client: httpx.AsyncClient
 ) -> list[tuple[str, int]] | None:
-    """Parse an Ollama-native manifest. The layer digests are the blob names the daemon will use,
-    so they compare directly against what is already in the local store."""
+    """Parses an Ollama-style manifest into (blob digest, size) pairs that match local blob names."""
     resp = await client.get(f"{base}/v2/{repo}/manifests/{version}", headers={"Accept": _ACCEPT})
     resp.raise_for_status()
     body = resp.json()
@@ -89,13 +69,7 @@ async def _manifest_layers(
 async def resolve_model(
     tag: str, *, transport: httpx.AsyncBaseTransport | None = None
 ) -> tuple[Resolution, list[tuple[str, int]] | None]:
-    """Whether `tag` exists upstream, and its blobs when it does.
-
-    Only a registry that positively denies the tag yields "missing": ollama.com answers 404 with
-    MANIFEST_UNKNOWN for an unknown name or a typo'd tag, and Hugging Face 400s a quant it cannot
-    serve. A 401 stays "unknown", because HF answers that for a private repo as well as a typo and
-    Ollama can pull private repos with its own key even though we cannot see them.
-    """
+    """Whether `tag` exists upstream and its blobs if so; only a 400 or 404 counts as missing (a 401 may be a private repo)."""
     hf = parse_hf_ref(tag)
     parsed = (_HF_REGISTRY, *hf) if hf is not None else None
     if parsed is None:

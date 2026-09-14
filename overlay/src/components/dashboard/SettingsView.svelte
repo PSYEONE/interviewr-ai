@@ -49,8 +49,7 @@
     "llm_keep_alive",
     "audio_capture_app",
   ];
-  // Fields the engine can apply live (no restart); everything else rebuilds at startup.
-  // The producer re-reads the capture target at every interview start, so it needs no restart.
+  // Settings the engine can apply without a restart; changing anything else restarts it.
   const CHEAP = new Set<keyof Editable>([
     "rag_top_k",
     "history_enabled",
@@ -80,10 +79,7 @@
   let gpus = $state<GpuInfo[]>([]);
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
-  // The saved app, snapshotted at load. The option list must not be derived from
-  // form.audio_capture_app: that is what the <select> binds to, so the list would change in
-  // response to the binding writing to it, and a select whose options move under its own binding
-  // cannot reliably show the value it loaded.
+  // Saved app captured at load; building the options from the select's own bound value would stop it showing reliably.
   let savedApp = $state("");
   const captureChoices = $derived(
     savedApp && !audioApps.includes(savedApp) ? [...audioApps, savedApp] : audioApps,
@@ -129,7 +125,7 @@
     }
   });
 
-  // --- Global hotkey capture (applies immediately, independent of Save) ---
+  // Global hotkey recording (applies immediately, separate from Save).
   let recording = $state<HotkeyAction | null>(null);
   let recordError = $state<string | null>(null);
   let recordTimer: ReturnType<typeof setTimeout> | undefined;
@@ -137,8 +133,7 @@
   function startRecording(action: HotkeyAction): void {
     recordError = null;
     recording = action;
-    // Without this a combination the compositor swallows leaves the widget on "Press keys..."
-    // forever, with nothing to say the key never arrived.
+    // Time out, so a combination the desktop swallows doesn't leave "Press keys..." showing forever.
     clearTimeout(recordTimer);
     recordTimer = setTimeout(() => {
       if (recording === action) {
@@ -153,8 +148,7 @@
     recording = null;
   }
 
-  // Bare modifiers are not a key, they are the user still reaching for one. Recognised so the
-  // handler can keep waiting instead of treating the press as unbindable.
+  // Modifier keys on their own, meaning the user is still reaching for the real key.
   const MODIFIER_CODES = /^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/;
 
   function codeToKey(code: string): string | null {
@@ -195,8 +189,7 @@
   function toAccelerator(e: KeyboardEvent): string | null {
     const mods: string[] = [];
     if (e.ctrlKey) mods.push("CmdOrCtrl");
-    // Super is its own modifier: folding it into CmdOrCtrl silently turned Super+A into Ctrl+A,
-    // registering a different shortcut than the one that was pressed.
+    // Super is its own modifier, kept separate so Super+A isn't registered as Ctrl+A.
     if (e.metaKey) mods.push("Super");
     if (e.altKey) mods.push("Alt");
     if (e.shiftKey) mods.push("Shift");
@@ -218,7 +211,7 @@
     if (MODIFIER_CODES.test(e.code)) return;
     const accel = toAccelerator(e);
     if (!accel) {
-      // Previously a bare return, so an unbindable key was indistinguishable from a dead widget.
+      // Tell the user this key can't be used, rather than silently ignoring it.
       recordError = "That key can't be bound. Try a letter, digit or F-key, with a modifier.";
       return;
     }
@@ -230,8 +223,7 @@
   async function save(): Promise<void> {
     if (!form || !original) return;
     const updates: Record<string, unknown> = {};
-    // undefined is what a Svelte binding writes back when its control finds no matching option.
-    // Sending it would overwrite a real saved value with a blank, so treat it as "no change".
+    // Skip undefined, which a select writes when it has no matching option, so it can't blank a saved value.
     for (const k of KEYS) {
       if (form[k] !== original[k] && form[k] !== undefined) updates[k] = form[k];
     }
@@ -263,8 +255,7 @@
     }
   }
 
-  // Fallback for a desktop that does not emit ShortcutsChanged, and for edits made while we were
-  // hidden. One round trip on focus, and only while this screen is open.
+  // Re-reads shortcuts when the window regains focus, for desktops that don't send change events.
   function refreshShortcuts(): void {
     if (hotkeys.backend !== "portal" || !hotkeys.enabled) return;
     void hotkeys.refreshTriggers();
@@ -279,7 +270,7 @@
     <h1>Settings</h1>
   </div>
 
-  <!-- gap-4 over .wiz-body's gap-2: this form is far denser than a wizard step. -->
+  <!-- Extra spacing, since this form is denser than a wizard step. -->
   <div class="wiz-body gap-4">
     {#if loadError}
       <p class="text-warn">{loadError}</p>
@@ -408,8 +399,7 @@
     {#if recordError}<p class="text-bad text-xs">{recordError}</p>{/if}
 
     {#if hotkeys.backend === "portal"}
-      <!-- Wayland: the compositor owns the binding, so it also owns the key-capture UI. An
-           in-app recorder cannot register a trigger here. -->
+      <!-- Wayland: keys are set in the desktop's own shortcut editor, so there's no in-app recorder here. -->
       {#if !hotkeys.enabled}
         <div class="flex items-center gap-2">
           <button onclick={() => void hotkeys.enablePortal()}>Enable shortcuts</button>
@@ -451,9 +441,7 @@
     {/if}
   </div>
 
-  <!-- Outside the scroll area, so a failure or a restart notice can't hide below a long form.
-       This is also where the save status lives now: it grows to a whole sentence, which used to
-       stretch the Save button. -->
+  <!-- Errors and save progress sit above the footer, outside the scroll area, so they're always visible. -->
   {#if error || (saving && status)}
     <div class="wiz-status">
       {#if error}<p class="text-warn">{error}</p>{/if}

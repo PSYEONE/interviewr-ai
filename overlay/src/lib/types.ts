@@ -40,9 +40,7 @@ export interface OllamaStatus {
   install_command: string | null;
 }
 
-// One curated catalog model, fit-labelled against the detected VRAM (mirrors backend RankedModel).
-// Only the name and label are hand-written; the facts are generated into catalog.json, so they are
-// nullable until a newly-added model has been through scripts/refresh_catalog.py.
+// A curated model and how well it fits the detected VRAM (mirrors backend RankedModel); its facts are null until catalog.json is refreshed.
 export interface RankedModel {
   name: string; // ollama tag
   label: string;

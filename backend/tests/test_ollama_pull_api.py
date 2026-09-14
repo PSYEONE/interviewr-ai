@@ -1,9 +1,4 @@
-"""POST /ollama/pull's disk pre-check: refuse what won't fit, fall open on every unknown.
-
-ASGI transport with app.state injected, so the lifespan never runs (no LLM, producer or audio).
-The disk probe and the registry lookup are monkeypatched on `main`, since the route calls them
-directly rather than taking them as dependencies.
-"""
+"""POST /ollama/pull's pre-check: refuse downloads that won't fit, and allow them whenever something is unknown."""
 
 from __future__ import annotations
 
