@@ -1,0 +1,9 @@
+# Pin for pywhispercpp's isolated build environment, applied with PIP_CONSTRAINT.
+#
+# pip builds pywhispercpp from source in an environment of its own and resolves the `cmake>=3.12`
+# in its build-system.requires against PyPI, ignoring whatever apt installed. PyPI's cmake is now
+# 4.x, which dropped the pre-3.10 compatibility whisper.cpp's bundled CMakeLists relies on, and the
+# build dies at configure with a misleading "Could NOT find Vulkan (missing: Vulkan_LIBRARY)"
+# among others. Builds before roughly mid-2025 got cmake 3.x by luck of timing, which is why an
+# older venv keeps working while a fresh one fails.
+cmake<4

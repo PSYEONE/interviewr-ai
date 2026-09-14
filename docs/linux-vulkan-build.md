@@ -23,7 +23,9 @@ actually compiles from source. Symptom: `system_info()` shows `CPU : AVX2 = 1 ..
 Fix: force a from-source build.
 
 ```bash
+pip install 'pip<26'   # see gotcha 1b
 GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
+  PIP_CONSTRAINT=scripts/build-constraints.txt \
   pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 ```
 
@@ -32,6 +34,28 @@ environment, so pip compiles cmake, ninja and setuptools from source first, sing
 before it reaches whisper at all. Measured on this machine: 42 minutes spent entirely inside
 "Installing build dependencies", versus 16 seconds to reach the real build with the package
 named.
+
+### Gotcha 1b: pip's build environment picks cmake 4, which whisper.cpp cannot configure
+
+pywhispercpp declares `cmake>=3.12` in `build-system.requires`, so the isolated build environment
+gets the newest cmake on PyPI, currently 4.x, whatever apt installed. CMake 4 dropped the pre-3.10
+compatibility whisper.cpp's bundled CMakeLists relies on, and configure fails:
+
+```
+CMake Error at whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt:57 (target_compile_features)
+Could NOT find Vulkan (missing: Vulkan_LIBRARY) (found version "1.3.275")
+```
+
+The Vulkan line is a **red herring**: `libvulkan-dev` is installed and `libvulkan.so` is present.
+It is CMake 4's rewritten `FindVulkan`, not a missing package.
+
+The fix is `PIP_CONSTRAINT` with `cmake<4` (`scripts/build-constraints.txt`), and it only works
+on **pip below 26**. pip 24 applies constraints to the build environment; pip 26 does not.
+Measured on 26.2.1: the constraint is accepted without complaint and `cmake-4.4.3` installed
+regardless. That is why `scripts/install.sh` pins `pip<26` instead of upgrading.
+
+Builds from before roughly mid-2025 got cmake 3.x by luck of timing, which is why an older venv
+keeps working while a fresh one fails.
 
 ### Build prerequisites (system packages, need sudo)
 
