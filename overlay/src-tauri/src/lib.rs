@@ -3,7 +3,7 @@ mod shortcuts;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -29,10 +29,38 @@ struct Connection {
 static ENV_FILE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 fn load_env() {
-    ENV_FILE.get_or_init(|| match std::env::current_dir() {
-        Ok(dir) => read_env_file(dir),
-        Err(_) => HashMap::new(),
-    });
+    ENV_FILE.get_or_init(env_map);
+}
+
+/// The same precedence the engine uses in `config.py`: an explicit override, then a checkout's own
+/// root, then the XDG config dir. The two must agree, because `INTERVIEWR_AUTH_TOKEN` lives here
+/// and the overlay authenticates its own WebSocket with it: reading a different file than the engine
+/// means the overlay cannot connect to the engine it just launched.
+fn env_map() -> HashMap<String, String> {
+    if let Some(dir) = std::env::var_os("INTERVIEWR_CONFIG_DIR") {
+        if !dir.is_empty() {
+            return parse_env_file(&PathBuf::from(dir).join(".env"));
+        }
+    }
+    if let Ok(dir) = std::env::current_dir() {
+        let found = read_env_file(dir);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    parse_env_file(&xdg_config_dir().join(".env"))
+}
+
+/// `$XDG_CONFIG_HOME/interviewr`, or `~/.config/interviewr`. A relative XDG value is invalid per the
+/// spec and ignored rather than resolved against the cwd, which is exactly the unknown directory an
+/// installed launcher starts us in.
+fn xdg_config_dir() -> PathBuf {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("/"));
+    base.join("interviewr")
 }
 
 /// Parse the nearest `.env` at or above `dir`. Returns a map and leaves the environment alone.
@@ -40,14 +68,18 @@ fn read_env_file(mut dir: PathBuf) -> HashMap<String, String> {
     loop {
         let candidate = dir.join(".env");
         if candidate.is_file() {
-            return match dotenvy::from_path_iter(&candidate) {
-                Ok(iter) => iter.flatten().collect(),
-                Err(_) => HashMap::new(),
-            };
+            return parse_env_file(&candidate);
         }
         if !dir.pop() {
             return HashMap::new();
         }
+    }
+}
+
+fn parse_env_file(path: &Path) -> HashMap<String, String> {
+    match dotenvy::from_path_iter(path) {
+        Ok(iter) => iter.flatten().collect(),
+        Err(_) => HashMap::new(),
     }
 }
 
@@ -121,7 +153,10 @@ struct EngineFailed {
 /// Deliberately not keyed on `.env`: the engine boots in setup mode without one, and the wizard
 /// is what creates `.env` in the first place.
 fn find_backend_dir() -> Option<PathBuf> {
-    let mut dir = std::env::current_dir().ok()?;
+    walk_up_for_backend(std::env::current_dir().ok()?).or_else(installed_backend_dir)
+}
+
+fn walk_up_for_backend(mut dir: PathBuf) -> Option<PathBuf> {
     loop {
         let nested = dir.join("backend");
         if nested.join("run_pipeline.py").is_file() {
@@ -134,6 +169,37 @@ fn find_backend_dir() -> Option<PathBuf> {
             return None;
         }
     }
+}
+
+/// The engine as a packaged install puts it, found relative to this executable rather than by
+/// absolute path so a non-`/usr` prefix still resolves: `<prefix>/bin/interviewr-overlay` means the
+/// payload is at `<prefix>/lib/interviewr/backend`. Tried only after the walk above, so running
+/// from a checkout still wins over an installed copy on the same machine.
+fn installed_backend_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let prefix = exe.parent()?.parent()?;
+    let dir = prefix.join("lib").join("interviewr").join("backend");
+    dir.join("run_pipeline.py").is_file().then_some(dir)
+}
+
+/// The private interpreter belonging to `dir`, if there is one, preferring a checkout's own venv so
+/// running from a clone is never hijacked by an installed copy.
+///
+/// A checkout keeps `.venv` inside the backend. A package ships its interpreter as a sibling, since
+/// `/usr/lib/interviewr` holds both: `python/` is the bundled standalone build the .deb carries
+/// (the distro has no one Python to depend on across releases), and `venv/` covers an install that
+/// built one against the system instead.
+fn venv_python(dir: &Path) -> Option<PathBuf> {
+    let relative = if cfg!(windows) {
+        [
+            ".venv/Scripts/python.exe",
+            "../python/Scripts/python.exe",
+            "../venv/Scripts/python.exe",
+        ]
+    } else {
+        [".venv/bin/python", "../python/bin/python", "../venv/bin/python"]
+    };
+    relative.iter().map(|p| dir.join(p)).find(|p| p.is_file())
 }
 
 struct EngineCmd {
@@ -157,18 +223,8 @@ fn engine_command() -> Result<EngineCmd, String> {
     }
     let python = match cfg("INTERVIEWR_BACKEND_PYTHON") {
         Some(p) if !p.trim().is_empty() => PathBuf::from(p),
-        _ => {
-            let venv = if cfg!(windows) {
-                dir.join(".venv/Scripts/python.exe")
-            } else {
-                dir.join(".venv/bin/python")
-            };
-            if venv.is_file() {
-                venv
-            } else {
-                PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
-            }
-        }
+        _ => venv_python(&dir)
+            .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "python" } else { "python3" })),
     };
     Ok(EngineCmd { python, dir })
 }
@@ -751,7 +807,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod env_tests {
-    use super::read_env_file;
+    use super::{read_env_file, xdg_config_dir};
+    use std::path::PathBuf;
 
     /// The regression this guards: `.env` used to be loaded with `dotenvy::from_path`, which sets
     /// the variables for real. The engine inherits this process's environment, and
@@ -781,5 +838,140 @@ mod env_tests {
         // Walks to the filesystem root without finding one, which is a normal first run.
         assert!(read_env_file(dir.clone()).get("INTERVIEWR_TEST_ONLY_KEY").is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Must match `config.py`'s `_xdg`, or an installed overlay reads a different `.env` than the
+    /// engine it launches and cannot authenticate to it.
+    #[test]
+    fn the_xdg_config_dir_matches_the_engines() {
+        // SAFETY: single-threaded test; the variables are restored before returning.
+        let saved = (std::env::var_os("XDG_CONFIG_HOME"), std::env::var_os("HOME"));
+        unsafe { std::env::set_var("HOME", "/home/someone") };
+
+        unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+        assert_eq!(xdg_config_dir(), PathBuf::from("/home/someone/.config/interviewr"));
+
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", "/custom/cfg") };
+        assert_eq!(xdg_config_dir(), PathBuf::from("/custom/cfg/interviewr"));
+
+        // Relative values are invalid per the spec. Honouring one would resolve it against the cwd,
+        // which for a desktop launch is an arbitrary directory.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", "relative/cfg") };
+        assert_eq!(xdg_config_dir(), PathBuf::from("/home/someone/.config/interviewr"));
+
+        unsafe {
+            match saved.0 {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match saved.1 {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+}
+
+/// Locating the engine. A packaged install cannot use the cwd walk: launched from a desktop entry
+/// the working directory is `/` or `$HOME`, nowhere near `/usr/lib/interviewr`.
+#[cfg(test)]
+mod layout_tests {
+    use super::{venv_python, walk_up_for_backend};
+    use std::path::PathBuf;
+
+    /// A scratch directory that cleans itself up, so a failing assert cannot leave one behind.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "interviewr-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+        fn touch(&self, rel: &str) -> PathBuf {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, "").expect("write");
+            path
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_walk_finds_a_nested_backend() {
+        let s = Scratch::new("nested");
+        s.touch("backend/run_pipeline.py");
+        assert_eq!(walk_up_for_backend(s.0.clone()), Some(s.0.join("backend")));
+    }
+
+    #[test]
+    fn the_walk_finds_the_backend_from_inside_it() {
+        let s = Scratch::new("inside");
+        s.touch("backend/run_pipeline.py");
+        assert_eq!(walk_up_for_backend(s.0.join("backend")), Some(s.0.join("backend")));
+    }
+
+    #[test]
+    fn the_walk_climbs_out_of_a_subdirectory() {
+        let s = Scratch::new("climb");
+        s.touch("backend/run_pipeline.py");
+        std::fs::create_dir_all(s.0.join("overlay/src")).expect("mkdir");
+        assert_eq!(walk_up_for_backend(s.0.join("overlay/src")), Some(s.0.join("backend")));
+    }
+
+    #[test]
+    fn a_checkout_venv_is_found_inside_the_backend() {
+        let s = Scratch::new("devvenv");
+        let backend = s.0.join("backend");
+        s.touch("backend/run_pipeline.py");
+        let python = s.touch("backend/.venv/bin/python");
+        assert_eq!(venv_python(&backend), Some(python));
+    }
+
+    /// The packaged layout: `/usr/lib/interviewr/{backend,python}`, so the interpreter is a sibling
+    /// of the backend rather than inside it. The .deb bundles its own interpreter because no single
+    /// system Python exists across the target releases.
+    #[test]
+    fn the_bundled_interpreter_is_found_beside_the_backend() {
+        let s = Scratch::new("pkgpython");
+        let backend = s.0.join("backend");
+        s.touch("backend/run_pipeline.py");
+        s.touch("python/bin/python");
+        assert_eq!(venv_python(&backend), Some(backend.join("../python/bin/python")));
+    }
+
+    /// The other sibling shape: an install that built a venv against the system Python.
+    #[test]
+    fn a_sibling_venv_is_found_too() {
+        let s = Scratch::new("pkgvenv");
+        let backend = s.0.join("backend");
+        s.touch("backend/run_pipeline.py");
+        s.touch("venv/bin/python");
+        assert_eq!(venv_python(&backend), Some(backend.join("../venv/bin/python")));
+    }
+
+    #[test]
+    fn the_checkout_venv_wins_when_both_exist() {
+        let s = Scratch::new("bothvenv");
+        let backend = s.0.join("backend");
+        let dev = s.touch("backend/.venv/bin/python");
+        s.touch("venv/bin/python");
+        assert_eq!(venv_python(&backend), Some(dev));
+    }
+
+    #[test]
+    fn no_venv_resolves_to_none_so_the_caller_falls_back_to_python3() {
+        let s = Scratch::new("novenv");
+        s.touch("backend/run_pipeline.py");
+        assert_eq!(venv_python(&s.0.join("backend")), None);
     }
 }
