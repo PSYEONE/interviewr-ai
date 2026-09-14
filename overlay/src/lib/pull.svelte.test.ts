@@ -10,6 +10,7 @@ const mocked = vi.mocked(pullModel);
 
 beforeEach(() => {
   pull.settled = 0;
+  pull.lastDone = null;
   mocked.mockReset();
 });
 
@@ -70,5 +71,36 @@ describe("pull.settled", () => {
     release();
     await first;
     expect(pull.settled).toBe(1);
+  });
+});
+
+describe("pull.lastDone", () => {
+  it("names the model after a successful pull", async () => {
+    mocked.mockImplementation(async (_m, _p, _s, onStart) => {
+      onStart?.();
+    });
+
+    await pull.run("gemma3:4b");
+    expect(pull.lastDone).toBe("gemma3:4b");
+  });
+
+  it("is cleared when the next pull is cancelled", async () => {
+    mocked.mockResolvedValueOnce(undefined);
+    await pull.run("gemma3:4b");
+
+    mocked.mockImplementation(async (_m, _p, _s, onStart) => {
+      onStart?.();
+      pull.cancel();
+      throw new DOMException("aborted", "AbortError");
+    });
+    await pull.run("qwen3:8b");
+    expect(pull.lastDone).toBeNull();
+  });
+
+  it("stays null when a pull fails", async () => {
+    mocked.mockRejectedValue(new Error("pull gemma3:4b -> 500"));
+
+    await expect(pull.run("gemma3:4b")).rejects.toThrow("500");
+    expect(pull.lastDone).toBeNull();
   });
 });
