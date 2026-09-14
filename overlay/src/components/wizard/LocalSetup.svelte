@@ -193,11 +193,19 @@
     }
   }
 
+  // Lists a just-downloaded model right away, so its row doesn't flash Download while refresh() runs.
+  function markInstalled(model: string): void {
+    if (installed(model)) return;
+    const placeholder = { name: model, size: 0, parameter_size: null, quantization: null, family: null };
+    info = { ...info, ollama: { ...info.ollama, models: [...info.ollama.models, placeholder] } };
+  }
+
   // Refreshes when any download finishes, including one started before this screen was opened.
   let handled = pull.settled;
   $effect(() => {
     if (pull.settled === handled) return;
     handled = pull.settled;
+    if (pull.lastDone) markInstalled(pull.lastDone);
     void refresh();
   });
 
@@ -206,7 +214,7 @@
     error = null;
     try {
       // A cancelled download isn't an error, so it doesn't show the error line.
-      await pull.run(model);
+      if ((await pull.run(model)) === "done") markInstalled(model);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -226,7 +234,7 @@
     if (!tag) return;
     customError = null;
     try {
-      await pull.run(tag);
+      if ((await pull.run(tag)) === "done") markInstalled(tag);
     } catch (e) {
       // Short message, since it's shown inside the input field.
       const status = (e as { status?: number }).status;

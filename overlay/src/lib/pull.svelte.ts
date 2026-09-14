@@ -13,6 +13,8 @@ class Pull {
   cancelling = $state(false);
   // Increases whenever a download ends, however it ends, so any open screen can refresh its model list.
   settled = $state(0);
+  // Model of the last download that finished successfully; null after a cancel or failure.
+  lastDone = $state<string | null>(null);
 
   #controller: AbortController | null = null;
 
@@ -27,6 +29,7 @@ class Pull {
     const controller = new AbortController();
     this.#controller = controller;
     this.cancelling = false;
+    this.lastDone = null;
     this.checking = model; // the tag is being resolved; no progress bar yet
     try {
       await pullModel(
@@ -45,6 +48,7 @@ class Pull {
           this.active = { model, pct: 0, status: "starting…" };
         },
       );
+      this.lastDone = model;
       return "done";
     } catch (e) {
       if (controller.signal.aborted || (e instanceof DOMException && e.name === "AbortError")) {
