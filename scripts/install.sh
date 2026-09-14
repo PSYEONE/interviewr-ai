@@ -69,7 +69,12 @@ echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 # backend and costing a half-hour rebuild. Whichever path below runs owns that package instead.
 say "Installing the engine into backend/.venv"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
-"$PY" -m pip install --quiet --upgrade pip
+# Pinned below 26 rather than upgraded. pip 26 stopped applying PIP_CONSTRAINT to build
+# dependencies, which is the only lever over the cmake that compiles pywhispercpp (see step 5 and
+# scripts/build-constraints.txt). Measured on 26.2.1: a `cmake<4` constraint is accepted in silence
+# and cmake 4.4.3 installed regardless. Both the pin and the constraint can go once pywhispercpp's
+# bundled whisper.cpp configures under CMake 4.
+"$PY" -m pip install --quiet 'pip<26'
 # Not --quiet: on a fresh clone this downloads numpy and the rest, and pip's own collecting and
 # download output is the only sign the script has not hung.
 "$PY" -m pip install -e "$BACKEND"
@@ -151,7 +156,10 @@ else
   #    tree: without it pip uninstalls and reinstalls identical versions of numpy, certifi and
   #    idna, which is 40-odd MB of churn and leaves a window where numpy is missing if the build
   #    fails. The follow-up install below is what actually supplies the dependencies.
-  GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" \
+  #
+  #    PIP_CONSTRAINT keeps cmake 4 out of pip's isolated build environment, where apt's cmake is
+  #    never used. It only takes effect on the pip pinned in step 2.
+  GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" PIP_CONSTRAINT="$ROOT/scripts/build-constraints.txt" \
     "$PY" -m pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 
   # pywhispercpp needs platformdirs, requests and tqdm, and step 2 deliberately skips the [local]
