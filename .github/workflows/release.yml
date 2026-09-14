@@ -1,0 +1,53 @@
+name: Release .deb
+
+# Deliberately thin: every build decision lives in packaging/Dockerfile and scripts/build-deb.sh, so
+# a failure here can be reproduced locally by running the same script. The runner only supplies
+# docker and somewhere to put the artifact.
+#
+# The container is what makes the package portable. glibc symbols are forward- but not
+# backward-compatible, so building on the runner's own Ubuntu would pin the .deb to that release;
+# the Dockerfile builds on 24.04 so one artifact covers 24.04 through 26.04+ and Debian 13.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Layer caching across runs: the Vulkan shader compile and the Rust build are the slow parts
+      # and neither changes unless their inputs do.
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the package
+        run: ./scripts/build-deb.sh
+
+      - name: Check the package installs and the engine imports
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./dist/*.deb
+          # The one failure that looks like success is a silent CPU fallback, so assert the Vulkan
+          # backend is actually present. The runner has no GPU, so this checks the library shipped
+          # rather than that a device was found.
+          test -e /usr/lib/interviewr/python/bin/python3
+          ls /usr/lib/interviewr/python/lib/python*/site-packages/libggml-vulkan.so*
+          /usr/lib/interviewr/python/bin/python3 -c 'import app.config; print("engine imports")' \
+            2>/dev/null || (cd /usr/lib/interviewr/backend && \
+            /usr/lib/interviewr/python/bin/python3 -c 'import app.config; print("engine imports")')
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interviewr-deb
+          path: dist/*.deb
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/*.deb --generate-notes --verify-tag

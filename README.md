@@ -55,7 +55,25 @@ transcript + answer events over an **authenticated WebSocket** to any number of 
 clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
 to the same stream.
 
-## Quick start
+## Install
+
+```bash
+sudo apt install ./interviewr_0.1.0_amd64.deb
+```
+
+Ubuntu 24.04 or newer, Debian 13, Mint 22+ and Pop. Nothing is compiled on your machine: the
+package carries the Vulkan-accelerated transcription build and its own Python, so it does not
+depend on whichever Python your distribution ships. Config lands in `~/.config/interviewr/`
+and the databases in `~/.local/share/interviewr/`, so removing the package leaves your data.
+
+Ollama is not a dependency. The wizard checks for it on first run and shows the install command
+if it is missing, then recommends an LLM that fits your GPU's VRAM.
+
+To build the package yourself: `./scripts/build-deb.sh` (needs docker). glibc symbols are
+forward- but not backward-compatible, so a package built on a 26.04 machine installs only on
+26.04; building on a 24.04 base is what makes one artifact work across releases.
+
+## Running from a checkout
 
 ```bash
 ./scripts/install.sh       # engine + GPU transcription; re-run safely

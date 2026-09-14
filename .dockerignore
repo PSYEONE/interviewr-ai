@@ -1,0 +1,43 @@
+# Keep the build context small and free of anything private.
+#
+# Unfiltered this repo is ~13 GB, almost all of it overlay/src-tauri/target, and docker uploads the
+# whole context to the daemon before the first instruction runs. It also picks up .env, which on a
+# developer machine holds real API keys and must never be baked into an image.
+
+# Secrets and local config.
+.env
+.env.*
+!.env.example
+
+# Build output and caches, all regenerated inside the container.
+**/target/
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+dist/
+overlay/dist/
+.ruff_cache/
+**/.mypy_cache/
+**/.pytest_cache/
+
+# Local state: databases and anything the app wrote while running.
+backend/data/
+**/*.sqlite3
+
+# Not needed to build, and a stale .git is a large upload for nothing.
+.git/
+.git.broken-*/
+.github/
+.claude/
+
+# Tests and eval harness; the package ships neither.
+backend/tests/
+backend/eval/
+
+# Notes and docs.
+docs/
+*.md
+!LICENSE
+ideas.txt
+TODO.md
