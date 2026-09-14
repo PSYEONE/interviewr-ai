@@ -62,8 +62,9 @@ That's what keeps phone/browser clients nearly free to add later.
 ## Platform reality (don't promise what the compositor won't give)
 
 - **Always-on-top:** the toolkit call (`set_always_on_top`) is a **no-op on native Wayland**
-  (GTK ignores keep-above); an app cannot pin itself. On KDE the overlay installs a KWin window
-  rule to force it (see `overlay/scripts/install-kwin-rule.sh`). Works natively on X11/Windows/macOS.
+  (GTK ignores keep-above); an app cannot pin itself. On KDE the overlay writes a KWin window rule
+  to force it (`ensure_kwin_rule` / `set_kwin_rule_bool` in `overlay/src-tauri/src/lib.rs`, driven by
+  the Pin toggle). Works natively on X11/Windows/macOS.
 - **Click-through (input passthrough):** unreliable on Wayland; fine on X11. Tauri exposes
   the call (`set_ignore_cursor_events`) but the compositor decides.
 - **Screen-capture exclusion:** KDE-only. Two KWin layers exist: (1) the **runtime**

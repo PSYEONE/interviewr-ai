@@ -51,15 +51,13 @@ un-toggled from a window you can no longer click. It will return later behind a 
 
 ## Always-on-top (KDE/KWin)
 
-GTK can't pin a window on Wayland (keep-above is ignored), so on KDE the app drives a KWin
-"keep above" window rule. It applies the rule itself on startup (pinned by default) and the
-**Pin** button toggles it, so no manual setup is needed. The standalone
-`scripts/install-kwin-rule.sh` (and `contrib/interviewr.kwinrule` for GUI import) remain for
-headless use or if you'd rather the app not touch your KWin config.
+GTK can't pin a window on Wayland (keep-above is ignored), so on KDE the app writes a KWin
+"keep above" window rule itself. The **Pin** button toggles it and the choice persists across
+restarts, so there is no manual setup. Unpinned by default.
 
-If it isn't pinned, the window class differs from the default `interviewr-overlay`; find it via
-System Settings > Window Rules > "Detect Window Properties" and run
-`./scripts/install-kwin-rule.sh <class>`.
+If pinning has no effect, the window class differs from the expected `interviewr-overlay`; check
+it via System Settings > Window Management > Window Rules > "Detect Window Properties" with the
+overlay focused.
 
 Only KDE is wired up for now. GNOME/Sway/Hyprland and a portable XWayland fallback come later.
 
@@ -67,7 +65,10 @@ Only KDE is wired up for now. GNOME/Sway/Hyprland and a portable XWayland fallba
 
 - **Click-through** is not exposed yet (on Wayland it traps input with no escape; returns later
   behind a global hotkey).
-- **Screen-capture exclusion** is not available on Wayland (Windows/macOS only, later).
+- **Screen-capture exclusion** works on KDE Plasma 6.6+ via the `excludefromcapture` KWin rule and
+  a transient KWin script (the **Hide from Screencast** toggle; the button is disabled below 6.6).
+  Only PipeWire-portal capturers honor it, and the cursor is composited separately, so treat it as a
+  privacy convenience rather than an undetectability guarantee. No GNOME or wlroots equivalent.
 - The Linux webview is **WebKitGTK, not Chromium**, test UI changes here, not in Chrome.
 - If the window renders opaque instead of translucent, that is a compositor/transparency
   limitation, not a bug in the client.

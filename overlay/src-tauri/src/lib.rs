@@ -485,6 +485,8 @@ fn kwin_read(args: &[&str]) -> Option<String> {
     })
 }
 
+/// Make KWin re-read its rules. Without this the file is written but nothing applies until the next
+/// login, which reads as "pin is broken" while the config says it is on.
 #[cfg(target_os = "linux")]
 fn kwin_reconfigure() {
     use std::process::Command;
@@ -495,7 +497,24 @@ fn kwin_reconfigure() {
             .map(|s| s.success())
             .unwrap_or(false)
     };
-    let _ = reconfigure("qdbus6") || reconfigure("qdbus");
+    // dbus-send takes a different argument shape, so it cannot share the closure. It is worth the
+    // duplication: qdbus ships with Qt tooling that a minimal Plasma install may not pull in, while
+    // dbus-send comes with dbus itself.
+    let dbus_send = || {
+        Command::new("dbus-send")
+            .args([
+                "--type=method_call",
+                "--dest=org.kde.KWin",
+                "/KWin",
+                "org.kde.KWin.reconfigure",
+            ])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    // Not surfaced on total failure: that means no D-Bus tooling at all, where the rule still takes
+    // effect at next login and an error would be noise.
+    let _ = reconfigure("qdbus6") || reconfigure("qdbus") || dbus_send();
 }
 
 /// Parse the running KWin's (major, minor) from `kwin_wayland/kwin_x11 --version` ("kwin 6.7.0").
@@ -749,7 +768,7 @@ pub fn run() {
     appid::ensure_scope();
     // Always-on-top is enforced by a KWin window rule, not the toolkit: on native Wayland
     // GTK ignores keep-above, and forcing XWayland to dodge that costs HiDPI scaling and
-    // normal window management. See scripts/install-kwin-rule.sh.
+    // normal window management. See ensure_kwin_rule below.
     load_env();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
