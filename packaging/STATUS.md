@@ -1,65 +1,44 @@
-# .deb packaging: where it stands
+# .deb packaging status
 
-Shelved on this branch, unfinished. The whole stack is written; the container build does not yet
-produce a package.
+The Docker build produces a working `.deb` (about 213 MB). It installed and ran on the maintainer's
+laptop: the wizard, a local model download and a live interview all worked.
 
-## What works
+## What fixed the build
 
-- The relocatability the package depends on is on `main` (XDG config and state dirs, the overlay
-  finding an installed engine and its bundled interpreter, the overlay reading the same `.env` as
-  the engine).
-- The image builds up to the pywhispercpp compile: apt on `ubuntu:24.04`, the bundled
-  python-build-standalone interpreter, rust, node, and `pip install -e backend`.
-- cmake is correctly held at 3.31 in pip's build environment by `pip<26` plus
-  `scripts/build-constraints.txt` (also on `main`).
+- **Renamed `ENV PREFIX` to `INTERVIEWR_PREFIX`.** pywhispercpp's `setup.py` passes every
+  environment variable to cmake, so `PREFIX` clashed with a cmake variable and configure failed at
+  `ggml_get_flags`. Keep Dockerfile `ENV` and `ARG` names namespaced.
+- **Raised `RUST_VERSION` from 1.83.0 to 1.91.1** so the overlay compiles.
 
-## Why the base is 24.04 and Python is bundled
+## Verified
 
-Everything compiled on the 26.04 dev machine requires `GLIBC_2.43` (one symbol, `sqrtf`), so a
-package built there installs on 26.04 only. 26.04 also ships only `python3.14` with no
-`python3.12`, so there is no single system interpreter to depend on across releases.
+- The `--locked` build passes.
+- `sudo apt install ./dist/interviewr_*.deb` installs, and the app launches from the menu.
+- GPU transcription works in the installed copy (`ggml_vulkan` is listed by
+  `/usr/lib/interviewr/python/bin/python3 -c 'from pywhispercpp.model import Model; Model.system_info()'`).
+- Settings are saved under `~/.config/interviewr`, not inside `/usr/lib`.
 
-## The blocker
+## Known issues
 
-Inside `packaging/Dockerfile`, the pywhispercpp source build fails at configure:
+- **Library symlinks don't survive packaging.** `libggml-vulkan.so`, `.so.0` and `.so.0.13.1` install
+  as three separate 46 MB files, about 93 MB wasted.
+- **A dev desktop entry hides the packaged one.** `overlay/scripts/install-desktop-entry.sh` writes
+  `~/.local/share/applications/interviewr-overlay.desktop`, which takes priority over
+  `/usr/share/applications` and launches the old dev binary. Remove it and run `kbuildsycoca6`.
+- App bugs found while testing (wizard pin, model row flashing Download, transcription stalling
+  after Clear) are being fixed on `main`; rebase this branch afterwards.
 
-```
-CMake Error at whisper.cpp/ggml/src/CMakeLists.txt:47 (ggml_get_flags):
-  ggml_get_flags Function invoked with incorrect arguments
-CMake Error at .../cmake-3.31/Modules/FindOpenMP.cmake:644 (if):
-  if given arguments: "CMAKE_C_COMPILER_ID" "STREQUAL" "Fujitsu" "OR" "STREQUAL" "IntelLLVM"
-```
+## Ruled out
 
-Line 47 is `ggml_get_flags(${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})`, so a compiler
-ID or version is expanding empty.
+- CMake 4: a separate problem, fixed on `main` with `pip<26` and `scripts/build-constraints.txt`.
+- `--no-build-isolation`, and passing compiler paths explicitly.
 
-## Disproven, do not retry
+## Why Ubuntu 24.04 and a bundled Python
 
-- **CMake 4.** Real, and fixed separately, but this error also occurs on cmake 3.31.
-- **`--no-build-isolation`.** Same error with build isolation on.
-- **Compiler detection.** Passing `-DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++`
-  through `CMAKE_ARGS` changed nothing. g++ is present and identifies as GNU 13.3.0 in a bare
-  project under the same image and Ninja generator.
+- Binaries built on 26.04 need glibc 2.43, so they won't run on 24.04.
+- 26.04 only ships Python 3.14, so there's no common system Python to depend on.
 
-## The one lead
+## Still to verify
 
-The same build **succeeded** (`Successfully installed pywhispercpp-1.5.1`) in a minimal
-`ubuntu:24.04` container with only `build-essential cmake glslc glslang-tools libvulkan-dev
-spirv-headers`, bundled pip 24.3.1 and `PIP_CONSTRAINT=cmake<4`. The Dockerfile differs in:
-
-1. ~10 extra apt packages (the webkit/gtk/soup `-dev` set, `dpkg-dev`, `fakeroot`, `file`,
-   `patchelf`, `pkg-config`).
-2. `ENV`s: `PREFIX`, `CMAKE_BUILD_PARALLEL_LEVEL`, `MAKEFLAGS`, plus the ARGs.
-3. Running through `install.sh`, which installs the backend's dependencies first.
-
-This matters because pywhispercpp's `setup.py` passes **every environment variable to cmake as a
-`-D` define** (build logs show `-DHOME=/root`, `-DPATH=...`, `-DPREFIX=...`). Next step is to
-bisect those three differences, cheapest first: the ENVs, then the apt set. The failure shows at
-about 60s into the install step, so each bisect run is short once apt is cached.
-
-## Also untested
-
-- Whether `bundle.linux.deb.files` preserves the ggml symlinks the Dockerfile creates.
-- `scripts/build-deb.sh`, `.github/workflows/release.yml` and the bundle config end to end.
-- Memory: the tmpfs `/tmp` on the dev machine filled with apport cores once and OOM-killed a
-  build; `BUILD_JOBS` (default 8) caps the shader compile.
+- Install on a clean machine with no dev checkout, config or KWin rule.
+- `.github/workflows/release.yml` works end to end.
