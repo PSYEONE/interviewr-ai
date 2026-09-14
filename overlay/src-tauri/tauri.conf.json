@@ -32,12 +32,20 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libvulkan1", "pipewire-bin", "pulseaudio-utils"],
+        "files": {
+          "/usr/lib/interviewr": "/usr/lib/interviewr"
+        }
+      }
+    }
   }
 }

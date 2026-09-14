@@ -55,7 +55,24 @@ transcript + answer events over an **authenticated WebSocket** to any number of 
 clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
 to the same stream.
 
-## Quick start
+## Install
+
+```bash
+sudo apt install ./interviewr-overlay_0.1.0_amd64.deb
+```
+
+Built for Ubuntu 24.04 and newer. Other Ubuntu and Debian based distros should work but are untested.
+The package includes its own Python and the GPU (Vulkan) transcription build, so nothing is compiled
+on your machine. Settings go in `~/.config/interviewr/` and data in `~/.local/share/interviewr/`, and
+both are kept if you uninstall.
+
+Ollama isn't bundled. The setup wizard checks for it, shows the install command if it's missing, and
+recommends a model that fits your GPU.
+
+To build the package yourself, run `./scripts/build-deb.sh` (needs docker). It builds on Ubuntu 24.04
+so the result also installs on newer releases.
+
+## Running from a checkout
 
 ```bash
 ./scripts/install.sh       # engine + GPU transcription; re-run safely

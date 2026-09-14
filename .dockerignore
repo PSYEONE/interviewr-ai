@@ -1,0 +1,39 @@
+# Keeps the docker build context small and free of secrets.
+
+# Secrets and local config (.env holds real API keys).
+.env
+.env.*
+!.env.example
+
+# Build output and caches, rebuilt inside the container.
+**/target/
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/*.pyc
+dist/
+overlay/dist/
+.ruff_cache/
+**/.mypy_cache/
+**/.pytest_cache/
+
+# Local app data.
+backend/data/
+**/*.sqlite3
+
+# Repo metadata and tooling.
+.git/
+.git.broken-*/
+.github/
+.claude/
+
+# Tests and the eval harness, which the package doesn't ship.
+backend/tests/
+backend/eval/
+
+# Notes and docs.
+docs/
+*.md
+!LICENSE
+ideas.txt
+TODO.md
