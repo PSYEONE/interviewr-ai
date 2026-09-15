@@ -47,7 +47,9 @@ ENV CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}
 ENV MAKEFLAGS=-j${BUILD_JOBS}
 
 # Installs the engine's dependencies and compiles pywhispercpp with Vulkan into the bundled Python.
-RUN INTERVIEWR_VENV="$INTERVIEWR_PREFIX/python" ./scripts/install.sh --build-only
+# GGML_NATIVE=OFF builds for any x86-64 CPU with AVX2 instead of the build machine's own CPU.
+RUN INTERVIEWR_VENV="$INTERVIEWR_PREFIX/python" INTERVIEWR_CMAKE_ARGS="-DGGML_NATIVE=OFF" \
+    ./scripts/install.sh --build-only
 
 # Removes dev-only packages, the editable install, caches and bundled test folders.
 RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') \
@@ -64,6 +66,7 @@ RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(s
          if [ "$so" != "$soname" ] && [ -e "$soname" ]; then rm "$so"; fi; \
        done \
     && "$INTERVIEWR_PREFIX/python/bin/python3" -c 'import _pywhispercpp' \
+    && { ! objdump -d libggml-cpu.so.0 | grep -q zmm || { echo "libggml-cpu uses AVX-512; the build is not generic" >&2; exit 1; }; } \
     && ls libggml*.so* libwhisper*.so* \
     && echo "after pruning: $(du -sh "$SITE" | cut -f1)"
 

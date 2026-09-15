@@ -128,7 +128,8 @@ else
   say "Building pywhispercpp with Vulkan"
   echo "  Compiling the Vulkan shaders takes a few minutes. It runs once."
   # --no-deps avoids reinstalling every dependency; PIP_CONSTRAINT keeps the build on cmake 3 (see build-constraints.txt).
-  GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON" PIP_CONSTRAINT="$ROOT/scripts/build-constraints.txt" \
+  # INTERVIEWR_CMAKE_ARGS adds CMake options; the .deb build uses it for a generic CPU build.
+  GGML_VULKAN=1 CMAKE_ARGS="-DGGML_VULKAN=ON ${INTERVIEWR_CMAKE_ARGS:-}" PIP_CONSTRAINT="$ROOT/scripts/build-constraints.txt" \
     "$PY" -m pip install --force-reinstall --no-binary pywhispercpp --no-deps pywhispercpp
 
   # Installs pywhispercpp's own dependencies without touching the source build.
