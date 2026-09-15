@@ -20,13 +20,12 @@ laptop: the wizard, a local model download and a live interview all worked.
 
 ## Known issues
 
-- **Library symlinks don't survive packaging.** `libggml-vulkan.so`, `.so.0` and `.so.0.13.1` install
-  as three separate 46 MB files, about 93 MB wasted.
-- **A dev desktop entry hides the packaged one.** `overlay/scripts/install-desktop-entry.sh` writes
-  `~/.local/share/applications/interviewr-overlay.desktop`, which takes priority over
-  `/usr/share/applications` and launches the old dev binary. Remove it and run `kbuildsycoca6`.
+- **Library copies:** the bundler copied every library alias as a full file (about 98 MB). The
+  Dockerfile now keeps only the names the engine loads: five files, and the .deb went from 213 MB to 175 MB.
+- **Dev desktop entry:** a checkout build's `~/.local` entry hid the packaged one. The script is gone;
+  the app now writes that entry only when running from source and removes it once the package is installed.
 - App bugs found while testing (wizard pin, model row flashing Download, transcription stalling)
-  are fixed on `main`. Rebuild and retest the installed app.
+  are fixed, and the rebuilt package was retested.
 
 ## Ruled out
 

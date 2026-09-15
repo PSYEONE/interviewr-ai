@@ -56,19 +56,16 @@ RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(s
     && find "$SITE" -name 'tests' -maxdepth 2 -type d -prune -exec rm -rf {} + \
     && echo "payload site-packages: $(du -sh "$SITE" | cut -f1)"
 
-# Replaces duplicate ggml/whisper library copies with symlinks to save space.
+# Keeps only the library names the engine loads (each soname), since the bundler copies every alias in full.
 RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') \
     && cd "$SITE" \
-    && for base in libggml-vulkan libggml-base libggml-cpu libggml libwhisper; do \
-         canonical=$(ls ${base}.so.*.* 2>/dev/null | head -1) || continue; \
-         [ -n "$canonical" ] || continue; \
-         for dup in ${base}.so ${base}.so.[0-9]*; do \
-           [ "$dup" = "$canonical" ] && continue; \
-           [ -e "$dup" ] || continue; \
-           cmp -s "$dup" "$canonical" && ln -sf "$canonical" "$dup"; \
-         done; \
+    && for so in libggml*.so* libwhisper*.so*; do \
+         soname=$(patchelf --print-soname "$so") || continue; \
+         if [ "$so" != "$soname" ] && [ -e "$soname" ]; then rm "$so"; fi; \
        done \
-    && echo "after dedupe: $(du -sh "$SITE" | cut -f1)"
+    && "$INTERVIEWR_PREFIX/python/bin/python3" -c 'import _pywhispercpp' \
+    && ls libggml*.so* libwhisper*.so* \
+    && echo "after pruning: $(du -sh "$SITE" | cut -f1)"
 
 # Copies the engine source into the payload.
 RUN mkdir -p "$INTERVIEWR_PREFIX/backend" \
