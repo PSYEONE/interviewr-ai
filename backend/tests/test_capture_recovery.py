@@ -28,6 +28,7 @@ def _run_instead(monkeypatch: pytest.MonkeyPatch, *cmd: str) -> None:
         return await real(*cmd, **kwargs)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+    monkeypatch.setattr(capture, "_raw_args", [])  # skip the pw-record --help probe
 
 
 async def test_capture_ends_when_pw_record_sends_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -41,6 +42,29 @@ async def test_capture_yields_audio_until_pw_record_exits(monkeypatch: pytest.Mo
     chunks = [c async for c in capture.capture_audio("sink.monitor", stall_s=5.0)]
     assert len(chunks) == 2
     assert all(c.dtype == np.float32 and len(c) == capture.CHUNK_SAMPLES for c in chunks)
+
+
+async def test_capture_logs_why_pw_record_stopped(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _run_instead(monkeypatch, "sh", "-c", "echo 'pw-record: unrecognized option --container' >&2; exit 1")
+    chunks = [c async for c in capture.capture_audio("sink.monitor", stall_s=5.0)]
+    assert chunks == []
+    assert "exit code 1" in caplog.text
+    assert "unrecognized option --container" in caplog.text
+
+
+# PipeWire 1.0.5 (Ubuntu 24.04) has no --container and already writes bare samples; 1.2+ needs it.
+_HELP_1_0 = "      --format  Sample format (ulaw|alaw|u8|s8|s16|s32|f32|f64) (req. for rec) (default s16)\n"
+_HELP_1_6 = "      --format  Sample format (default s16)\n      --container  Container format\n"
+
+
+def test_raw_output_args_skip_container_on_pipewire_1_0() -> None:
+    assert capture.raw_output_args(_HELP_1_0) == []
+
+
+def test_raw_output_args_ask_newer_pipewire_for_raw_output() -> None:
+    assert capture.raw_output_args(_HELP_1_6) == ["--container", "raw"]
 
 
 class _FakeTranscriber:
