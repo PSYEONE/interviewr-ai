@@ -99,6 +99,32 @@ async def get_default_monitor() -> str:
     return await get_default_sink() + ".monitor"
 
 
+# Cached result of raw_output_args() for the installed pw-record.
+_raw_args: list[str] | None = None
+
+
+def raw_output_args(help_text: str) -> list[str]:
+    """Flags that make pw-record write bare samples: PipeWire 1.2+ adds a file header unless told `--container raw`."""
+    return ["--container", "raw"] if "--container" in help_text else []
+
+
+async def _pw_record_raw_args() -> list[str]:
+    """raw_output_args() for the installed pw-record, checked once (PipeWire 1.0 has no --container)."""
+    global _raw_args
+    if _raw_args is None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pw-record", "--help",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            out, _ = await proc.communicate()
+        except OSError:
+            return []  # pw-record is missing; capture reports that itself
+        _raw_args = raw_output_args(out.decode(errors="replace"))
+    return _raw_args
+
+
 async def capture_audio(
     device: str,
     rate: int = SAMPLE_RATE,
@@ -107,9 +133,9 @@ async def capture_audio(
 ) -> AsyncGenerator[np.ndarray, None]:
     """Yields float32 audio chunks from a PipeWire source using pw-record; ends if pw-record exits or stalls."""
     chunk_bytes = chunk_samples * 4
-    # --container raw stops pw-record writing a file header, which would be read as garbage audio (including a NaN).
+    # Without raw output, newer pw-record writes a file header that would be read as garbage audio (including a NaN).
     args = [
-        "pw-record", "--container", "raw",
+        "pw-record", *await _pw_record_raw_args(),
         "--rate", str(rate), "--channels", "1", "--format", "f32",
     ]
     # Record a monitor by targeting its sink; the .monitor name makes pw-record fall back to the mic when the sink is idle.
@@ -125,6 +151,7 @@ async def capture_audio(
         preexec_fn=_die_with_parent,  # reap pw-record if the engine dies ungracefully
     )
     assert proc.stdout is not None
+    exited = False
     try:
         while True:
             try:
@@ -135,7 +162,7 @@ async def capture_audio(
                 return
             yield np.frombuffer(data, dtype=np.float32).copy()
     except asyncio.IncompleteReadError:
-        pass
+        exited = True
     finally:
         if proc.returncode is None:
             try:
@@ -143,3 +170,6 @@ async def capture_audio(
             except ProcessLookupError:
                 pass  # pw-record already exited (e.g. on shutdown)
         await proc.wait()
+        if exited and proc.stderr is not None:
+            detail = (await proc.stderr.read()).decode(errors="replace").strip()
+            _log.warning("pw-record stopped (exit code %s): %s", proc.returncode, detail[-300:] or "no error output")
