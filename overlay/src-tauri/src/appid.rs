@@ -1,6 +1,7 @@
 //! Puts the process in a named systemd scope so the GlobalShortcuts portal can identify the app.
 
-use std::process::id as pid;
+use std::path::{Path, PathBuf};
+use std::process::{id as pid, Command, Stdio};
 
 /// App id we claim; matches the `.desktop` file tauri-bundler installs.
 pub const APP_ID: &str = "interviewr-overlay";
@@ -32,17 +33,98 @@ pub fn resolved_app_id() -> Option<String> {
     }
 }
 
+/// Marks a desktop entry the app wrote for a checkout build.
+const DEV_MARKER: &str = "X-Interviewr-Dev=true";
+
+fn entry_file() -> String {
+    format!("{APP_ID}.desktop")
+}
+
+/// Per-user data folder (`$XDG_DATA_HOME`, else `~/.local/share`).
+fn user_data_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+}
+
+/// System data folders from `$XDG_DATA_DIRS`, with the spec's default.
+fn system_data_dirs() -> Vec<PathBuf> {
+    std::env::var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string())
+        .split(':')
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
 /// Whether `<APP_ID>.desktop` is installed; the portal rejects the id without it.
 pub fn desktop_entry_present() -> bool {
-    let file = format!("{APP_ID}.desktop");
-    let home = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).or_else(|| {
-        std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
-    });
-    let dirs = std::env::var("XDG_DATA_DIRS")
-        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
-    home.into_iter()
-        .chain(dirs.split(':').filter(|d| !d.is_empty()).map(std::path::PathBuf::from))
+    let file = entry_file();
+    user_data_dir()
+        .into_iter()
+        .chain(system_data_dirs())
         .any(|d| d.join("applications").join(&file).exists())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum EntryAction {
+    Keep,
+    Write,
+    Remove,
+}
+
+/// Whether a user-level entry was made for a checkout build, by the app or the old install script.
+fn is_dev_entry(contents: &str) -> bool {
+    contents
+        .lines()
+        .map(str::trim)
+        .any(|l| l == DEV_MARKER || (l.starts_with("Exec=") && l.contains("/src-tauri/target/")))
+}
+
+/// What to do with the user-level entry: a dev entry must never hide the package's own entry.
+fn entry_action(installed: bool, user_entry: Option<&str>, system_entry: bool, wanted: &str) -> EntryAction {
+    match user_entry {
+        Some(e) if is_dev_entry(e) && (installed || system_entry) => EntryAction::Remove,
+        Some(e) if is_dev_entry(e) && e != wanted => EntryAction::Write,
+        None if !installed && !system_entry => EntryAction::Write,
+        _ => EntryAction::Keep,
+    }
+}
+
+/// Desktop entry for a checkout build, so global shortcuts work when running from source.
+fn dev_entry(exe: &Path, icon: &Path) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName=interviewr (dev)\n\
+         Comment=Real-time interview and meeting copilot\nExec=\"{}\"\nIcon={}\nTerminal=false\n\
+         Categories=Utility;\nStartupWMClass={APP_ID}\n{DEV_MARKER}\n",
+        exe.display(),
+        icon.display()
+    )
+}
+
+/// Writes, refreshes or removes the per-user dev desktop entry to suit how the app is running; best effort.
+pub fn sync_desktop_entry(installed: bool) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let (Some(data), Ok(exe)) = (user_data_dir(), std::env::current_exe()) else {
+        return;
+    };
+    let dir = data.join("applications");
+    let path = dir.join(entry_file());
+    let system_entry = system_data_dirs().iter().any(|d| d.join("applications").join(entry_file()).exists());
+    let icon = Path::new(env!("CARGO_MANIFEST_DIR")).join("icons/128x128.png");
+    let wanted = dev_entry(&exe, &icon);
+    let current = std::fs::read_to_string(&path).ok();
+    let changed = match entry_action(installed, current.as_deref(), system_entry, &wanted) {
+        EntryAction::Keep => false,
+        EntryAction::Remove => std::fs::remove_file(&path).is_ok(),
+        EntryAction::Write => std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&path, &wanted).is_ok(),
+    };
+    if changed {
+        // Refresh the desktop database so the portal sees the change without a re-login.
+        let _ = Command::new("update-desktop-database").arg(&dir).stdout(Stdio::null()).stderr(Stdio::null()).status();
+    }
 }
 
 /// Why the portal would refuse us, phrased for the user, or None when it should work.
@@ -50,8 +132,8 @@ pub fn diagnose() -> Option<String> {
     match (resolved_app_id(), desktop_entry_present()) {
         (Some(_), true) => None,
         (_, false) => Some(format!(
-            "Your desktop can't identify this app, because {APP_ID}.desktop is not installed. \
-             Run overlay/scripts/install-desktop-entry.sh, then restart the overlay."
+            "Your desktop can't identify this app, because {APP_ID}.desktop is not installed \
+             and couldn't be created. Restart the overlay to try again, or install the package."
         )),
         (None, true) => Some(
             "Your desktop can't identify this app: it is not running in an application scope. \
@@ -174,7 +256,53 @@ fn start_scope() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_unit_name, APP_ID};
+    use super::{entry_action, parse_unit_name, EntryAction, APP_ID, DEV_MARKER};
+
+    const WANTED: &str = "[Desktop Entry]\nExec=\"/src/overlay/src-tauri/target/debug/interviewr-overlay\"\nX-Interviewr-Dev=true\n";
+    const OLD_SCRIPT: &str = "[Desktop Entry]\nExec=/home/u/interviewr/overlay/src-tauri/target/release/interviewr-overlay\n";
+    const USERS_OWN: &str = "[Desktop Entry]\nExec=/usr/bin/interviewr-overlay --custom\n";
+
+    #[test]
+    fn installed_app_removes_a_dev_entry_that_would_hide_its_own() {
+        assert_eq!(entry_action(true, Some(WANTED), true, WANTED), EntryAction::Remove);
+        assert_eq!(entry_action(true, Some(OLD_SCRIPT), true, WANTED), EntryAction::Remove);
+    }
+
+    #[test]
+    fn installed_app_leaves_an_entry_the_user_wrote() {
+        assert_eq!(entry_action(true, Some(USERS_OWN), true, WANTED), EntryAction::Keep);
+        assert_eq!(entry_action(true, None, true, WANTED), EntryAction::Keep);
+    }
+
+    #[test]
+    fn checkout_writes_an_entry_when_there_is_none_anywhere() {
+        assert_eq!(entry_action(false, None, false, WANTED), EntryAction::Write);
+    }
+
+    #[test]
+    fn checkout_relies_on_the_package_entry_when_it_exists() {
+        assert_eq!(entry_action(false, None, true, WANTED), EntryAction::Keep);
+        assert_eq!(entry_action(false, Some(WANTED), true, WANTED), EntryAction::Remove);
+    }
+
+    #[test]
+    fn checkout_refreshes_a_stale_dev_entry_and_keeps_a_current_one() {
+        assert_eq!(entry_action(false, Some(OLD_SCRIPT), false, WANTED), EntryAction::Write);
+        assert_eq!(entry_action(false, Some(WANTED), false, WANTED), EntryAction::Keep);
+    }
+
+    #[test]
+    fn checkout_leaves_an_entry_the_user_wrote() {
+        assert_eq!(entry_action(false, Some(USERS_OWN), false, WANTED), EntryAction::Keep);
+    }
+
+    #[test]
+    fn the_written_entry_carries_the_marker() {
+        let entry = super::dev_entry(std::path::Path::new("/tmp/interviewr-overlay"), std::path::Path::new("/tmp/icon.png"));
+        assert!(entry.contains(DEV_MARKER));
+        assert!(entry.contains("Name=interviewr (dev)"));
+        assert!(entry.contains(&format!("StartupWMClass={APP_ID}")));
+    }
 
     fn id(unit: &str) -> String {
         parse_unit_name(unit).expect("app- prefix")

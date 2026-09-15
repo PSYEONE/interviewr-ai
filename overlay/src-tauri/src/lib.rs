@@ -696,6 +696,8 @@ fn shortcuts_app_id_problem() -> Option<String> {
 pub fn run() {
     // Must run before any portal call: the shortcuts portal identifies us by our systemd scope.
     appid::ensure_scope();
+    // Keep a desktop entry for checkout builds, and clear it once the package provides one.
+    appid::sync_desktop_entry(installed_backend_dir().is_some());
     load_env();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
