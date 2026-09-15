@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
+
+from app.system import disk
 from app.system.disk import (
     blob_name,
     partial_bytes,
@@ -73,6 +78,41 @@ def test_probe_disk_reports_megabytes_and_store_size(tmp_path: Path) -> None:
 
 def test_probe_disk_is_none_when_the_store_is_missing(tmp_path: Path) -> None:
     assert probe_disk(tmp_path / "absent") is None
+
+
+# A store owned by the ollama service, inside a folder the user isn't allowed into.
+
+_ROOT_IGNORES_PERMISSIONS = pytest.mark.skipif(os.geteuid() == 0, reason="root can read any folder")
+
+
+@pytest.fixture
+def locked_store(tmp_path: Path) -> Iterator[Path]:
+    """Mirrors /usr/share/ollama (mode 750, owned by ollama) as seen by a user outside that group."""
+    home = tmp_path / "ollama"
+    store = home / ".ollama" / "models"
+    (store / "blobs").mkdir(parents=True)
+    home.chmod(0)
+    yield store
+    home.chmod(0o755)  # so pytest can clean up tmp_path
+
+
+@_ROOT_IGNORES_PERMISSIONS
+def test_resolve_models_dir_finds_a_store_it_cannot_enter(
+    locked_store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "user")
+    monkeypatch.setattr(disk, "_MODELS_DIR_CANDIDATES", (locked_store,))
+    assert resolve_models_dir(None) == locked_store
+    assert resolve_models_dir(locked_store) == locked_store
+
+
+@_ROOT_IGNORES_PERMISSIONS
+def test_probe_disk_reports_free_space_for_a_store_it_cannot_enter(locked_store: Path) -> None:
+    info = probe_disk(locked_store)
+    assert info is not None
+    assert info.models_mb is None  # size unknown, not zero
+    assert info.partial_mb == 0
+    assert 0 < info.free_mb <= info.total_mb
 
 
 # Interrupted downloads.

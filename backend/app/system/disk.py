@@ -43,14 +43,35 @@ def present_blobs(models_dir: Path) -> set[str]:
         return set()
 
 
+def _maybe_dir(path: Path) -> bool:
+    """Whether `path` is a directory, counting one inside a folder we aren't allowed into (like /usr/share/ollama)."""
+    try:
+        return path.is_dir()
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def resolve_models_dir(override: Path | None) -> Path | None:
     """The configured models directory, else the first default location that exists."""
     if override is not None:
-        return override if override.is_dir() else None
+        return override if _maybe_dir(override) else None
     # Checked at call time rather than import time, so tests can change the home directory.
     for candidate in (Path.home() / ".ollama" / "models", *_MODELS_DIR_CANDIDATES):
-        if candidate.is_dir():
+        if _maybe_dir(candidate):
             return candidate
+    return None
+
+
+def _capacity(path: Path) -> tuple[int, int] | None:
+    """(total, free) bytes of the filesystem holding `path`, measured at the nearest folder we can reach."""
+    for folder in (path, *path.parents):
+        try:
+            usage = shutil.disk_usage(folder)
+        except OSError:
+            continue
+        return usage.total, usage.free
     return None
 
 
@@ -94,15 +115,17 @@ def probe_disk(override: Path | None) -> DiskInfo | None:
     models_dir = resolve_models_dir(override)
     if models_dir is None:
         return None
-    try:
-        usage = shutil.disk_usage(models_dir)
-    except OSError:
+    capacity = _capacity(models_dir)
+    if capacity is None:
         return None
-    models_bytes = _dir_size_bytes(models_dir)
+    total, free = capacity
+    # A store owned by the ollama service can be off limits to us; its size is then unknown.
+    readable = os.access(models_dir, os.R_OK | os.X_OK)
+    models_bytes = _dir_size_bytes(models_dir) if readable else None
     return DiskInfo(
         path=str(models_dir),
-        total_mb=usage.total // _MB,
-        free_mb=usage.free // _MB,
+        total_mb=total // _MB,
+        free_mb=free // _MB,
         models_mb=None if models_bytes is None else models_bytes // _MB,
         partial_mb=partial_bytes(models_dir) // _MB,
     )
