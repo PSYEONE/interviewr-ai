@@ -24,6 +24,10 @@ laptop: the wizard, a local model download and a live interview all worked.
   Dockerfile now keeps only the names the engine loads: five files, and the .deb went from 213 MB to 175 MB.
 - **Dev desktop entry:** a checkout build's `~/.local` entry hid the packaged one. The script is gone;
   the app now writes that entry only when running from source and removes it once the package is installed.
+- **CPU build:** whisper was compiled for the build machine's CPU (AVX-512), which would crash on CPUs
+  without it. The package now builds for any x86-64 CPU with AVX2 (Intel since 2013, every AMD Ryzen).
+- **Ollama permissions:** on a fresh Ollama install the engine couldn't read `/usr/share/ollama` and the
+  wizard showed "Load failed". Found in an Ubuntu 24.04 VM and fixed.
 - App bugs found while testing (wizard pin, model row flashing Download, transcription stalling)
   are fixed, and the rebuilt package was retested.
 
