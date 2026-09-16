@@ -8,6 +8,7 @@ import type { Connection } from "./types";
 
 export const getConnection = (): Promise<Connection> => invoke<Connection>("get_connection");
 export const getPin = (): Promise<boolean> => invoke<boolean>("get_pin");
+export const getPinSupported = (): Promise<boolean> => invoke<boolean>("get_pin_supported");
 export const setPin = (on: boolean): Promise<boolean> => invoke<boolean>("set_pin", { on });
 export const getStealth = (): Promise<boolean> => invoke<boolean>("get_stealth");
 export const setStealth = (on: boolean): Promise<boolean> => invoke<boolean>("set_stealth", { on });

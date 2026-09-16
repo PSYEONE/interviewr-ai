@@ -6,6 +6,7 @@ import {
   getCaptureSupported,
   getInnerSize,
   getPin,
+  getPinSupported,
   getStealth,
   setInnerSize,
   setMinInnerSize,
@@ -24,6 +25,8 @@ class WindowControls {
   pinned = $state(false);
   stealth = $state(false);
   captureSupported = $state(true);
+  // False where the compositor ignores always-on-top (GNOME Wayland), so the button can say so.
+  pinSupported = $state(true);
   collapsed = $state(false);
   // True while the setup wizard shows; it has no pin or stealth buttons, so both stay off.
   wizardMode = $state(false);
@@ -36,6 +39,11 @@ class WindowControls {
   }
 
   async #load(): Promise<void> {
+    try {
+      this.pinSupported = await getPinSupported();
+    } catch {
+      /* keep default */
+    }
     try {
       this.pinned = await getPin();
       // Re-apply the pin at startup, since a new Wayland window doesn't always pick up the KWin rule.
@@ -80,7 +88,7 @@ class WindowControls {
   }
 
   async togglePin(): Promise<void> {
-    if (this.wizardMode) return;
+    if (this.wizardMode || !this.pinSupported) return;
     this.pinned = !this.pinned;
     try {
       await setPin(this.pinned);
