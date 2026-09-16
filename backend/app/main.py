@@ -84,6 +84,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm = None  # the live LLM client, for cheap live-reload (e.g. keep-alive)
     app.state.configured = bool(settings.llm_model)
     app.state.ready = False
+    app.state.stt_ready = False  # speech model loaded (a first run downloads it)
+    app.state.stt_progress = 0
     app.state.capture_prefs = None
 
     # Remove any null sink left behind by a crashed engine.
@@ -124,7 +126,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             warmup_task = asyncio.create_task(_warm_llm(llm))
             capture_prefs = CapturePrefs.of(settings)
             app.state.capture_prefs = capture_prefs
-            producer = asyncio.create_task(run_producer(settings, session, bus, capture_prefs))
+            def stt_state(ready: bool, percent: int) -> None:
+                app.state.stt_ready = ready
+                app.state.stt_progress = percent
+
+            producer = asyncio.create_task(
+                run_producer(settings, session, bus, capture_prefs, stt_state)
+            )
             producer.add_done_callback(_log_producer_exit)
         else:
             _log.warning(
@@ -234,6 +242,9 @@ async def health(request: Request) -> dict[str, object]:
         "status": "ok",
         "configured": bool(settings.llm_model),  # has the user completed setup?
         "ready": bool(getattr(request.app.state, "ready", False)),  # is the live pipeline running?
+        # Speech model state, so the UI can show a first run's download instead of looking stuck.
+        "stt_ready": bool(getattr(request.app.state, "stt_ready", False)),
+        "stt_progress": int(getattr(request.app.state, "stt_progress", 0)),
         "stt_provider": settings.stt_provider,
         "llm_provider": settings.llm_provider,
         "remote_viewer": str(settings.enable_remote_viewer),

@@ -120,6 +120,7 @@ async def test_failed_cycle_is_reported_and_capture_restarts(
         return ""
 
     monkeypatch.setattr(pipeline, "WhisperTranscriber", _FakeTranscriber)
+    monkeypatch.setattr(pipeline, "ensure_model", lambda *_args: None)  # no model download in tests
     monkeypatch.setattr(pipeline, "resolve_device", resolve)
     bus = EventBus()
     sub = bus.subscribe()
@@ -152,6 +153,7 @@ async def test_capture_that_ends_on_its_own_is_restarted(
         await asyncio.Event().wait()
 
     monkeypatch.setattr(pipeline, "WhisperTranscriber", _FakeTranscriber)
+    monkeypatch.setattr(pipeline, "ensure_model", lambda *_args: None)  # no model download in tests
     monkeypatch.setattr(pipeline, "resolve_device", resolve)
     monkeypatch.setattr(pipeline, "capture_audio", no_audio)
     monkeypatch.setattr(pipeline, "transcribe_stream", no_audio)

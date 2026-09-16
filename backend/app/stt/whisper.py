@@ -3,11 +3,64 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from pathlib import Path
 from typing import NamedTuple
 
+import httpx
 import numpy as np
+
+_log = logging.getLogger(__name__)
+
+# Time limits for the model download: generous for slow links, but never an indefinite hang.
+_CONNECT_TIMEOUT_S = 15.0
+_READ_TIMEOUT_S = 60.0
+
+
+def model_path(name: str) -> Path:
+    """Where pywhispercpp looks for this model, so a download here is one it will use."""
+    from pywhispercpp.constants import MODELS_DIR
+
+    return Path(MODELS_DIR) / f"ggml-{name}.bin"
+
+
+def ensure_model(name: str, on_progress: Callable[[int], None] | None = None) -> Path:
+    """Downloads the ggml model unless it is already on disk. Blocking; call it in a thread."""
+    target = model_path(name)
+    if target.is_file():
+        return target
+    from pywhispercpp.constants import MODELS_BASE_URL, MODELS_PREFIX_URL
+
+    # MODELS_PREFIX_URL carries the repo path and the file prefix, e.g. "resolve/main/ggml".
+    url = f"{MODELS_BASE_URL}/{MODELS_PREFIX_URL}-{name}.bin"
+    part = target.with_suffix(".bin.part")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _log.info("downloading speech model %s", name)
+    try:
+        timeout = httpx.Timeout(_READ_TIMEOUT_S, connect=_CONNECT_TIMEOUT_S)
+        with httpx.stream("GET", url, timeout=timeout, follow_redirects=True) as response:
+            response.raise_for_status()
+            total = int(response.headers.get("content-length", 0))
+            done = 0
+            step = -1
+            with part.open("wb") as out:
+                for chunk in response.iter_bytes(1024 * 256):
+                    out.write(chunk)
+                    done += len(chunk)
+                    percent = int(done * 100 / total) if total else 0
+                    if percent // 10 > step // 10:
+                        step = percent
+                        _log.info("speech model %s: %d%%", name, percent)
+                    if on_progress is not None:
+                        on_progress(percent)
+        part.replace(target)
+    except Exception as exc:
+        part.unlink(missing_ok=True)
+        raise RuntimeError(f"could not download speech model '{name}': {exc}") from exc
+    _log.info("speech model %s ready", name)
+    return target
 
 
 class WhisperTranscriber:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 from .audio import routing
@@ -12,9 +12,12 @@ from .audio.capture import capture_audio, get_default_sink
 from .config import Settings
 from .events import ErrorEvent, EventBus, StatusEvent
 from .session import Session
-from .stt.whisper import Hypothesis, WhisperTranscriber, transcribe_stream
+from .stt.whisper import Hypothesis, WhisperTranscriber, ensure_model, transcribe_stream
 
 _log = logging.getLogger(__name__)
+
+# Wait before trying the speech model again after a failed download.
+_MODEL_RETRY_S = 30.0
 
 
 @dataclass
@@ -42,18 +45,48 @@ async def resolve_device(prefs: CapturePrefs) -> str:
     return prefs.device or fallback
 
 
-async def run_producer(
-    settings: Settings, session: Session, bus: EventBus, prefs: CapturePrefs | None = None
-) -> None:
-    """Transcribes captured audio into the session while an interview is active; runs for the server's lifetime."""
-    prefs = prefs if prefs is not None else CapturePrefs.of(settings)
+def _build_transcriber(
+    settings: Settings, on_progress: Callable[[int], None] | None
+) -> WhisperTranscriber:
+    """Downloads the speech model if needed and loads it. Blocking, so it runs in a thread."""
+    ensure_model(settings.whisper_model, on_progress)
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
         use_gpu=settings.whisper_use_gpu,
         gpu_device=settings.whisper_gpu_device,
     )
     # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
-    await asyncio.get_event_loop().run_in_executor(None, transcriber.warmup)
+    transcriber.warmup()
+    return transcriber
+
+
+async def _prepare_transcriber(
+    settings: Settings, bus: EventBus, on_state: Callable[[bool, int], None] | None
+) -> WhisperTranscriber:
+    """Keeps trying to get the speech model ready, reporting failures instead of ending transcription."""
+    progress = (lambda pct: on_state(False, pct)) if on_state is not None else None
+    while True:
+        try:
+            return await asyncio.to_thread(_build_transcriber, settings, progress)
+        except Exception as exc:  # noqa: BLE001 - usually no internet; the user can fix it and we retry
+            _log.exception("could not prepare the speech model")
+            bus.publish(ErrorEvent(code="internal", message=str(exc)))
+            await asyncio.sleep(_MODEL_RETRY_S)
+
+
+async def run_producer(
+    settings: Settings,
+    session: Session,
+    bus: EventBus,
+    prefs: CapturePrefs | None = None,
+    on_state: Callable[[bool, int], None] | None = None,
+) -> None:
+    """Transcribes captured audio into the session while an interview is active; runs for the server's lifetime."""
+    prefs = prefs if prefs is not None else CapturePrefs.of(settings)
+    # In a thread: a first run downloads the model, which would otherwise block every request.
+    transcriber = await _prepare_transcriber(settings, bus, on_state)
+    if on_state is not None:
+        on_state(True, 100)
     bus.publish(StatusEvent(state="idle"))
     failing = False
     while True:

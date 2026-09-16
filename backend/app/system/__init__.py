@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from .disk import DiskInfo, probe_disk
 from .hardware import GpuInfo, Recommendation, detect_system, recommend
 from .ollama_admin import INSTALL_COMMAND, ModelInfo, OllamaAdmin
+from .whisper_models import WhisperChoice, WhisperOption, whisper_choice
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -31,6 +32,7 @@ class SystemReport(BaseModel):
     disk: DiskInfo | None  # None when Ollama's model store can't be located (e.g. remote)
     ollama: OllamaStatus
     recommendation: Recommendation
+    whisper: WhisperChoice  # speech models, labelled for this machine
 
 
 async def collect_system_report(settings: Settings) -> SystemReport:
@@ -60,6 +62,7 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         disk=disk,
         ollama=ollama,
         recommendation=recommend(info.gpus, info.ram_mb, info.gpu_error),
+        whisper=whisper_choice(info.gpus, settings.whisper_use_gpu),
     )
 
 
@@ -70,5 +73,7 @@ __all__ = [
     "OllamaStatus",
     "Recommendation",
     "SystemReport",
+    "WhisperChoice",
+    "WhisperOption",
     "collect_system_report",
 ]
