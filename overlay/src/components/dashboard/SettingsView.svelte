@@ -15,7 +15,7 @@
     hotkeys,
     type HotkeyAction,
   } from "../../lib/hotkeys.svelte";
-  import type { ConfigView, GpuInfo } from "../../lib/types";
+  import type { ConfigView, GpuInfo, WhisperOption } from "../../lib/types";
   import ConfirmBack from "../ConfirmBack.svelte";
   import Info from "../Info.svelte";
 
@@ -57,6 +57,19 @@
     "audio_capture_app",
   ]);
 
+  // A model set by hand, or picked before the list loaded, so the dropdown can still show it.
+  let customWhisper = $derived.by(() => {
+    const name = form?.whisper_model;
+    return name && !speechModels.some((m) => m.name === name) ? name : null;
+  });
+
+  // "small.en · 466 MB · 4.8% word errors"
+  function speechLabel(m: WhisperOption): string {
+    const size = m.download_mb >= 1024 ? `${(m.download_mb / 1024).toFixed(1)} GB` : `${m.download_mb} MB`;
+    const accuracy = m.live_wer === null ? "fastest, least accurate" : `${(m.live_wer * 100).toFixed(1)}% word errors`;
+    return `${m.name} · ${size} · ${accuracy}`;
+  }
+
   function pick(c: ConfigView): Editable {
     return {
       stt_provider: c.stt_provider,
@@ -77,6 +90,7 @@
   let original = $state<Editable | null>(null);
   let form = $state<Editable | null>(null);
   let gpus = $state<GpuInfo[]>([]);
+  let speechModels = $state<WhisperOption[]>([]);
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
   // Saved app captured at load; building the options from the select's own bound value would stop it showing reliably.
@@ -119,7 +133,9 @@
       loadError = msg(e);
     }
     try {
-      gpus = (await getSystemInfo()).gpus;
+      const info = await getSystemInfo();
+      gpus = info.gpus;
+      speechModels = info.whisper.models;
     } catch {
       gpus = []; // GPU list is a convenience; Auto still works
     }
@@ -292,9 +308,16 @@
       <div>
         <label for="wmodel">
           Whisper model
-          <Info text="Whisper model size. Larger is more accurate but slower and uses more VRAM (e.g. tiny.en, base.en, small.en, medium.en)." />
+          <Info text="Speech model size. Bigger is more accurate but slower and uses more VRAM. Changing it downloads the new model once." />
         </label>
-        <input id="wmodel" type="text" bind:value={form.whisper_model} />
+        <select id="wmodel" bind:value={form.whisper_model}>
+          {#each speechModels as m (m.name)}
+            <option value={m.name}>{speechLabel(m)}</option>
+          {/each}
+          {#if customWhisper}
+            <option value={customWhisper}>{customWhisper}</option>
+          {/if}
+        </select>
       </div>
       <label class="flex items-center gap-2">
         <input type="checkbox" bind:checked={form.whisper_use_gpu} /> Use GPU for transcription

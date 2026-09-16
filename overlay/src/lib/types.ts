@@ -14,6 +14,8 @@ export interface Health {
   stt_provider: string;
   llm_provider: string;
   remote_viewer: string;
+  stt_ready: boolean; // speech model loaded; false while a first run downloads it
+  stt_progress: number; // download percentage, 0 until it starts
 }
 
 export interface GpuInfo {
@@ -71,6 +73,21 @@ export interface DiskInfo {
   partial_mb: number; // of that, bytes held by interrupted downloads
 }
 
+// One speech model, labelled for the detected hardware (mirrors backend WhisperOption).
+export interface WhisperOption {
+  name: string;
+  download_mb: number;
+  vram_mb: number; // what whisper.cpp needs on the GPU
+  live_wer: number | null; // word error rate through the live pipeline; null when not measured
+  speed: number | null; // fraction of real time to transcribe; lower is faster
+  fit: string | null; // fits | tight | too_big | cpu
+}
+
+export interface WhisperChoice {
+  suggested: string; // preselected for this machine
+  models: WhisperOption[];
+}
+
 export interface SystemReport {
   gpus: GpuInfo[];
   cpu_count: number;
@@ -79,6 +96,7 @@ export interface SystemReport {
   disk: DiskInfo | null; // null when Ollama's model store can't be located (e.g. remote)
   ollama: OllamaStatus;
   recommendation: Recommendation;
+  whisper: WhisperChoice;
 }
 
 export interface ConfigView {
