@@ -15,6 +15,7 @@
     hotkeys,
     type HotkeyAction,
   } from "../../lib/hotkeys.svelte";
+  import { FEEDBACK_URL, openSupportLink, supportLinks } from "../../lib/support";
   import type { ConfigView, GpuInfo, WhisperOption } from "../../lib/types";
   import ConfirmBack from "../ConfirmBack.svelte";
   import Info from "../Info.svelte";
@@ -462,6 +463,16 @@
         </div>
       {/each}
     {/if}
+
+    <hr class="sep" />
+    <h2>Support interviewr</h2>
+    <p class="text-dim text-xs">Free, with no subscription or tracking. Donations and feedback keep it going.</p>
+    <div class="flex flex-wrap gap-2">
+      {#each supportLinks as link (link.url)}
+        <button onclick={() => openSupportLink(link.url)}>{link.label}</button>
+      {/each}
+      <button onclick={() => openSupportLink(FEEDBACK_URL)}>Send feedback</button>
+    </div>
   </div>
 
   <!-- Errors and save progress sit above the footer, outside the scroll area, so they're always visible. -->

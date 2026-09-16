@@ -32,6 +32,7 @@
   // Audio capture runs only inside an interview, so resume on enter and pause on leave. The WS
   // stays open (owned by the dashboard); leaving also finalizes the conversation via resetView.
   onMount(() => {
+    session.beginInterview();
     session.send("resume");
     void checkStt();
     poll = setInterval(() => void checkStt(), 2000);

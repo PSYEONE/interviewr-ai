@@ -15,6 +15,8 @@ export const setStealth = (on: boolean): Promise<boolean> => invoke<boolean>("se
 export const getCaptureSupported = (): Promise<boolean> =>
   invoke<boolean>("get_capture_supported");
 export const quit = (): Promise<void> => invoke("quit");
+// Opens a donation or feedback page in the browser; the Rust side only allows known links.
+export const openLink = (url: string): Promise<void> => invoke("open_link", { url });
 
 // Saves text through a native Save dialog (webview downloads are unreliable on WebKitGTK); false if cancelled.
 export const saveText = (name: string, contents: string): Promise<boolean> =>

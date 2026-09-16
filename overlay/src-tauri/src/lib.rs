@@ -706,6 +706,50 @@ fn pin_supported() -> bool {
     pin_supported_from(kwin_version(), std::env::var("XDG_SESSION_TYPE").ok().as_deref())
 }
 
+/// Links the app may open in the browser: its own repo and the donation pages in `lib/support.ts`.
+const OPEN_LINK_ALLOWED: &[&str] = &[
+    "https://github.com/PSYEONE/interviewr-ai/",
+    "https://github.com/sponsors/PSYEONE/",
+    "https://ko-fi.com/",
+];
+
+/// Whether `url` is one of the allowed links (a prefix match on whole path segments, so no look-alikes).
+fn link_allowed(url: &str) -> bool {
+    !url.chars().any(|c| c.is_whitespace() || c.is_control())
+        && OPEN_LINK_ALLOWED
+            .iter()
+            .any(|prefix| url.starts_with(prefix) || url == prefix.trim_end_matches('/'))
+}
+
+/// Opens a donation or feedback page in the default browser, without waiting for it.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    if !link_allowed(&url) {
+        return Err("link not allowed".to_string());
+    }
+    #[cfg(target_os = "linux")]
+    let mut command = Command::new("xdg-open");
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    };
+    let mut child = command
+        .arg(&url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("could not open the browser: {e}"))?;
+    std::thread::spawn(move || {
+        let _ = child.wait(); // reap it so it doesn't linger as a zombie
+    });
+    Ok(())
+}
+
 /// Whether always-on-top works here; the UI disables Pin otherwise (GNOME Wayland ignores it).
 #[tauri::command]
 fn get_pin_supported() -> bool {
@@ -789,6 +833,7 @@ pub fn run() {
             get_stealth,
             get_capture_supported,
             get_pin_supported,
+            open_link,
             restart_engine,
             engine_managed,
             engine_error,
@@ -989,6 +1034,33 @@ mod layout_tests {
         let s = Scratch::new("novenv");
         s.touch("backend/run_pipeline.py");
         assert_eq!(venv_python(&s.0.join("backend")), None);
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::link_allowed;
+
+    #[test]
+    fn allows_the_donation_and_feedback_links() {
+        assert!(link_allowed("https://github.com/sponsors/PSYEONE"));
+        assert!(link_allowed("https://github.com/PSYEONE/interviewr-ai/issues/new?title=Feedback%3A+"));
+        assert!(link_allowed("https://ko-fi.com/someone"));
+    }
+
+    #[test]
+    fn rejects_other_sites_and_look_alikes() {
+        assert!(!link_allowed("https://github.com.evil/PSYEONE/interviewr-ai/"));
+        assert!(!link_allowed("https://github.com/sponsors/PSYEONEevil"));
+        assert!(!link_allowed("https://github.com/PSYEONE/other-repo"));
+        assert!(!link_allowed("http://ko-fi.com/someone"));
+        assert!(!link_allowed("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn rejects_whitespace_that_could_smuggle_arguments() {
+        assert!(!link_allowed("https://ko-fi.com/a --new-window"));
+        assert!(!link_allowed("https://ko-fi.com/a\nb"));
     }
 }
 
