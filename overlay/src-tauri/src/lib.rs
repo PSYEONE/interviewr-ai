@@ -215,9 +215,43 @@ fn engine_reachable() -> bool {
 /// Kills the engine's process group so its `pw-record` child dies too.
 #[cfg(unix)]
 fn kill_group(pid: u32) {
-    let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
+    // `--` stops `-<pid>` being read as an option: without it procps kill on Ubuntu 24.04 reports
+    // success for `-KILL -<pid>` but leaves the process running.
+    let _ = Command::new("kill").args(["-TERM", "--", &format!("-{pid}")]).stderr(Stdio::null()).status();
     std::thread::sleep(Duration::from_millis(500));
-    let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+    // Usually the group is already gone by now, so "No such process" is expected and hidden.
+    let _ = Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).stderr(Stdio::null()).status();
+}
+
+/// Parent PID from a `/proc/<pid>/stat` line; the command name can contain spaces and brackets.
+#[cfg(target_os = "linux")]
+fn ppid_from_stat(stat: &str) -> Option<u32> {
+    let rest = &stat[stat.rfind(')')? + 1..];
+    rest.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// Running engines this app started, found by parent PID, including any it lost track of.
+#[cfg(target_os = "linux")]
+fn own_engine_pids() -> Vec<u32> {
+    let me = std::process::id();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+            let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+            ppid_from_stat(&stat) == Some(me)
+                && String::from_utf8_lossy(&cmdline).contains("run_pipeline.py")
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn own_engine_pids() -> Vec<u32> {
+    Vec::new()
 }
 
 #[cfg(windows)]
@@ -311,8 +345,19 @@ fn spawn_engine(app: &AppHandle) -> Result<(), String> {
             state.instant_failures.store(0, Ordering::SeqCst);
             0
         };
+        eprintln!("[overlay] engine {pid} exited after {}s", elapsed.as_secs());
         if failures >= MAX_INSTANT_CRASHES {
             report_failure(&app_mon, engine_error_message(&state));
+            return;
+        }
+        // Another engine still holds the port, so a respawn could only fail to bind, forever.
+        if engine_reachable() {
+            report_failure(
+                &app_mon,
+                "Another engine is already using the port, so a new one can't start. \
+                 Quit interviewr, then open it again."
+                    .to_string(),
+            );
             return;
         }
         std::thread::sleep(Duration::from_millis(500));
@@ -340,13 +385,25 @@ fn do_restart(app: &AppHandle) -> Result<(), String> {
     }
     state.generation.fetch_add(1, Ordering::SeqCst); // invalidate the outgoing child's monitor
     state.instant_failures.store(0, Ordering::SeqCst);
-    let pid = *state.child_pid.lock().unwrap();
-    if let Some(pid) = pid {
-        kill_group(pid);
+    let tracked = *state.child_pid.lock().unwrap();
+    // Stop every engine we started, not just the tracked one, so none is left holding the port.
+    let mut pids = own_engine_pids();
+    if let Some(pid) = tracked {
+        if !pids.contains(&pid) {
+            pids.push(pid);
+        }
     }
-    let deadline = Instant::now() + Duration::from_secs(8);
-    while state.child_pid.lock().unwrap().is_some() && Instant::now() < deadline {
+    eprintln!("[overlay] restarting engine: tracked {tracked:?}, stopping {pids:?}");
+    for pid in &pids {
+        kill_group(*pid);
+    }
+    // Wait for the old engine to exit and release the port before starting the new one.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while (state.child_pid.lock().unwrap().is_some() || engine_reachable()) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(100));
+    }
+    if engine_reachable() {
+        return Err("the old engine is still using the port; quit interviewr and open it again".to_string());
     }
     state.should_run.store(true, Ordering::SeqCst);
     spawn_engine(app)
@@ -638,6 +695,26 @@ fn get_stealth() -> bool {
     return false;
 }
 
+/// Whether the desktop lets an app pin itself: KDE drives a KWin rule, X11 allows keep-above.
+#[cfg(target_os = "linux")]
+fn pin_supported_from(kwin: Option<(u32, u32)>, session_type: Option<&str>) -> bool {
+    kwin.is_some() || session_type.map_or(true, |s| !s.eq_ignore_ascii_case("wayland"))
+}
+
+#[cfg(target_os = "linux")]
+fn pin_supported() -> bool {
+    pin_supported_from(kwin_version(), std::env::var("XDG_SESSION_TYPE").ok().as_deref())
+}
+
+/// Whether always-on-top works here; the UI disables Pin otherwise (GNOME Wayland ignores it).
+#[tauri::command]
+fn get_pin_supported() -> bool {
+    #[cfg(target_os = "linux")]
+    return pin_supported();
+    #[cfg(not(target_os = "linux"))]
+    return true;
+}
+
 /// Whether hide-from-capture works on this KWin; the UI disables the button otherwise.
 #[tauri::command]
 fn get_capture_supported() -> bool {
@@ -711,6 +788,7 @@ pub fn run() {
             set_stealth,
             get_stealth,
             get_capture_supported,
+            get_pin_supported,
             restart_engine,
             engine_managed,
             engine_error,
@@ -911,5 +989,51 @@ mod layout_tests {
         let s = Scratch::new("novenv");
         s.touch("backend/run_pipeline.py");
         assert_eq!(venv_python(&s.0.join("backend")), None);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod proc_tests {
+    use super::ppid_from_stat;
+
+    #[test]
+    fn reads_the_parent_pid() {
+        assert_eq!(ppid_from_stat("2273 (python) S 2214 2273 2273 0 -1"), Some(2214));
+    }
+
+    #[test]
+    fn a_command_name_with_spaces_and_brackets_does_not_shift_the_fields() {
+        assert_eq!(ppid_from_stat("99 (odd name) (x)) R 42 99 99 0"), Some(42));
+    }
+
+    #[test]
+    fn garbage_is_none() {
+        assert_eq!(ppid_from_stat("no brackets here"), None);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod pin_tests {
+    use super::pin_supported_from;
+
+    #[test]
+    fn kde_can_pin_because_kwin_takes_a_window_rule() {
+        assert!(pin_supported_from(Some((6, 6)), Some("wayland")));
+    }
+
+    #[test]
+    fn x11_can_pin_without_kwin() {
+        assert!(pin_supported_from(None, Some("x11")));
+    }
+
+    #[test]
+    fn other_wayland_compositors_cannot() {
+        // GNOME Wayland: no KWin rule, and the toolkit call is ignored.
+        assert!(!pin_supported_from(None, Some("wayland")));
+    }
+
+    #[test]
+    fn an_unset_session_type_is_assumed_to_allow_it() {
+        assert!(pin_supported_from(None, None));
     }
 }

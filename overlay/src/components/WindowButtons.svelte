@@ -6,7 +6,14 @@
   let { onSettings }: { onSettings?: () => void } = $props();
 </script>
 
-<button class:on={wc.pinned} title="Toggle always-on-top" onclick={() => void wc.togglePin()}>
+<button
+  class:on={wc.pinned}
+  disabled={!wc.pinSupported}
+  title={wc.pinSupported
+    ? "Toggle always-on-top"
+    : "Always-on-top (needs KDE Plasma or an X11 session)"}
+  onclick={() => void wc.togglePin()}
+>
   Pin
 </button>
 <button
