@@ -132,7 +132,7 @@
     font-weight: 600;
   }
   p {
-    color: var(--color-dim);
+    color: var(--color-fg);
     font-size: 0.9rem;
   }
   .actions {
