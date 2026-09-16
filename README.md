@@ -109,12 +109,9 @@ cd backend
 
 This is free and open source. If it helped you, consider supporting development:
 
-- **Ko-fi:** https://ko-fi.com/YOUR_USERNAME
 - **GitHub Sponsors:** https://github.com/sponsors/PSYEONE
-- **Crypto (self-hosted, no fees):** https://YOUR_BTCPAY_DOMAIN/apps/donate
-  - **BTC:** `bc1...your-address`
-  - **BTC Lightning:** via the BTCPay link above
-  - **ETH / ERC-20:** `yourname.eth`  (or `0x...your-address`)
+
+Found a problem or have an idea? [Open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new).
 
 Every bit keeps this Linux-first, privacy-first, and subscription-free.
 

@@ -29,6 +29,8 @@ class Session {
   // Transcript heard since the last answer that hasn't been asked yet.
   pending = $state("");
   live = $state(""); // in-flight partial tail, replaced rather than appended
+  // Answers completed since the interview started; unlike `turns`, the New button does not clear it.
+  answeredThisInterview = $state(0);
   // Latest conversation title sent by the engine; the dashboard uses it to update the history list.
   lastTitled = $state<{ id: number; title: string } | null>(null);
   // Sticky answer formatting; persisted locally and re-sent to the engine on each connect.
@@ -73,6 +75,11 @@ class Session {
     this.status = state;
     if (source) this.captureSource = source;
     else if (state !== "listening" && state !== "thinking") this.captureSource = null;
+  }
+
+  // Called when an interview view opens.
+  beginInterview(): void {
+    this.answeredThisInterview = 0;
   }
 
   resetView(): void {
@@ -186,6 +193,7 @@ class Session {
         break;
       case "answer.done":
         this.#finishAnswer(ev.answer_id, ev.cancelled);
+        if (!ev.cancelled) this.answeredThisInterview += 1;
         break;
       case "status":
         this.#setStatus(ev.state, ev.source);

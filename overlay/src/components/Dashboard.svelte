@@ -8,7 +8,9 @@
     listHistory,
   } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { support } from "../lib/support";
   import { startDragging } from "../lib/tauri";
+  import { windowControls } from "../lib/windowControls.svelte";
   import type { ConversationDetail, ConversationRecord } from "../lib/types";
   import ContextView from "./dashboard/ContextView.svelte";
   import ModelsView from "./dashboard/ModelsView.svelte";
@@ -16,6 +18,7 @@
   import SystemPromptView from "./dashboard/SystemPromptView.svelte";
   import Panel from "./Panel.svelte";
   import PullStatus from "./PullStatus.svelte";
+  import SupportPrompt from "./SupportPrompt.svelte";
   import Turn from "./Turn.svelte";
   import WindowButtons from "./WindowButtons.svelte";
 
@@ -99,11 +102,20 @@
     void downloadExport(`/history/${c.id}/export`, file);
   }
 
+  // After-interview support pop-up; never while hidden from screen sharing.
+  let askSupport = $state(false);
+
   // Returning from a live interview: turns/titles may have changed, so refresh.
   function goHome(): void {
     view = "home";
     armedId = null;
     void loadHistory();
+  }
+
+  // Leaving an interview is the one moment the support pop-up may ask.
+  function leaveInterview(): void {
+    askSupport = support.recordSession(session.answeredThisInterview) && !windowControls.stealth;
+    goHome();
   }
 
   function onBarMouseDown(e: MouseEvent): void {
@@ -143,7 +155,7 @@
 {/snippet}
 
 {#if view === "interview"}
-  <Panel onBack={goHome} />
+  <Panel onBack={leaveInterview} />
 {:else}
   <div class="wizard-shell">
     <div id="wizbar" role="toolbar" tabindex="-1" onmousedown={onBarMouseDown}>
@@ -242,4 +254,8 @@
       <SettingsView back={goHome} />
     {/if}
   </div>
+{/if}
+
+{#if askSupport && view !== "interview"}
+  <SupportPrompt close={() => (askSupport = false)} />
 {/if}
