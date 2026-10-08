@@ -729,6 +729,7 @@ const OPEN_LINK_ALLOWED: &[&str] = &[
     "https://github.com/PSYEONE/interviewr-ai/",
     "https://github.com/sponsors/PSYEONE/",
     "https://ko-fi.com/",
+    "https://nowpayments.io/donation/",
 ];
 
 /// Whether `url` is one of the allowed links (a prefix match on whole path segments, so no look-alikes).
@@ -1088,6 +1089,7 @@ mod link_tests {
         assert!(link_allowed("https://github.com/sponsors/PSYEONE"));
         assert!(link_allowed("https://github.com/PSYEONE/interviewr-ai/issues/new?title=Feedback%3A+"));
         assert!(link_allowed("https://ko-fi.com/someone"));
+        assert!(link_allowed("https://nowpayments.io/donation/psyeone"));
     }
 
     #[test]
@@ -1096,6 +1098,7 @@ mod link_tests {
         assert!(!link_allowed("https://github.com/sponsors/PSYEONEevil"));
         assert!(!link_allowed("https://github.com/PSYEONE/other-repo"));
         assert!(!link_allowed("http://ko-fi.com/someone"));
+        assert!(!link_allowed("https://nowpayments.io/donations-evil"));
         assert!(!link_allowed("file:///etc/passwd"));
     }
 
