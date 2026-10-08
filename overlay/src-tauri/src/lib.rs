@@ -103,10 +103,15 @@ fn quit(app: tauri::AppHandle) {
 
 /// How many recent engine stderr lines we keep to explain a failure to the user.
 const STDERR_TAIL_LINES: usize = 25;
-/// A crash this soon after spawn means the engine never came up (vs. ran a while then died).
-const INSTANT_CRASH_SECS: u64 = 5;
-/// Consecutive instant crashes before we stop respawning and surface a hard error.
-const MAX_INSTANT_CRASHES: u32 = 3;
+/// Crashes are counted inside this window, so a slow crash loop is caught as well as an instant one.
+const CRASH_WINDOW_SECS: u64 = 60;
+/// Crashes within the window before we stop respawning and surface a hard error.
+const MAX_CRASHES: u32 = 3;
+
+/// Whether the engine is crash-looping rather than having hit one bad run.
+fn give_up(failures: u32, since_first: Duration) -> bool {
+    failures >= MAX_CRASHES && since_first <= Duration::from_secs(CRASH_WINDOW_SECS)
+}
 
 #[derive(Default)]
 struct EngineState {
@@ -118,8 +123,10 @@ struct EngineState {
     manage_engine: AtomicBool,
     /// Bumped on an intentional restart so the outgoing child's monitor won't respawn it.
     generation: AtomicU64,
-    /// Consecutive instant-crash count for the crash-loop guard.
-    instant_failures: AtomicU32,
+    /// Crashes counted in the current window, for the crash-loop guard.
+    recent_failures: AtomicU32,
+    /// When the current crash window started.
+    first_failure_at: Mutex<Option<Instant>>,
     /// Ring buffer of the engine's most recent stderr lines.
     stderr_tail: Mutex<VecDeque<String>>,
     /// Last fatal error, kept so the UI can fetch one emitted before it was listening.
@@ -339,14 +346,24 @@ fn spawn_engine(app: &AppHandle) -> Result<(), String> {
         if intentional {
             return;
         }
-        let failures = if elapsed < Duration::from_secs(INSTANT_CRASH_SECS) {
-            state.instant_failures.fetch_add(1, Ordering::SeqCst) + 1
-        } else {
-            state.instant_failures.store(0, Ordering::SeqCst);
-            0
+        let (failures, since_first) = {
+            let mut first = state.first_failure_at.lock().unwrap();
+            let window_start = match *first {
+                Some(at) if at.elapsed() <= Duration::from_secs(CRASH_WINDOW_SECS) => at,
+                _ => {
+                    // Window lapsed (or this is the first crash): start counting again.
+                    state.recent_failures.store(0, Ordering::SeqCst);
+                    *first = Some(Instant::now());
+                    Instant::now()
+                }
+            };
+            (state.recent_failures.fetch_add(1, Ordering::SeqCst) + 1, window_start.elapsed())
         };
-        eprintln!("[overlay] engine {pid} exited after {}s", elapsed.as_secs());
-        if failures >= MAX_INSTANT_CRASHES {
+        eprintln!(
+            "[overlay] engine {pid} exited after {}s ({failures} crashes in this minute)",
+            elapsed.as_secs()
+        );
+        if give_up(failures, since_first) {
             report_failure(&app_mon, engine_error_message(&state));
             return;
         }
@@ -384,7 +401,8 @@ fn do_restart(app: &AppHandle) -> Result<(), String> {
         return Err("not_managed".to_string());
     }
     state.generation.fetch_add(1, Ordering::SeqCst); // invalidate the outgoing child's monitor
-    state.instant_failures.store(0, Ordering::SeqCst);
+    state.recent_failures.store(0, Ordering::SeqCst);
+    *state.first_failure_at.lock().unwrap() = None;
     let tracked = *state.child_pid.lock().unwrap();
     // Stop every engine we started, not just the tracked one, so none is left holding the port.
     let mut pids = own_engine_pids();
@@ -1034,6 +1052,30 @@ mod layout_tests {
         let s = Scratch::new("novenv");
         s.touch("backend/run_pipeline.py");
         assert_eq!(venv_python(&s.0.join("backend")), None);
+    }
+}
+
+#[cfg(test)]
+mod crash_tests {
+    use super::give_up;
+    use std::time::Duration;
+
+    #[test]
+    fn one_or_two_crashes_are_retried() {
+        assert!(!give_up(1, Duration::from_secs(1)));
+        assert!(!give_up(2, Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn three_crashes_in_the_window_stop_the_loop() {
+        // The engine that segfaulted every 7s: slow enough to dodge an "instant crash" rule.
+        assert!(give_up(3, Duration::from_secs(21)));
+        assert!(give_up(4, Duration::from_secs(59)));
+    }
+
+    #[test]
+    fn crashes_spread_beyond_the_window_keep_retrying() {
+        assert!(!give_up(3, Duration::from_secs(61)));
     }
 }
 
