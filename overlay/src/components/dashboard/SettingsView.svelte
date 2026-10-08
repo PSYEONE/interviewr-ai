@@ -291,7 +291,7 @@
   <div class="wiz-body gap-4">
     <!-- First in the list, so supporting the project and sending feedback are easy to find. -->
     <h2>Support interviewr</h2>
-    <p class="text-dim text-xs">Free, with no subscription or tracking. Donations and feedback keep it going.</p>
+    <p class="text-dim text-xs">Free, with no subscription or tracking. Donations and feedback keep it going &lt;3</p>
     <div class="flex flex-wrap gap-2">
       {#each supportLinks as link (link.url)}
         <button onclick={() => openSupportLink(link.url)}>{link.label}</button>
