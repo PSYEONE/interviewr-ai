@@ -18,6 +18,7 @@
   import { FEEDBACK_URL, openSupportLink, supportLinks } from "../../lib/support";
   import type { ConfigView, GpuInfo, WhisperOption } from "../../lib/types";
   import ConfirmBack from "../ConfirmBack.svelte";
+  import SupportPrompt from "../SupportPrompt.svelte";
   import Info from "../Info.svelte";
 
   let { back }: { back: () => void } = $props();
@@ -91,6 +92,7 @@
   let original = $state<Editable | null>(null);
   let form = $state<Editable | null>(null);
   let gpus = $state<GpuInfo[]>([]);
+  let previewPrompt = $state(false); // dev-only preview of the support pop-up
   let speechModels = $state<WhisperOption[]>([]);
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
@@ -297,7 +299,13 @@
         <button onclick={() => openSupportLink(link.url)}>{link.label}</button>
       {/each}
       <button onclick={() => openSupportLink(FEEDBACK_URL)}>Send feedback</button>
+      {#if import.meta.env.DEV}
+        <button onclick={() => (previewPrompt = true)}>Preview prompt</button>
+      {/if}
     </div>
+    {#if previewPrompt}
+      <SupportPrompt preview close={() => (previewPrompt = false)} />
+    {/if}
     <hr class="sep" />
     {#if loadError}
       <p class="text-warn">{loadError}</p>

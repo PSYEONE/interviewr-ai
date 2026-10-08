@@ -4,19 +4,20 @@
   import { FEEDBACK_URL, openSupportLink, support, supportLinks } from "../lib/support";
 
   // After-interview pop-up: donation links if it helped, a feedback link if it didn't.
-  let { close }: { close: () => void } = $props();
+  // `preview` opens it from Settings in a dev build without counting towards the lifetime cap.
+  let { close, preview = false }: { close: () => void; preview?: boolean } = $props();
 
   type Step = "ask" | "helpful" | "unhelpful";
   let step = $state<Step>("ask");
   let dialog: HTMLDivElement;
 
   onMount(() => {
-    support.markShown();
+    if (!preview) support.markShown();
     dialog.focus();
   });
 
   function donated(): void {
-    support.markSupported();
+    if (!preview) support.markSupported();
     close();
   }
 
@@ -55,13 +56,11 @@
     tabindex="-1"
     onkeydown={onKeydown}
   >
-    <button class="icon close" title="Close" aria-label="Close" onclick={close}>&#10005;</button>
-
     {#if step === "ask"}
       <h2 id="support-title">How did the interview go?</h2>
       <div class="actions">
         <button class="primary" onclick={() => (step = "helpful")}>Helpful</button>
-        <button onclick={() => (step = "unhelpful")}>Not really</button>
+        <button onclick={() => (step = "unhelpful")}>Not helpful</button>
       </div>
     {:else if step === "helpful"}
       <svg class="heart" viewBox="0 0 24 24" aria-hidden="true">
@@ -109,23 +108,17 @@
     backdrop-filter: blur(4px);
   }
   .dialog {
-    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.9rem;
     width: min(26rem, 100%);
-    padding: 1.75rem 1.5rem 1.5rem;
+    padding: 1.5rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.75rem;
     background: var(--solid);
     color: var(--color-fg);
     text-align: center;
     outline: none;
-  }
-  .close {
-    position: absolute;
-    top: 0.6rem;
-    right: 0.6rem;
   }
   h2 {
     font-size: 1.15rem;
