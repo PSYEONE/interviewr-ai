@@ -45,6 +45,7 @@ export interface SupportLink {
 const LINKS: SupportLink[] = [
   { label: "GitHub Sponsors", url: "https://github.com/sponsors/PSYEONE" },
   { label: "Ko-fi", url: "https://ko-fi.com/YOUR_USERNAME" },
+  { label: "Crypto", url: "https://nowpayments.io/donation/psyeone" },
 ];
 export const supportLinks: SupportLink[] = LINKS.filter((l) => !l.url.includes("YOUR_"));
 

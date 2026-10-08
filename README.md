@@ -110,6 +110,7 @@ cd backend
 This is free and open source. If it helped you, consider supporting development:
 
 - **GitHub Sponsors:** https://github.com/sponsors/PSYEONE
+- **Crypto:** https://nowpayments.io/donation/psyeone (any of ~350 coins)
 
 Found a problem or have an idea? [Open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new).
 
