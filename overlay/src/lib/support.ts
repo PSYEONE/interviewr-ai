@@ -48,13 +48,8 @@ const LINKS: SupportLink[] = [
 ];
 export const supportLinks: SupportLink[] = LINKS.filter((l) => !l.url.includes("YOUR_"));
 
-// Opens a pre-filled issue in the browser; nothing is sent unless the user submits it there.
-export const FEEDBACK_URL =
-  "https://github.com/PSYEONE/interviewr-ai/issues/new?" +
-  new URLSearchParams({
-    title: "Feedback: ",
-    body: "**What were you doing?**\n\n\n**What went wrong or could be better?**\n\n",
-  }).toString();
+// Opens an empty issue tagged "feedback"; nothing is sent unless the user submits it there.
+export const FEEDBACK_URL = "https://github.com/PSYEONE/interviewr-ai/issues/new?labels=feedback";
 
 export function openSupportLink(url: string): void {
   void openLink(url).catch(() => {
