@@ -289,6 +289,16 @@
 
   <!-- Extra spacing, since this form is denser than a wizard step. -->
   <div class="wiz-body gap-4">
+    <!-- First in the list, so supporting the project and sending feedback are easy to find. -->
+    <h2>Support interviewr</h2>
+    <p class="text-dim text-xs">Free, with no subscription or tracking. Donations and feedback keep it going.</p>
+    <div class="flex flex-wrap gap-2">
+      {#each supportLinks as link (link.url)}
+        <button onclick={() => openSupportLink(link.url)}>{link.label}</button>
+      {/each}
+      <button onclick={() => openSupportLink(FEEDBACK_URL)}>Send feedback</button>
+    </div>
+    <hr class="sep" />
     {#if loadError}
       <p class="text-warn">{loadError}</p>
     {:else if !form}
@@ -464,15 +474,6 @@
       {/each}
     {/if}
 
-    <hr class="sep" />
-    <h2>Support interviewr</h2>
-    <p class="text-dim text-xs">Free, with no subscription or tracking. Donations and feedback keep it going.</p>
-    <div class="flex flex-wrap gap-2">
-      {#each supportLinks as link (link.url)}
-        <button onclick={() => openSupportLink(link.url)}>{link.label}</button>
-      {/each}
-      <button onclick={() => openSupportLink(FEEDBACK_URL)}>Send feedback</button>
-    </div>
   </div>
 
   <!-- Errors and save progress sit above the footer, outside the scroll area, so they're always visible. -->
