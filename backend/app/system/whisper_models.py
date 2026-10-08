@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel
 
-from .hardware import GpuInfo
+from .hardware import GpuInfo, rank_catalog
+
+if TYPE_CHECKING:
+    from ..config import Settings
 
 # Download size, VRAM whisper.cpp needs, and accuracy/speed measured by backend/eval on a laptop
 # RTX 3070 (LibriSpeech test-clean, 100 clips, through the streaming pipeline).
@@ -15,6 +20,9 @@ _MODELS: list[tuple[str, int, int, float | None, float | None]] = [
     ("small.en", 466, 850, 0.048, 0.37),
     ("medium.en", 1462, 2100, 0.043, 0.66),
 ]
+
+# Assumed VRAM for a local LLM that isn't in the catalog, so an unknown model still reserves room.
+_UNKNOWN_LLM_VRAM_MB = 4096
 
 # VRAM from which the next model up is worth its download and slower transcription.
 _SMALL_FROM_MB = 2000
@@ -35,6 +43,24 @@ class WhisperChoice(BaseModel):
     models: list[WhisperOption]
 
 
+def vram_needed_mb(name: str) -> int | None:
+    """VRAM whisper.cpp needs for this model, or None for a name we don't know."""
+    for model, _download_mb, needs_mb, _wer, _speed in _MODELS:
+        if model == name:
+            return needs_mb
+    return None
+
+
+def llm_vram_mb(settings: Settings) -> int:
+    """VRAM the configured LLM holds while the app runs, since speech and chat share the card. 0 for cloud."""
+    if settings.llm_provider != "ollama" or not settings.llm_model:
+        return 0
+    for model in rank_catalog(None):
+        if model.name == settings.llm_model:
+            return model.vram_mb if model.vram_mb is not None else _UNKNOWN_LLM_VRAM_MB
+    return _UNKNOWN_LLM_VRAM_MB
+
+
 def _fit(vram_mb: int | None, needs_mb: int) -> str:
     if vram_mb is None:
         return "cpu"
@@ -53,10 +79,14 @@ def suggest_whisper(vram_mb: int | None) -> str:
     return "small.en" if vram_mb >= _SMALL_FROM_MB else "base.en"
 
 
-def whisper_choice(gpus: list[GpuInfo], use_gpu: bool = True) -> WhisperChoice:
-    """Speech models labelled for the best GPU present, and the one to preselect."""
+def whisper_choice(
+    gpus: list[GpuInfo], use_gpu: bool = True, llm_reserved_mb: int = 0
+) -> WhisperChoice:
+    """Speech models labelled for the GPU memory left once the local LLM has its share."""
     usable = [g.vram_mb for g in gpus if g.kind == "discrete" and g.vram_mb is not None]
-    vram_mb = max(usable, default=None) if use_gpu else None
+    total_mb = max(usable, default=None) if use_gpu else None
+    # A card that the LLM nearly fills counts as no GPU, which is what the crash on an 8 GB card showed.
+    vram_mb = None if total_mb is None else max(0, total_mb - llm_reserved_mb) or None
     models = [
         WhisperOption(
             name=name,

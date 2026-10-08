@@ -206,6 +206,45 @@ def _nvidia_probe() -> tuple[dict[str, int], str | None]:
     return _nvidia_parse(proc.stdout, proc.stderr, proc.returncode)
 
 
+def _nvidia_free_parse(stdout: str, returncode: int) -> int | None:
+    """Free VRAM (MB) from nvidia-smi, taking the card with the most free; None when it said nothing."""
+    if returncode != 0:
+        return None
+    values = [int(v) for v in re.findall(r"\d+", stdout)]
+    return max(values) if values else None
+
+
+def _amd_free_vram_mb() -> int | None:
+    """Free VRAM (MB) on the AMD card with the most free, from sysfs; None without one."""
+    best: int | None = None
+    for total_path in sorted(Path("/sys/class/drm").glob("card*/device/mem_info_vram_total")):
+        used_path = total_path.parent / "mem_info_vram_used"
+        try:
+            free = (int(total_path.read_text()) - int(used_path.read_text())) // (1024 * 1024)
+        except (OSError, ValueError):
+            continue
+        if free > 0 and (best is None or free > best):
+            best = free
+    return best
+
+
+def free_vram_mb() -> int | None:
+    """Free VRAM (MB) on the GPU we would transcribe on, or None when it can't be measured."""
+    if shutil.which("nvidia-smi") is not None:
+        try:
+            proc = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return _nvidia_free_parse(proc.stdout, proc.returncode)
+    return _amd_free_vram_mb()
+
+
 def _amd_card_vram_mb(vram_total: int, vis_vram_total: int, gtt_total: int) -> int:
     """Usable VRAM (MB) for one AMD card, taking the largest pool so APUs aren't reported as 0."""
     best = max(vram_total, vis_vram_total)
