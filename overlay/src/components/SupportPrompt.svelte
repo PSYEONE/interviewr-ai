@@ -82,7 +82,7 @@
         <button onclick={close}>Maybe later</button>
       </div>
     {:else}
-      <h2 id="support-title">Sorry it fell short</h2>
+      <h2 id="support-title">Let us know what went wrong</h2>
       <div class="actions">
         <button class="primary" onclick={() => openSupportLink(FEEDBACK_URL)}>Suggest a fix on GitHub</button>
         <button onclick={close}>Close</button>
