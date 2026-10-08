@@ -26,6 +26,8 @@ _log = logging.getLogger(__name__)
 
 # Wait before trying the speech model again after a failed download.
 _MODEL_RETRY_S = 30.0
+# Give the GPU memory back when no interview has started for this long; reloading costs under a second.
+_IDLE_RELEASE_S = 600.0
 
 
 @dataclass
@@ -83,6 +85,29 @@ async def _prepare_transcriber(
             await asyncio.sleep(_MODEL_RETRY_S)
 
 
+async def _park_until_interview(
+    session: Session,
+    transcriber: WhisperTranscriber,
+    on_state: Callable[[bool, int], None] | None,
+) -> bool:
+    """Waits for the next interview, releasing the speech model first if the wait runs long."""
+    if not transcriber.on_gpu:
+        # Nothing to reclaim on the CPU, where reloading a big model costs tens of seconds.
+        await session.wait_capture_start()
+        return False
+    try:
+        await asyncio.wait_for(session.wait_capture_start(), _IDLE_RELEASE_S)
+        return False
+    except TimeoutError:
+        pass
+    transcriber.release()
+    if on_state is not None:
+        on_state(False, 0)  # /health says not ready, so the interview view explains the reload
+    _log.info("no interview for %.0fs; released the speech model", _IDLE_RELEASE_S)
+    await session.wait_capture_start()
+    return True
+
+
 async def _gpu_has_room(settings: Settings, bus: EventBus) -> bool:
     """Whether the speech model fits in free VRAM. The LLM shares the card, and a tight fit crashes."""
     needed_mb = vram_needed_mb(settings.whisper_model)
@@ -124,7 +149,10 @@ async def run_producer(
     bus.publish(StatusEvent(state="idle"))
     failing = False
     while True:
-        await session.wait_capture_start()
+        if await _park_until_interview(session, transcriber, on_state):
+            transcriber = await _prepare_transcriber(settings, bus, on_state)
+            if on_state is not None:
+                on_state(True, 100)
         try:
             retry = await _capture_once(settings, session, bus, prefs, transcriber)
             failing = False

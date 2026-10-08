@@ -68,6 +68,8 @@ def test_raw_output_args_ask_newer_pipewire_for_raw_output() -> None:
 
 
 class _FakeTranscriber:
+    on_gpu = True
+
     def __init__(self, **_: object) -> None:
         pass
 

@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 import numpy as np
+
+if TYPE_CHECKING:
+    from pywhispercpp.model import Model
 
 _log = logging.getLogger(__name__)
 
@@ -85,23 +89,38 @@ class WhisperTranscriber:
         ctx: ContextParams = {"use_gpu": use_gpu}
         if gpu_device >= 0:
             ctx["gpu_device"] = gpu_device
-        self._model = Model(
+        self.on_gpu = use_gpu
+        # Transcription runs in an executor thread, so the model is guarded against release under it.
+        self._lock = threading.Lock()
+        self._model: Model | None = Model(
             model_name, print_realtime=False, print_progress=False, context_params=ctx
         )
 
+    def _loaded(self) -> Model:
+        if self._model is None:
+            raise RuntimeError("the speech model has been released")
+        return self._model
+
+    def release(self) -> None:
+        """Frees the GPU buffers by dropping the model; pywhispercpp calls whisper_free on the last ref."""
+        with self._lock:
+            self._model = None
+
     def warmup(self) -> None:
         """Runs one dummy transcription so the one-time Vulkan shader compile happens at startup."""
-        self._model.transcribe(np.zeros(16000, dtype=np.float32))
+        with self._lock:
+            self._loaded().transcribe(np.zeros(16000, dtype=np.float32))
 
     def transcribe_raw(self, audio: np.ndarray) -> str:
         """Transcribes a float32 buffer and cleans the text, keeping no state between calls."""
-        segments = self._model.transcribe(
-            audio,
-            temperature=0.0,  # greedy; no random sampling
-            no_context=True,  # don't carry decoder state across calls (reduces drift)
-            suppress_blank=True,
-            suppress_nst=True,  # suppress non-speech tokens (music/sfx hallucinations)
-        )
+        with self._lock:
+            segments = self._loaded().transcribe(
+                audio,
+                temperature=0.0,  # greedy; no random sampling
+                no_context=True,  # don't carry decoder state across calls (reduces drift)
+                suppress_blank=True,
+                suppress_nst=True,  # suppress non-speech tokens (music/sfx hallucinations)
+            )
         text = " ".join(seg.text.strip() for seg in segments if seg.text.strip())
         return _clean(text)
 
