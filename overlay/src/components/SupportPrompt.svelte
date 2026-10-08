@@ -44,9 +44,8 @@
   }
 </script>
 
-<!-- A click on the dimmed backdrop (not the dialog) closes it; the keyboard path is Escape. -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
+<!-- Clicking the dimmed backdrop does nothing; the answer buttons and Escape are the ways out. -->
+<div class="backdrop">
   <div
     bind:this={dialog}
     class="dialog"
