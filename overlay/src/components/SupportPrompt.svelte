@@ -71,8 +71,7 @@
       </svg>
       <h2 id="support-title">Glad it helped!</h2>
       <p>
-        interviewr is free, with no subscription or tracking. If you'd like to support it, a donation
-        would be greatly appreciated &lt;3
+        interviewr is free. If you'd like to support, a donation would be greatly appreciated &lt;3
       </p>
       <div class="actions">
         {#each supportLinks as link (link.url)}
