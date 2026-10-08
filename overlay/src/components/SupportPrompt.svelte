@@ -84,10 +84,6 @@
       </div>
     {:else}
       <h2 id="support-title">Sorry it fell short</h2>
-      <p>
-        What went wrong? Suggest a fix on GitHub. Your browser opens a form, and nothing is sent until
-        you submit it.
-      </p>
       <div class="actions">
         <button class="primary" onclick={() => openSupportLink(FEEDBACK_URL)}>Suggest a fix on GitHub</button>
         <button onclick={close}>Close</button>
