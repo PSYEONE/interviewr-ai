@@ -91,7 +91,8 @@
       </select>
     </div>
     <p class="text-dim text-xs">
-      Transcribes what you hear, on this machine. Bigger is more accurate but slower, and it downloads once.
+      Transcribes what you hear, on this machine. Bigger is more accurate but slower, and it downloads
+      once. Sizes are judged against the GPU memory left over once your local model is loaded.
     </p>
 
     <div class="flex flex-wrap items-stretch gap-3">

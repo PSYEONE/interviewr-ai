@@ -12,7 +12,15 @@ from .audio.capture import capture_audio, get_default_sink
 from .config import Settings
 from .events import ErrorEvent, EventBus, StatusEvent
 from .session import Session
-from .stt.whisper import Hypothesis, WhisperTranscriber, ensure_model, transcribe_stream
+from .stt.whisper import (
+    Hypothesis,
+    WhisperTranscriber,
+    ensure_model,
+    fits_in_vram,
+    transcribe_stream,
+)
+from .system.hardware import free_vram_mb
+from .system.whisper_models import vram_needed_mb
 
 _log = logging.getLogger(__name__)
 
@@ -46,13 +54,13 @@ async def resolve_device(prefs: CapturePrefs) -> str:
 
 
 def _build_transcriber(
-    settings: Settings, on_progress: Callable[[int], None] | None
+    settings: Settings, use_gpu: bool, on_progress: Callable[[int], None] | None
 ) -> WhisperTranscriber:
     """Downloads the speech model if needed and loads it. Blocking, so it runs in a thread."""
     ensure_model(settings.whisper_model, on_progress)
     transcriber = WhisperTranscriber(
         model_name=settings.whisper_model,
-        use_gpu=settings.whisper_use_gpu,
+        use_gpu=use_gpu,
         gpu_device=settings.whisper_gpu_device,
     )
     # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
@@ -67,11 +75,37 @@ async def _prepare_transcriber(
     progress = (lambda pct: on_state(False, pct)) if on_state is not None else None
     while True:
         try:
-            return await asyncio.to_thread(_build_transcriber, settings, progress)
+            use_gpu = settings.whisper_use_gpu and await _gpu_has_room(settings, bus)
+            return await asyncio.to_thread(_build_transcriber, settings, use_gpu, progress)
         except Exception as exc:  # noqa: BLE001 - usually no internet; the user can fix it and we retry
             _log.exception("could not prepare the speech model")
             bus.publish(ErrorEvent(code="internal", message=str(exc)))
             await asyncio.sleep(_MODEL_RETRY_S)
+
+
+async def _gpu_has_room(settings: Settings, bus: EventBus) -> bool:
+    """Whether the speech model fits in free VRAM. The LLM shares the card, and a tight fit crashes."""
+    needed_mb = vram_needed_mb(settings.whisper_model)
+    free_mb = await asyncio.to_thread(free_vram_mb)
+    if needed_mb is None or fits_in_vram(needed_mb, free_mb):
+        return True
+    _log.warning(
+        "only %s MB of GPU memory free but %s needs about %s MB; transcribing on the CPU",
+        free_mb,
+        settings.whisper_model,
+        needed_mb,
+    )
+    bus.publish(
+        ErrorEvent(
+            code="internal",
+            message=(
+                f"Not enough free GPU memory for {settings.whisper_model} ({free_mb} MB free). "
+                "Transcribing on the CPU, which is slower. Close other GPU apps, or pick a smaller "
+                "speech model in Settings."
+            ),
+        )
+    )
+    return False
 
 
 async def run_producer(

@@ -19,6 +19,16 @@ _CONNECT_TIMEOUT_S = 15.0
 _READ_TIMEOUT_S = 60.0
 
 
+# Loading needs the weights plus working buffers; whisper.cpp segfaults instead of failing cleanly.
+_VRAM_MARGIN = 1.2
+_VRAM_EXTRA_MB = 256
+
+
+def fits_in_vram(needed_mb: int, free_mb: int | None) -> bool:
+    """Whether a model is safe to load on the GPU. Unmeasurable free memory is treated as fine."""
+    return free_mb is None or free_mb >= needed_mb * _VRAM_MARGIN + _VRAM_EXTRA_MB
+
+
 def model_path(name: str) -> Path:
     """Where pywhispercpp looks for this model, so a download here is one it will use."""
     from pywhispercpp.constants import MODELS_DIR

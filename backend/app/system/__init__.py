@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .disk import DiskInfo, probe_disk
 from .hardware import GpuInfo, Recommendation, detect_system, recommend
 from .ollama_admin import INSTALL_COMMAND, ModelInfo, OllamaAdmin
-from .whisper_models import WhisperChoice, WhisperOption, whisper_choice
+from .whisper_models import WhisperChoice, WhisperOption, llm_vram_mb, whisper_choice
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -62,7 +62,7 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         disk=disk,
         ollama=ollama,
         recommendation=recommend(info.gpus, info.ram_mb, info.gpu_error),
-        whisper=whisper_choice(info.gpus, settings.whisper_use_gpu),
+        whisper=whisper_choice(info.gpus, settings.whisper_use_gpu, llm_vram_mb(settings)),
     )
 
 
