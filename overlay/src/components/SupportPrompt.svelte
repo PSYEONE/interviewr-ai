@@ -16,7 +16,9 @@
     dialog.focus();
   });
 
-  function donated(): void {
+  // Opening a donation page counts as supported, so the prompt never asks again afterwards.
+  function donate(url: string): void {
+    openSupportLink(url);
     if (!preview) support.markSupported();
     close();
   }
@@ -74,11 +76,8 @@
       </p>
       <div class="actions">
         {#each supportLinks as link (link.url)}
-          <button class="primary" onclick={() => openSupportLink(link.url)}>{link.label}</button>
+          <button class="primary" onclick={() => donate(link.url)}>{link.label}</button>
         {/each}
-      </div>
-      <div class="actions">
-        <button onclick={donated}>I've donated</button>
         <button onclick={close}>Maybe later</button>
       </div>
     {:else}
