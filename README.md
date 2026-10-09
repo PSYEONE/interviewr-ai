@@ -84,6 +84,10 @@ missing, recommends an LLM that fits your GPU's VRAM and downloads it, and fetch
 model. That is why there is no `ollama pull` step above: naming a model up front would ignore
 what the wizard knows about your hardware.
 
+<!-- Wizard gif goes here once recorded:
+![Setup wizard picking models for the detected GPU](docs/media/wizard.gif)
+-->
+
 ## Where your data lives
 
 A checkout keeps its config and databases beside the source (`.env` at the repo root,
