@@ -1,0 +1,75 @@
+name: CLA
+
+# Passes once the PR's author has posted the acceptance line from CLA.md. Written with gh rather
+# than a CLA action: the maintained ones are archived or dormant, and this needs no write access
+# beyond a status and a comment. It never checks out the PR's code.
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  statuses: write
+
+jobs:
+  check:
+    # On a comment event, only comments on pull requests are relevant.
+    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the acceptance line
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PHRASE: I have read CLA.md and I accept it
+          MARKER: <!-- cla-check -->
+        run: |
+          set -eu
+          pr=$(gh api "repos/$REPO/pulls/$PR")
+          author=$(jq -r .user.login <<<"$pr")
+          sha=$(jq -r .head.sha <<<"$pr")
+          body=$(jq -r '.body // ""' <<<"$pr")
+          # Command substitution rather than a pipe into grep: a pipeline whose reader stops early
+          # makes its writer fail, which would flip the result the wrong way.
+          mine=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"$author\") | .body")
+          asked=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq '.[].body')
+
+          # The PR description counts too, so a one-line description can carry the acceptance.
+          if [[ "$body$mine" == *"$PHRASE"* ]]; then
+            state=success
+            description="accepted by @$author"
+          else
+            state=failure
+            description="awaiting acceptance by @$author"
+          fi
+          gh api -X POST "repos/$REPO/statuses/$sha" \
+            -f state="$state" -f context=cla -f description="$description" >/dev/null
+          echo "cla: $state ($description)"
+
+          if [ "$state" = success ]; then
+            exit 0
+          fi
+
+          # Ask once per PR; a synchronize on every push must not repeat it.
+          if [[ "$asked" == *"$MARKER"* ]]; then
+            echo "already asked; not commenting again"
+            exit 0
+          fi
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$MARKER
+          Thanks for the pull request. Code contributions need the
+          [Contributor License Agreement](https://github.com/$REPO/blob/main/CLA.md) accepted first.
+          You keep the copyright in your work; it lets the project be relicensed later without
+          tracking down every contributor.
+
+          If you agree, comment on this PR with:
+
+          \`\`\`
+          $PHRASE. Signed: <your full name> <your@email>
+          \`\`\`
+
+          One acceptance covers all your future contributions here. If you would rather not, an
+          issue describing the problem is still genuinely useful." >/dev/null

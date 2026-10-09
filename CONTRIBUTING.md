@@ -20,6 +20,9 @@ Accept it by commenting on your pull request:
 I have read CLA.md and I accept it. Signed: <your full name> <your@email>
 ```
 
+Putting that line in the pull request description works too. A check called `cla` watches for it and
+turns green once it is there, so there is nothing to wait on from a maintainer.
+
 ## Before you open a pull request
 
 Run what CI would run if it existed:
