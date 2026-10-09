@@ -10,22 +10,21 @@
 
   let { onBack }: { onBack?: () => void } = $props();
 
-  // A first run downloads the speech model, so say so instead of looking like nothing is heard.
-  let sttReady = $state(true);
-  let sttPercent = $state(0);
+  // The speech model's state lives on the session store, so the log's one line can report it
+  // rather than a banner contradicting the "Listening" text underneath.
   let poll: ReturnType<typeof setInterval> | null = null;
 
   async function checkStt(): Promise<void> {
     try {
       const health = await getHealth();
-      sttReady = health.stt_ready;
-      sttPercent = health.stt_progress;
+      session.sttReady = health.stt_ready;
+      session.sttPercent = health.stt_progress;
       // Fixed for the engine's lifetime, so one read is enough to decide on the reasoning toggle.
       session.canThink = health.llm_can_think;
     } catch {
       /* engine busy or restarting; try again on the next tick */
     }
-    if (sttReady && poll !== null) {
+    if (session.sttReady && poll !== null) {
       clearInterval(poll);
       poll = null;
     }
@@ -48,11 +47,5 @@
 </script>
 
 <Bar {onBack} />
-{#if !sttReady}
-  <p class="text-dim px-3 py-1 text-xs">
-    Preparing the speech model{sttPercent > 0 ? ` (${sttPercent}% downloaded)` : ""}. Transcription
-    starts when it is ready.
-  </p>
-{/if}
 <ChatLog />
 <Controls />
