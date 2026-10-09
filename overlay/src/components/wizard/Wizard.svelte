@@ -23,11 +23,14 @@
   let step = $state<Step>("welcome");
   let report = $state<SystemReport | null>(null);
   let updates = $state<Record<string, unknown>>({});
+  // Kept typed as well as in `updates`, because the next screen sizes chat models against it.
+  let speechModel = $state("");
   // Remember which model path was taken so Context's Back returns to the right screen.
   let setupStep = $state<"local" | "cloud">("local");
 
   function chooseLocal(r: SystemReport, whisperModel: string): void {
     report = r;
+    speechModel = whisperModel;
     updates = { ...updates, whisper_model: whisperModel };
     setupStep = "local";
     step = "local";
@@ -35,6 +38,7 @@
   function chooseCloud(r: SystemReport, whisperModel: string): void {
     report = r;
     // Speech is always transcribed locally, so the choice applies on the cloud path too.
+    speechModel = whisperModel;
     updates = { ...updates, whisper_model: whisperModel };
     setupStep = "cloud";
     step = "cloud";
@@ -65,7 +69,12 @@
   {:else if step === "gpu"}
     <GpuCheck goLocal={chooseLocal} goCloud={chooseCloud} back={() => (step = "welcome")} />
   {:else if step === "local" && report}
-    <LocalSetup {report} {complete} back={() => (step = "gpu")} />
+    <LocalSetup
+      {report}
+      whisperModel={speechModel}
+      {complete}
+      back={() => (step = "gpu")}
+    />
   {:else if step === "cloud"}
     <CloudSetup {complete} back={() => (step = "gpu")} />
   {:else if step === "context"}

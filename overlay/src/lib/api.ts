@@ -55,9 +55,32 @@ export async function waitForHealth(
   }
 }
 
+/** What the caller is in the middle of choosing, since the two model lists are sized against
+ *  each other's VRAM. Omit them to be labelled against the saved settings. */
+export interface FitOverrides {
+  whisperModel?: string;
+  llmModel?: string;
+  assumeRecommendedLlm?: boolean; // size speech against the chat model this report recommends
+}
+
+function fitQuery(opts: FitOverrides): string {
+  const q = new URLSearchParams();
+  if (opts.whisperModel) q.set("whisper_model", opts.whisperModel);
+  if (opts.llmModel) q.set("llm_model", opts.llmModel);
+  if (opts.assumeRecommendedLlm) q.set("assume_recommended_llm", "true");
+  return q.size ? `?${q}` : "";
+}
+
 // Cached because the hardware probe is slow; `force` runs it again.
 let _systemReport: SystemReport | null = null;
-export async function getSystemInfo(force = false): Promise<SystemReport> {
+export async function getSystemInfo(
+  force = false,
+  opts: FitOverrides = {},
+): Promise<SystemReport> {
+  const query = fitQuery(opts);
+  // An overridden report describes a configuration that isn't saved, so it neither reads the cache
+  // nor writes to it. Sharing one key with the real labels is how they came to disagree.
+  if (query) return await getJSON<SystemReport>(`/system/info${query}`);
   if (!force && _systemReport) return _systemReport;
   _systemReport = await getJSON<SystemReport>("/system/info");
   return _systemReport;
