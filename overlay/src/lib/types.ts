@@ -153,6 +153,7 @@ export interface PullProgress {
   completed: number | null;
   total: number | null;
   percent: number | null;
+  error?: string | null;
 }
 
 // Server -> client WS events (discriminated on `type`).

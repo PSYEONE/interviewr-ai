@@ -83,6 +83,28 @@ async def test_pull_model_streams_progress() -> None:
     assert events[-1].status == "success"
 
 
+async def test_a_refused_pull_is_reported_rather_than_ending_quietly() -> None:
+    # Ollama answers 200 and then says why it refused, so raise_for_status never fires.
+    refused = (
+        b'{"status":"pulling manifest"}\n'
+        b'{"error":"pull model manifest: 412: \\nThe model you are attempting to pull '
+        b'requires a newer version of Ollama.\\n"}\n'
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=refused)
+
+    admin = OllamaAdmin("http://ollama", transport=httpx.MockTransport(handler))
+    try:
+        events = [p async for p in admin.pull_model("gemma3:4b")]
+    finally:
+        await admin.close()
+    assert events[-1].status == "error"
+    assert events[-1].error is not None
+    assert "newer version of Ollama" in events[-1].error
+    assert all(e.status != "success" for e in events)
+
+
 async def test_delete_model_sends_delete_with_body() -> None:
     seen: list[httpx.Request] = []
     admin = OllamaAdmin("http://ollama", transport=_transport(seen))

@@ -31,6 +31,8 @@ class PullProgress(BaseModel):
     completed: int | None = None
     total: int | None = None
     percent: float | None = None
+    # Ollama reports a failed pull as a line on a 200 response, not an HTTP error.
+    error: str | None = None
 
 
 class OllamaAdmin:
@@ -91,6 +93,9 @@ class OllamaAdmin:
                 if not line:
                     continue
                 data = json.loads(line)
+                if data.get("error"):
+                    yield PullProgress(status="error", error=str(data["error"]).strip())
+                    return
                 completed = data.get("completed")
                 total = data.get("total")
                 percent = (

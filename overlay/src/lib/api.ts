@@ -185,6 +185,12 @@ export async function pullModel(
   // Called once the download has really started, so a rejected pull never shows a progress bar.
   onStart?.();
 
+  const report = (progress: PullProgress): void => {
+    const failed = pullFailure(model, progress);
+    if (failed) throw failed;
+    onProgress(progress);
+  };
+
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -195,8 +201,14 @@ export async function pullModel(
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) {
-      if (line.trim()) onProgress(JSON.parse(line) as PullProgress);
+      if (line.trim()) report(JSON.parse(line) as PullProgress);
     }
   }
-  if (buffer.trim()) onProgress(JSON.parse(buffer) as PullProgress);
+  if (buffer.trim()) report(JSON.parse(buffer) as PullProgress);
+}
+
+// Ollama reports a refused pull mid-stream on a 200 response, so that line has to throw.
+function pullFailure(model: string, progress: PullProgress): Error | null {
+  if (!progress.error) return null;
+  return new Error(`pull ${model} failed: ${progress.error}`);
 }
