@@ -79,6 +79,7 @@ class Recommendation(BaseModel):
     can_run_local: bool
     tier: str  # large | medium | small | none
     vram_mb: int | None  # the discrete VRAM the verdict is based on
+    usable_vram_mb: int | None  # what's left for the chat model once speech and retrieval have theirs
     suggested_models: list[str]  # default picks (largest fitting first), drives the preselection
     catalog: list[RankedModel]  # full curated catalog ranked + fit-labelled for this machine
     discrete_gpu_index: int | None  # Vulkan index to pin for whisper on iGPU+dGPU machines
@@ -87,9 +88,16 @@ class Recommendation(BaseModel):
 
 _CATALOG_JSON = Path(__file__).resolve().parent / "catalog.json"
 
-# KV cache estimate for an 8B-class model at 4096 context; _FITS_HEADROOM covers larger ones.
-_KV_OVERHEAD_MB = 512
+# Running a model costs more than its weights: KV cache and compute buffers scale with it. Ollama
+# reports 6.0 GB resident for qwen3:8b's 4983 MB download at 4096 context, hence the 20%, with a
+# floor for the small models where a percentage alone is too generous.
+_RUNTIME_FACTOR = 1.2
+_MIN_OVERHEAD_MB = 512
 _FITS_HEADROOM = 1.25  # "fits" means comfortable, not merely possible
+# The desktop's framebuffer and the driver's own allocation never leave the card, and Ollama keeps
+# a margin rather than filling it: with 6.2 GB in use on an 8 GB laptop card it left 1.6 GB unused
+# instead of loading the last 14% of the model.
+_CARD_OVERHEAD_MB = 512
 
 
 @lru_cache(maxsize=1)
@@ -302,18 +310,33 @@ def detect_system() -> SystemInfo:
     )
 
 
-def rank_catalog(vram_mb: int | None) -> list[RankedModel]:
-    """Labels each model's fit for ``vram_mb`` (None = CPU only) and sorts the best fits first."""
+def usable_vram_mb(vram_mb: int, reserved_mb: int) -> int | None:
+    """What a chat model can really have: the card, less the other models and the card's overhead."""
+    return max(0, vram_mb - reserved_mb - _CARD_OVERHEAD_MB) or None
+
+
+def runtime_vram_mb(download_mb: int) -> int:
+    """VRAM a model really holds: its weights plus the cache and buffers that scale with them."""
+    return max(round(download_mb * _RUNTIME_FACTOR), download_mb + _MIN_OVERHEAD_MB)
+
+
+def rank_catalog(vram_mb: int | None, reserved_mb: int = 0) -> list[RankedModel]:
+    """Labels each model's fit for ``vram_mb`` (None = CPU only) and sorts the best fits first.
+
+    ``reserved_mb`` is memory the chat model cannot have, because the speech model and the local
+    embedder are resident on the same card.
+    """
+    usable = None if vram_mb is None else usable_vram_mb(vram_mb, reserved_mb)
     ranked: list[RankedModel] = []
     for m in catalog():
-        need = None if m.download_mb is None else m.download_mb + _KV_OVERHEAD_MB
+        need = None if m.download_mb is None else runtime_vram_mb(m.download_mb)
         if need is None:
             fit = None
-        elif vram_mb is None:
+        elif usable is None:
             fit = "cpu"
-        elif vram_mb >= need * _FITS_HEADROOM:
+        elif usable >= need * _FITS_HEADROOM:
             fit = "fits"
-        elif vram_mb >= need:
+        elif usable >= need:
             fit = "tight"
         else:
             fit = "too_big"
@@ -335,12 +358,22 @@ def _suggested_from(ranked: list[RankedModel]) -> list[str]:
     return [r.name for r in smallest[:2]]
 
 
-def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) -> Recommendation:
-    """Local-LLM verdict from the best discrete GPU's VRAM, plus the ranked catalog."""
+def recommend(
+    gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None, reserved_mb: int = 0
+) -> Recommendation:
+    """Local-LLM verdict from the best discrete GPU's VRAM, plus the ranked catalog.
+
+    ``reserved_mb`` is what the speech model and the local embedder hold on the same card; it
+    narrows the per-model fit labels but not the tier, since the tier decides whether local is
+    viable at all and a small card can still run a small model.
+    """
     discrete = [g for g in gpus if g.kind == "discrete" and g.vram_mb is not None]
     best = max(discrete, key=lambda g: g.vram_mb or 0, default=None)
-    catalog = rank_catalog(best.vram_mb if best else None)
+    catalog = rank_catalog(best.vram_mb if best else None, reserved_mb)
     suggested = _suggested_from(catalog)
+    usable = (
+        None if best is None or best.vram_mb is None else usable_vram_mb(best.vram_mb, reserved_mb)
+    )
     if best is None or best.vram_mb is None:
         reason = (
             f"GPU driver error: {gpu_error}. The card is installed but unusable until the "
@@ -354,6 +387,7 @@ def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) ->
             can_run_local=False,
             tier="none",
             vram_mb=None,
+            usable_vram_mb=None,
             suggested_models=suggested,
             catalog=catalog,
             discrete_gpu_index=None,
@@ -371,6 +405,7 @@ def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) ->
             can_run_local=False,
             tier="none",
             vram_mb=vram,
+            usable_vram_mb=usable,
             suggested_models=suggested,
             catalog=catalog,
             discrete_gpu_index=best.index,
@@ -381,6 +416,7 @@ def recommend(gpus: list[GpuInfo], ram_mb: int, gpu_error: str | None = None) ->
         can_run_local=True,
         tier=tier,
         vram_mb=vram,
+        usable_vram_mb=usable,
         suggested_models=suggested,
         catalog=catalog,
         discrete_gpu_index=best.index,

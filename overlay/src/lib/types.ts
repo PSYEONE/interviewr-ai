@@ -52,13 +52,14 @@ export interface RankedModel {
   quant: string | null; // "Q4_K_M"
   family: string | null;
   fit: string | null; // fits | tight | too_big | cpu; null when the size isn't known
-  vram_mb: number | null; // estimated weights + KV cache at the default 4096 context
+  vram_mb: number | null; // estimated VRAM while running: weights plus cache and compute buffers
 }
 
 export interface Recommendation {
   can_run_local: boolean;
   tier: string; // large | medium | small | none
-  vram_mb: number | null;
+  vram_mb: number | null; // the card's total
+  usable_vram_mb: number | null; // what's left for the chat model once speech and retrieval have theirs
   suggested_models: string[]; // default preselection (largest fitting first)
   catalog: RankedModel[]; // full curated catalog, ranked + fit-labelled for this machine
   discrete_gpu_index: number | null;

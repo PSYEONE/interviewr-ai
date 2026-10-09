@@ -66,6 +66,8 @@ class Session:
         self._conversation_id: int | None = None
         # In-flight best-effort title-generation tasks (one per finalized conversation).
         self._title_tasks: set[asyncio.Task[None]] = set()
+        # Entering an interview warms the LLM; one at a time, so repeated entries can't stack.
+        self._warm_task: asyncio.Task[None] | None = None
         # Conversations hidden from history until their title is generated.
         self._finalizing: set[int] = set()
         # Capture runs only while an interview is active and a client is connected.
@@ -91,6 +93,24 @@ class Session:
         """Intend to capture system audio (sent when entering an interview)."""
         self._capture_intent = True
         self._recompute_capture()
+        self._warm_llm()
+
+    def _warm_llm(self) -> None:
+        """Load the model now, while the user is still talking.
+
+        Ollama drops it after its keep-alive, and reloading an 8B costs several seconds. Paid here
+        it is invisible; paid on the first question it is the whole answer's latency. Warming also
+        pushes the keep-alive clock to the start of the interview.
+        """
+        if self._warm_task is not None and not self._warm_task.done():
+            return
+        self._warm_task = asyncio.create_task(self._warm_once())
+
+    async def _warm_once(self) -> None:
+        try:
+            await self._llm.warmup()
+        except Exception as exc:  # noqa: BLE001 - a cold LLM must not stop transcription
+            _log.warning("LLM warmup failed: %s", exc)
 
     def pause_capture(self) -> None:
         """Stop intending to capture (sent when leaving/finishing an interview)."""
@@ -313,6 +333,12 @@ class Session:
         conv_id = self._conversation_id
         if conv_id is not None and self._history_store is not None and self._history_enabled:
             await self._finalize_conversation(conv_id)
+        if self._warm_task is not None and not self._warm_task.done():
+            self._warm_task.cancel()
+            try:
+                await self._warm_task
+            except asyncio.CancelledError:
+                pass
         # Stop any background title tasks still running from earlier resets.
         for task in list(self._title_tasks):
             task.cancel()

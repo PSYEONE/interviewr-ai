@@ -5,7 +5,12 @@ from __future__ import annotations
 from app.config import Settings
 from app.stt.whisper import fits_in_vram
 from app.system.hardware import GpuInfo, _nvidia_free_parse
-from app.system.whisper_models import llm_vram_mb, vram_needed_mb, whisper_choice
+from app.system.whisper_models import (
+    llm_vram_mb,
+    speech_and_rag_vram_mb,
+    vram_needed_mb,
+    whisper_choice,
+)
 
 
 def _settings(**overrides: object) -> Settings:
@@ -39,6 +44,28 @@ def test_a_cloud_model_reserves_nothing() -> None:
         llm_provider="anthropic", llm_model="claude-sonnet-5", anthropic_api_key="test-key"
     )
     assert llm_vram_mb(cloud) == 0
+
+
+def test_speech_and_retrieval_reserve_their_share() -> None:
+    # The mirror of llm_vram_mb: the chat model cannot have what these two already hold.
+    default = _settings(llm_provider="ollama", llm_model="qwen3:8b")
+    assert speech_and_rag_vram_mb(default) == 1150  # small.en 850 + nomic-embed-text 300
+
+
+def test_cloud_speech_and_cloud_embeddings_reserve_nothing() -> None:
+    cloud = _settings(
+        llm_provider="ollama",
+        llm_model="qwen3:8b",
+        whisper_use_gpu=False,
+        embed_provider="openai",
+        openai_api_key="test-key",
+    )
+    assert speech_and_rag_vram_mb(cloud) == 0
+
+
+def test_retrieval_turned_off_reserves_nothing_for_it() -> None:
+    off = _settings(llm_provider="ollama", llm_model="qwen3:8b", rag_enabled=False)
+    assert speech_and_rag_vram_mb(off) == 850  # the speech model only
 
 
 def test_an_8gb_card_running_an_llm_is_not_offered_the_biggest_model() -> None:

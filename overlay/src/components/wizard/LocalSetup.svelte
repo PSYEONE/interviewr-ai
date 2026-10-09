@@ -275,11 +275,15 @@
   <div class="wiz-head">
     <div class="flex items-baseline justify-between gap-3">
       <h1 class="shrink-0">Local model</h1>
-      <!-- Available VRAM next to the title; truncates on a narrow window. -->
+      <!-- The usable figure, not the card's total, since that is what the fit badges are judged
+           against. Showing only the total made a 6GB model on an 8GB card look mislabelled. -->
       <span class="min-w-0 truncate text-2xl font-normal">
         {#if info.recommendation.vram_mb}
-          <span class="text-dim">Available VRAM:</span>
-          <span class="font-semibold">{(info.recommendation.vram_mb / 1000).toFixed(0)}GB</span>
+          <span class="text-dim">Usable VRAM:</span>
+          <span class="font-semibold">
+            {((info.recommendation.usable_vram_mb ?? info.recommendation.vram_mb) / 1000).toFixed(1)}GB
+          </span>
+          <span class="text-dim text-sm">of {(info.recommendation.vram_mb / 1000).toFixed(0)}GB</span>
         {:else}
           <span class="text-dim">No GPU detected; CPU only</span>
         {/if}
@@ -331,6 +335,14 @@
         </span>
         <button disabled={pulling || !customModel.trim()} onclick={pullCustom}>Download</button>
       </div>
+
+      <!-- The symmetric note to the speech list's: both share one card, so both say so. -->
+      {#if info.recommendation.usable_vram_mb}
+        <p class="text-dim text-xs">
+          Sizes are judged against the GPU memory left once the speech model and retrieval have
+          theirs. A tight model still runs, partly on the CPU, and more slowly.
+        </p>
+      {/if}
 
       {#each rows as m (m.name)}
         {@const isCurrent = sameTag(m.name, currentModel)}

@@ -24,6 +24,9 @@ _MODELS: list[tuple[str, int, int, float | None, float | None]] = [
 # Assumed VRAM for a local LLM that isn't in the catalog, so an unknown model still reserves room.
 _UNKNOWN_LLM_VRAM_MB = 4096
 
+# nomic-embed-text, measured at 292 MB resident while retrieval is on.
+_EMBED_VRAM_MB = 300
+
 # VRAM from which the next model up is worth its download and slower transcription.
 _SMALL_FROM_MB = 2000
 _MEDIUM_FROM_MB = 6000
@@ -59,6 +62,20 @@ def llm_vram_mb(settings: Settings) -> int:
         if model.name == settings.llm_model:
             return model.vram_mb if model.vram_mb is not None else _UNKNOWN_LLM_VRAM_MB
     return _UNKNOWN_LLM_VRAM_MB
+
+
+def speech_and_rag_vram_mb(settings: Settings) -> int:
+    """VRAM the speech model and the local embedder hold, which the chat model cannot have.
+
+    The mirror of ``llm_vram_mb``: all three live on one card, so each side has to allow for the
+    others or the wizard recommends a combination that does not fit.
+    """
+    reserved = 0
+    if settings.whisper_use_gpu:
+        reserved += vram_needed_mb(settings.whisper_model) or 0
+    if settings.rag_enabled and settings.embed_provider == "ollama" and settings.embed_model:
+        reserved += _EMBED_VRAM_MB
+    return reserved
 
 
 def _fit(vram_mb: int | None, needs_mb: int) -> str:

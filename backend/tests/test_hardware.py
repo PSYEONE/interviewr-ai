@@ -112,9 +112,18 @@ def test_rank_catalog_covers_every_model() -> None:
 def test_rank_catalog_labels_fit_against_vram() -> None:
     """Sizes come from catalog.json, so these assert the rule, not hand-tuned constants."""
     by_name = {r.name: r for r in rank_catalog(8192)}
-    assert by_name["qwen2.5:7b"].fit == "fits"  # ~5.0GB needed, comfortably under 8GB
-    assert by_name["mistral-nemo:12b"].fit == "tight"  # ~7.3GB: runs, but no headroom
-    assert by_name["qwen2.5:32b"].fit == "too_big"  # ~19GB, nowhere near
+    assert by_name["qwen2.5:7b"].fit == "fits"  # ~5.4GB needed, under 8GB with room to spare
+    assert by_name["mistral-nemo:12b"].fit == "too_big"  # ~8.1GB running: more than the card has
+    assert by_name["qwen2.5:32b"].fit == "too_big"  # ~23GB, nowhere near
+
+
+def test_the_runtime_estimate_matches_what_ollama_reports() -> None:
+    """The flat 512 MB overhead was 500 MB light on an 8B, which is how an unfittable model got
+    recommended. Ollama reports 6.0 GB resident for qwen3:8b's 4983 MB download."""
+    by_name = {r.name: r for r in rank_catalog(None)}
+    need = by_name["qwen3:8b"].vram_mb
+    assert need is not None
+    assert 5700 <= need <= 6300
 
 
 def test_phi4_does_not_fit_an_8gb_card() -> None:
@@ -127,12 +136,28 @@ def test_phi4_does_not_fit_an_8gb_card() -> None:
 def test_rank_catalog_orders_fitting_biggest_first() -> None:
     ranked = rank_catalog(24576)  # a 24GB card
     fits = [r for r in ranked if r.fit == "fits"]
-    assert fits[0].name == "qwen2.5:32b"  # largest that fits leads
+    assert fits[0].name == "phi4"  # largest that fits leads; a 32B Q4 is only tight on 24GB
     sizes = [r.download_mb or 0 for r in fits]
     assert sizes == sorted(sizes, reverse=True)
     # fitting models all precede non-fitting ones
     first_non_fit = next(i for i, r in enumerate(ranked) if r.fit != "fits")
     assert all(r.fit == "fits" for r in ranked[:first_non_fit])
+
+
+def test_a_reservation_rules_out_a_model_the_card_cannot_also_hold() -> None:
+    """The real fault: an 8GB card was offered qwen3:8b while whisper and the embedder were
+    resident too, so Ollama ran 14% of it on the CPU and evicted it between answers."""
+    plain = {r.name: r for r in rank_catalog(8192)}
+    shared = {r.name: r for r in rank_catalog(8192, 1150)}  # small.en plus nomic-embed-text
+    assert plain["qwen3:8b"].fit == "fits"
+    assert shared["qwen3:8b"].fit == "tight"
+    assert shared["gemma3:4b"].fit == "fits"  # what actually runs wholly on the GPU here
+
+
+def test_a_reservation_does_not_change_the_tier() -> None:
+    # The tier decides whether local is viable at all; a small card can still run a small model.
+    gpus = [_gpu("discrete", 8192)]
+    assert recommend(gpus, 32000, None, 1150).tier == recommend(gpus, 32000).tier == "medium"
 
 
 def test_rank_catalog_cpu_when_no_gpu() -> None:
