@@ -6,38 +6,35 @@ interviewr-ai listens to your interviews and meetings, transcribes them in real 
 surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 **privacy-first**, and **subscription-free**.
 
-- **Linux-first** - native PipeWire/Wayland audio capture.
-- **Privacy-first** - optional fully-offline pipeline (local STT + Ollama). Audio can
-  stay 100% on your machine.
-- **BYOK + local** - bring your own API key, or run free with local models.
+<!-- Demo gif goes here, directly under the description and before the first
+     heading, which is where every comparable project puts it:
+![Demo](docs/media/demo.gif)
+-->
+
+## Features
+
+- **Live transcription** - whisper.cpp with the Vulkan backend, so the GPU is used on AMD,
+  NVIDIA and Intel alike, with automatic CPU fallback.
+- **Answers from your own material** - your CV, the job description and the conversation so
+  far, streamed into the overlay while the question is still being asked. The system prompt
+  and answer style are editable.
+- **Choose what gets captured** - all system audio, or one application isolated through a
+  private null sink so notifications and music stay out of the transcript.
+- **Models managed in the app** - find, download, switch and delete models from the
+  dashboard, with free-space checks. No terminal, no `ollama pull`.
+- **Setup wizard** - reads your hardware on first run and picks an LLM and a speech model
+  that fit your VRAM, then downloads them for you.
+- **Local or bring your own key** - Ollama by default and nothing leaves the machine;
+  Anthropic, OpenAI, Gemini, Groq and cloud speech-to-text are options, not requirements.
+- **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
+  from screencast on KDE Plasma 6.6+.
+- **History** - every conversation saved, with Markdown and JSON export.
 
 ## Status
 
 Working end to end on Linux/KDE, and still rough. The loop runs: system audio in, live
 transcription, question detection, RAG over your CV and the job description, a streamed answer
 in the overlay, and the conversation saved to history.
-
-Around it: a setup wizard, a dashboard with a model manager (pull, delete, disk checks), an
-editable system prompt and answer styles, conversation history with Markdown/JSON export, and
-global shortcuts through the XDG portal. Local by default via whisper.cpp (Vulkan) and Ollama,
-with BYOK Anthropic/OpenAI/Gemini and cloud STT as options.
-
-## Choosing what gets captured
-
-By default the engine records the **default sink's monitor**, which is all system audio: the
-call, but also notification sounds, music, and every other tab.
-
-**Settings > Audio > Capture from** narrows that to one application. The engine creates a
-private null sink, routes that app's audio into it, loops it back to your speakers so you still
-hear the call, and records only that sink. In testing, a second application playing at the same
-time was attenuated by a factor of ~1.4e6, so it is isolation rather than a volume difference.
-
-## Architecture
-
-A **Python/FastAPI engine** does capture, STT, RAG and LLM orchestration, and broadcasts
-transcript + answer events over an **authenticated WebSocket** to any number of thin
-clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
-to the same stream.
 
 ## Install
 
@@ -89,6 +86,23 @@ A checkout keeps its config and databases beside the source (`.env` at the repo 
 `backend/data/`). An installed copy, which has no writable source tree, uses
 `~/.config/interviewr/` and `~/.local/share/interviewr/` instead, and keeps both if you
 uninstall. `INTERVIEWR_CONFIG_DIR` and `INTERVIEWR_STATE_DIR` override either.
+
+## Choosing what gets captured
+
+By default the engine records the **default sink's monitor**, which is all system audio: the
+call, but also notification sounds, music, and every other tab.
+
+**Settings > Audio > Capture from** narrows that to one application. The engine creates a
+private null sink, routes that app's audio into it, loops it back to your speakers so you still
+hear the call, and records only that sink. In testing, a second application playing at the same
+time was attenuated by a factor of ~1.4e6, so it is isolation rather than a volume difference.
+
+## Architecture
+
+A **Python/FastAPI engine** does capture, STT, RAG and LLM orchestration, and broadcasts
+transcript + answer events over an **authenticated WebSocket** to any number of thin
+clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
+to the same stream.
 
 ## Support this project
 
