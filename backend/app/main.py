@@ -29,7 +29,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from .config import Settings, get_settings
+from .config import LLMProvider, Settings, get_settings
 from .config_store import ConfigView, apply_config, current_config
 from .events import (
     AnswerCommand,
@@ -39,6 +39,7 @@ from .events import (
     EventBus,
     PauseCommand,
     PingCommand,
+    ReasoningCommand,
     ResetCommand,
     ResumeCommand,
     StatusEvent,
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ready = False
     app.state.stt_ready = False  # speech model loaded (a first run downloads it)
     app.state.stt_progress = 0
+    app.state.llm_can_think = False  # whether the model has a reasoning mode worth offering
     app.state.capture_prefs = None
 
     # Remove any null sink left behind by a crashed engine.
@@ -122,6 +124,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.session = session
             app.state.llm = llm
             app.state.ready = True
+            app.state.llm_can_think = await _llm_can_think(settings)
             # Warm the LLM in the background so transcription doesn't wait for it to load.
             warmup_task = asyncio.create_task(_warm_llm(llm))
             capture_prefs = CapturePrefs.of(settings)
@@ -235,6 +238,17 @@ app.add_middleware(
 )
 
 
+async def _llm_can_think(settings: Settings) -> bool:
+    """Whether the configured model has a reasoning mode. Asked once: a model change restarts us."""
+    if settings.llm_provider != LLMProvider.OLLAMA:
+        return False  # the cloud adapters don't expose their reasoning APIs
+    admin = OllamaAdmin(settings.ollama_base_url)
+    try:
+        return "thinking" in await admin.capabilities(settings.llm_model)
+    finally:
+        await admin.close()
+
+
 @app.get("/health")
 async def health(request: Request) -> dict[str, object]:
     settings = get_settings()
@@ -245,6 +259,8 @@ async def health(request: Request) -> dict[str, object]:
         # Speech model state, so the UI can show a first run's download instead of looking stuck.
         "stt_ready": bool(getattr(request.app.state, "stt_ready", False)),
         "stt_progress": int(getattr(request.app.state, "stt_progress", 0)),
+        # Drives the interview screen's reasoning toggle, which is hidden when the model can't.
+        "llm_can_think": bool(getattr(request.app.state, "llm_can_think", False)),
         "stt_provider": settings.stt_provider,
         "llm_provider": settings.llm_provider,
         "remote_viewer": str(settings.enable_remote_viewer),
@@ -333,6 +349,8 @@ async def _reader(ws: WebSocket, session: Session | None) -> None:
                     session.resume_capture()
                 case AnswerStyleCommand():
                     session.set_answer_style(cmd.style)
+                case ReasoningCommand():
+                    session.set_reasoning(cmd.on)
                 case PingCommand():
                     pass
     except WebSocketDisconnect:

@@ -8,6 +8,7 @@ import uuid
 
 from .events import (
     AnswerDoneEvent,
+    AnswerReasoningEvent,
     AnswerStartEvent,
     AnswerTokenEvent,
     ConversationTitledEvent,
@@ -74,6 +75,7 @@ class Session:
         self._recompute_capture()
         # Answer style chosen by the client; the directive text comes from config.
         self._answer_style = "script"
+        self._reasoning = False  # off by default: a reasoning model is far too slow live
         self._style_directives = dict(style_directives or STYLE_DIRECTIVES)
 
     def _recompute_capture(self) -> None:
@@ -121,6 +123,10 @@ class Session:
         """Flip how answers are formatted (sticky until changed); applied to the next answer."""
         if style in _STYLES:
             self._answer_style = style
+
+    def set_reasoning(self, on: bool) -> None:
+        """Let the model reason before answering: better answers, but tens of seconds slower."""
+        self._reasoning = on
 
     def set_style_directives(self, directives: dict[str, str]) -> None:
         """Live-swap the per-style directive text (applied by POST /settings/reload)."""
@@ -189,9 +195,14 @@ class Session:
         tokens: list[str] = []
         cancelled = False
         try:
-            async for token in self._llm.generate(messages):
-                tokens.append(token)
-                self._bus.publish(AnswerTokenEvent(answer_id=answer_id, token=token))
+            async for chunk in self._llm.generate(messages, reasoning=self._reasoning):
+                if chunk.reasoning:
+                    self._bus.publish(
+                        AnswerReasoningEvent(answer_id=answer_id, token=chunk.text)
+                    )
+                    continue  # shown live, but it never becomes history or future context
+                tokens.append(chunk.text)
+                self._bus.publish(AnswerTokenEvent(answer_id=answer_id, token=chunk.text))
             self._commit_history(transcript, "".join(tokens))
         except asyncio.CancelledError:
             cancelled = True
@@ -282,8 +293,10 @@ class Session:
             f"Questions discussed:\n{questions}"
         )
         tokens: list[str] = []
-        async for token in self._llm.generate([{"role": "user", "content": prompt}]):
-            tokens.append(token)
+        async for chunk in self._llm.generate(
+            [{"role": "user", "content": prompt}], reasoning=False
+        ):
+            tokens.append(chunk.text)
         raw = "".join(tokens).strip().strip('"').strip()
         if not raw:
             return ""

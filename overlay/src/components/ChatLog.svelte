@@ -22,7 +22,12 @@
 <div id="chat" bind:this={el} onscroll={onScroll}>
   <div class="log">
     {#each session.turns as turn (turn.id)}
-      <Turn question={turn.question} answer={turn.answer} />
+      <Turn
+        question={turn.question}
+        answer={turn.answer}
+        reasoning={turn.reasoning}
+        thoughtMs={turn.thoughtMs}
+      />
     {/each}
 
     {#if session.pending || session.live}

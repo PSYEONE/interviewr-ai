@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 
 from app.config import Settings
 from app.events import AnswerStyleCommand, EventBus, parse_command
-from app.llm.base import STYLE_DIRECTIVES, Message, effective_style_directives
+from app.llm.base import STYLE_DIRECTIVES, Chunk, Message, effective_style_directives
 from app.session import Session
 
 
@@ -22,9 +22,11 @@ class _FakeLLM:
     async def warmup(self) -> None:
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
         self.last = list(messages)
-        yield "ok"
+        yield Chunk("ok")
 
     async def close(self) -> None:
         return None

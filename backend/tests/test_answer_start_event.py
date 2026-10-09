@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 
 from app.events import AnswerStartEvent, EventBus, Subscription
-from app.llm.base import Message
+from app.llm.base import Chunk, Message
 from app.session import Session
 
 
@@ -17,8 +17,10 @@ class _FakeLLM:
     async def warmup(self) -> None:
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        yield "ok"
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        yield Chunk("ok")
 
     async def close(self) -> None:
         return None

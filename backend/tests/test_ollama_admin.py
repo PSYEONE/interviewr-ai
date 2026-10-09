@@ -38,6 +38,10 @@ def _transport(seen: list[httpx.Request] | None = None) -> httpx.MockTransport:
         path = request.url.path
         if path == "/api/version":
             return httpx.Response(200, json={"version": "0.13.0"})
+        if path == "/api/show":
+            model = json.loads(request.content)["model"]
+            caps = ["completion", "tools", "thinking"] if model == "qwen3:8b" else ["completion"]
+            return httpx.Response(200, json={"capabilities": caps})
         if path == "/api/tags":
             return httpx.Response(200, json=_TAGS)
         if path == "/api/pull":
@@ -103,6 +107,28 @@ async def test_a_refused_pull_is_reported_rather_than_ending_quietly() -> None:
     assert events[-1].error is not None
     assert "newer version of Ollama" in events[-1].error
     assert all(e.status != "success" for e in events)
+
+
+async def test_capabilities_say_whether_a_model_can_reason() -> None:
+    admin = OllamaAdmin("http://ollama", transport=_transport())
+    try:
+        assert "thinking" in await admin.capabilities("qwen3:8b")
+        assert "thinking" not in await admin.capabilities("llama3.2:3b")
+        # Ollama reports a bare tag as name:latest, so the lookup has to normalize first.
+        assert "thinking" in await admin.capabilities("qwen3:8b:latest".replace(":latest", ""))
+    finally:
+        await admin.close()
+
+
+async def test_capabilities_are_empty_when_ollama_cannot_say() -> None:
+    def down(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    admin = OllamaAdmin("http://ollama", transport=httpx.MockTransport(down))
+    try:
+        assert await admin.capabilities("qwen3:8b") == []
+    finally:
+        await admin.close()
 
 
 async def test_delete_model_sends_delete_with_body() -> None:

@@ -8,6 +8,7 @@ import type { ServerEvent } from "./types";
 /** A WebSocket stand-in that lets a test hand events to the store the way the engine would. */
 class FakeSocket {
   static last: FakeSocket | null = null;
+  static OPEN = 1; // the store checks readyState against this before sending
   onopen: (() => void) | null = null;
   onmessage: ((e: MessageEvent<string>) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -32,6 +33,7 @@ async function connect(): Promise<FakeSocket> {
   for (let i = 0; i < 10 && FakeSocket.last?.onmessage == null; i++) await Promise.resolve();
   const ws = FakeSocket.last;
   if (!ws?.onmessage) throw new Error("session never attached a message handler");
+  ws.onopen?.(); // the engine accepting the connection is what re-asserts the sticky settings
   return ws;
 }
 
@@ -85,5 +87,44 @@ describe("captureSource", () => {
     emit(ws, { type: "status", state: "listening", source: "Brave" });
     session.resetView();
     expect(session.captureSource).toBeNull();
+  });
+});
+
+describe("reasoning", () => {
+  beforeEach(() => {
+    session.stop();
+    session.setReasoning(false);
+    session.turns = [];
+    FakeSocket.last = null;
+  });
+
+  it("streams onto the turn separately from the answer", async () => {
+    const ws = await connect();
+    emit(ws, { type: "answer.start", answer_id: "a1", question: "design it", source_chars: 9 });
+    emit(ws, { type: "answer.reasoning", answer_id: "a1", token: "weighing the budget" });
+    emit(ws, { type: "answer.token", answer_id: "a1", token: "Split it in three." });
+    const turn = session.turns.at(-1);
+    expect(turn?.reasoning).toBe("weighing the budget");
+    expect(turn?.answer).toBe("Split it in three.");
+  });
+
+  it("times the wait so the collapsed summary can report it", async () => {
+    const ws = await connect();
+    emit(ws, { type: "answer.start", answer_id: "a2", question: "q", source_chars: 1 });
+    emit(ws, { type: "answer.reasoning", answer_id: "a2", token: "hmm" });
+    emit(ws, { type: "answer.token", answer_id: "a2", token: "Answer." });
+    expect(session.turns.at(-1)?.thoughtMs).not.toBeNull();
+  });
+
+  it("tells the engine when it changes, and re-asserts on reconnect", async () => {
+    const ws = await connect();
+    ws.sent.length = 0;
+    session.setReasoning(true);
+    expect(ws.sent.map((f) => JSON.parse(f))).toContainEqual({ type: "reasoning", on: true });
+
+    // A reconnect gets a fresh session on the engine, so the sticky choice has to be re-sent.
+    const next = await connect();
+    expect(next.sent.map((f) => JSON.parse(f))).toContainEqual({ type: "reasoning", on: true });
+    session.setReasoning(false);
   });
 });

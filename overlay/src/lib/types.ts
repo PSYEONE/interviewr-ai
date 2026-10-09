@@ -16,6 +16,7 @@ export interface Health {
   remote_viewer: string;
   stt_ready: boolean; // speech model loaded; false while a first run downloads it
   stt_progress: number; // download percentage, 0 until it starts
+  llm_can_think: boolean; // model has a reasoning mode, so the toggle is worth showing
 }
 
 export interface GpuInfo {
@@ -161,6 +162,8 @@ export type ServerEvent =
   | { type: "transcript"; text: string; final: boolean; seq: number }
   | { type: "answer.start"; answer_id: string; question: string; source_chars: number }
   | { type: "answer.token"; answer_id: string; token: string }
+  // The model's reasoning, shown while it works; the engine keeps it out of history.
+  | { type: "answer.reasoning"; answer_id: string; token: string }
   | { type: "answer.done"; answer_id: string; cancelled: boolean }
   | {
       type: "status";

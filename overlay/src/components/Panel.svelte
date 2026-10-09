@@ -20,6 +20,8 @@
       const health = await getHealth();
       sttReady = health.stt_ready;
       sttPercent = health.stt_progress;
+      // Fixed for the engine's lifetime, so one read is enough to decide on the reasoning toggle.
+      session.canThink = health.llm_can_think;
     } catch {
       /* engine busy or restarting; try again on the next tick */
     }

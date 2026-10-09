@@ -32,6 +32,14 @@ class AnswerTokenEvent(BaseModel):
     token: str
 
 
+class AnswerReasoningEvent(BaseModel):
+    """A model's reasoning as it streams. Shown while the user waits, never stored as history."""
+
+    type: Literal["answer.reasoning"] = "answer.reasoning"
+    answer_id: str
+    token: str
+
+
 class AnswerDoneEvent(BaseModel):
     type: Literal["answer.done"] = "answer.done"
     answer_id: str
@@ -62,6 +70,7 @@ Event = Annotated[
         TranscriptEvent,
         AnswerStartEvent,
         AnswerTokenEvent,
+        AnswerReasoningEvent,
         AnswerDoneEvent,
         StatusEvent,
         ErrorEvent,
@@ -102,6 +111,11 @@ class AnswerStyleCommand(BaseModel):
     style: Literal["script", "bullets"]
 
 
+class ReasoningCommand(BaseModel):
+    type: Literal["reasoning"] = "reasoning"
+    on: bool
+
+
 Command = Annotated[
     Union[
         AnswerCommand,
@@ -111,6 +125,7 @@ Command = Annotated[
         PauseCommand,
         ResumeCommand,
         AnswerStyleCommand,
+        ReasoningCommand,
     ],
     Field(discriminator="type"),
 ]

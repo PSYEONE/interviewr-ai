@@ -10,7 +10,7 @@ import pytest
 
 from app.events import EventBus
 from app.history import HistoryStore, TurnRecord
-from app.llm.base import Message
+from app.llm.base import Chunk, Message
 from app.session import _fallback_title, Session
 
 
@@ -23,17 +23,21 @@ class _SlowLLM:
     async def warmup(self) -> None:
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
         await asyncio.sleep(3600)
-        yield "never"
+        yield Chunk("never")
 
     async def close(self) -> None:
         return None
 
 
 class _TitlingLLM(_SlowLLM):
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        yield "A Proper Generated Title"
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        yield Chunk("A Proper Generated Title")
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@ import pytest
 from app.config import Settings, get_settings
 from app.config_store import apply_config
 from app.events import EventBus
-from app.llm.base import STYLE_DIRECTIVES, Message
+from app.llm.base import STYLE_DIRECTIVES, Chunk, Message
 from app.main import app
 from app.pipeline import CapturePrefs
 from app.session import Session
@@ -24,8 +24,10 @@ class _FakeLLM:
     async def warmup(self) -> None:
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        yield "ok"
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        yield Chunk("ok")
 
     async def close(self) -> None:
         return None

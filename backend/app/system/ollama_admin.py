@@ -63,6 +63,16 @@ class OllamaAdmin:
     async def is_running(self) -> bool:
         return await self.version() is not None
 
+    async def capabilities(self, model: str) -> list[str]:
+        """What a pulled model can do, e.g. 'thinking' or 'tools'. Empty when Ollama can't say."""
+        try:
+            resp = await self._client.post("/api/show", json={"model": normalize_tag(model)})
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return []
+        caps = resp.json().get("capabilities")
+        return [str(c) for c in caps] if isinstance(caps, list) else []
+
     async def list_models(self) -> list[ModelInfo]:
         try:
             resp = await self._client.get("/api/tags")
