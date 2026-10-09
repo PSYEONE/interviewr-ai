@@ -9,6 +9,15 @@
     if (el) stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   }
 
+  // The one thing the empty log says. It has to cover the speech model loading too, or it would
+  // claim to be listening while the model is still being read from disk.
+  const emptyMessage = $derived.by(() => {
+    if (session.sttReady) return "Listening. Ask a question, then hit Answer.";
+    return session.sttPercent > 0
+      ? `Downloading the speech model (${session.sttPercent}%). Transcription starts when it is ready.`
+      : "Starting the speech model.";
+  });
+
   // One stick-to-bottom for the whole log (the old split panes each had their own). Reading the
   // state is what registers the dependency, so a new token or a new turn re-pins.
   $effect(() => {
@@ -39,7 +48,7 @@
     {/if}
 
     {#if session.turns.length === 0 && !session.pending && !session.live}
-      <p class="turn-empty">Listening. Ask a question, then hit Answer.</p>
+      <p class="turn-empty">{emptyMessage}</p>
     {/if}
   </div>
 </div>

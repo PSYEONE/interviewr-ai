@@ -52,6 +52,10 @@ class Session {
   reasoning = $state(_loadReasoning());
   // Whether the configured model has a reasoning mode at all, from /health.
   canThink = $state(false);
+  // Speech model state from /health, so the interview view can say what the engine is doing.
+  // Optimistic: a ready model is the common case, and guessing wrong here only costs a frame.
+  sttReady = $state(true);
+  sttPercent = $state(0);
 
   #ws: WebSocket | null = null;
   #backoff = 1000;
