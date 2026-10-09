@@ -116,6 +116,23 @@ describe("reasoning", () => {
     expect(session.turns.at(-1)?.thoughtMs).not.toBeNull();
   });
 
+  it("restates the style with every answer, so a dropped toggle cannot desync the engine", async () => {
+    // Reproduces the real fault: toggling while the socket is down updated the label and
+    // localStorage but never reached the engine, which kept answering in the old style.
+    const ws = await connect();
+    session.setAnswerStyle("bullets");
+    ws.readyState = 3; // socket gone; the toggle below cannot be delivered
+    session.setAnswerStyle("script");
+    expect(session.answerStyle).toBe("script");
+
+    ws.readyState = 1;
+    ws.sent.length = 0;
+    session.requestAnswer();
+    const frames = ws.sent.map((f) => JSON.parse(f));
+    expect(frames).toContainEqual({ type: "answer_style", style: "script" });
+    expect(frames.at(-1)).toEqual({ type: "answer" });
+  });
+
   it("tells the engine when it changes, and re-asserts on reconnect", async () => {
     const ws = await connect();
     ws.sent.length = 0;

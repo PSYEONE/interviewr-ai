@@ -7,7 +7,7 @@
 </script>
 
 <div id="controls">
-  <button title="Answer from current transcript" onclick={() => session.send("answer")}>
+  <button title="Answer from current transcript" onclick={() => session.requestAnswer()}>
     Answer
   </button>
   <button title="Clear pending buffer" onclick={() => session.clearPending()}>Clear</button>

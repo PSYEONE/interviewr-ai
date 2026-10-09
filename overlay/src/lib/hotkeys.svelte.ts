@@ -62,7 +62,7 @@ async function explain(raw: string): Promise<string | null> {
 function dispatch(action: HotkeyAction): void {
   switch (action) {
     case "answer":
-      session.send("answer");
+      session.requestAnswer();
       break;
     case "clear":
       session.send("clear");

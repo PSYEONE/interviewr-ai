@@ -129,6 +129,20 @@ class Session {
     this.setReasoning(!this.reasoning);
   }
 
+  // The engine holds these per session, so a toggle pressed while the socket was down would
+  // otherwise leave it answering in the old style with the UI showing the new one.
+  #assertSticky(): void {
+    if (!this.#ws || this.#ws.readyState !== WebSocket.OPEN) return;
+    this.#ws.send(JSON.stringify({ type: "answer_style", style: this.answerStyle }));
+    this.#ws.send(JSON.stringify({ type: "reasoning", on: this.reasoning }));
+  }
+
+  /** Asks for an answer, making sure the engine agrees about style and reasoning first. */
+  requestAnswer(): void {
+    this.#assertSticky();
+    this.send("answer");
+  }
+
   setAnswerStyle(style: AnswerStyle): void {
     this.answerStyle = style;
     localStorage.setItem(_STYLE_KEY, style);
@@ -149,8 +163,7 @@ class Session {
     ws.onopen = () => {
       this.#backoff = 1000;
       this.#setStatus("listening");
-      this.setAnswerStyle(this.answerStyle); // re-assert the sticky style on the shared session
-      this.setReasoning(this.reasoning);
+      this.#assertSticky(); // a reconnect gets a fresh session, so re-state both settings
     };
     ws.onmessage = (e: MessageEvent<string>) => this.#handle(JSON.parse(e.data) as ServerEvent);
     ws.onclose = () => {
