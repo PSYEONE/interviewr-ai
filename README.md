@@ -33,8 +33,8 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 ## Status
 
 Working end to end on Linux/KDE, and still rough. The loop runs: system audio in, live
-transcription, question detection, RAG over your CV and the job description, a streamed answer
-in the overlay, and the conversation saved to history.
+transcription, question detection, a search through your CV and the job description for the
+relevant parts, a streamed answer in the overlay, and the conversation saved to history.
 
 ## Install
 
