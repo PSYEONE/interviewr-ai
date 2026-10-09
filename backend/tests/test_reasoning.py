@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import httpx
+import pytest
 
 from app.events import AnswerReasoningEvent, AnswerTokenEvent, EventBus, Subscription
 from app.llm.base import Chunk, Message
@@ -137,6 +138,56 @@ async def test_reasoning_is_published_but_kept_out_of_the_answer() -> None:
     assert answer == "The answer."
     # The stored turn feeds the next prompt, so a stray thought there would poison the context.
     assert session._history[-1]["content"] == "The answer."
+
+
+class _CountingLLM(_ReasoningLLM):
+    """Records warmups, and can block in one to prove they do not stack."""
+
+    def __init__(self, hold: asyncio.Event | None = None, fail: bool = False) -> None:
+        super().__init__()
+        self.warmups = 0
+        self._hold = hold
+        self._fail = fail
+
+    async def warmup(self) -> None:
+        self.warmups += 1
+        if self._fail:
+            raise RuntimeError("ollama is down")
+        if self._hold is not None:
+            await self._hold.wait()
+
+
+async def test_entering_an_interview_warms_the_model() -> None:
+    # An evicted 8B costs seconds to reload; paid while the user is still talking it is invisible.
+    llm = _CountingLLM()
+    session = Session(EventBus(), llm)
+    session.resume_capture()
+    await asyncio.sleep(0)
+    assert llm.warmups == 1
+    await session.aclose()
+
+
+async def test_warmups_do_not_stack_on_repeated_entries() -> None:
+    hold = asyncio.Event()
+    llm = _CountingLLM(hold)
+    session = Session(EventBus(), llm)
+    session.resume_capture()
+    await asyncio.sleep(0)
+    session.resume_capture()  # straight back in while the first is still running
+    await asyncio.sleep(0)
+    assert llm.warmups == 1
+    hold.set()
+    await session.aclose()
+
+
+async def test_a_failed_warmup_is_logged_and_ignored(caplog: pytest.LogCaptureFixture) -> None:
+    llm = _CountingLLM(fail=True)
+    session = Session(EventBus(), llm)
+    session.resume_capture()
+    assert session._warm_task is not None
+    await session._warm_task  # must not raise: transcription carries on without the LLM
+    assert "warmup failed" in caplog.text
+    await session.aclose()
 
 
 async def test_a_title_never_reasons_even_with_reasoning_on() -> None:
