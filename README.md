@@ -123,6 +123,11 @@ Found a problem or have an idea? [Open an issue](https://github.com/PSYEONE/inte
 
 Every bit keeps this Linux-first, privacy-first, and subscription-free.
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Code contributions need a
+[Contributor License Agreement](./CLA.md); issues do not.
+
 ## License
 
 [AGPL-3.0](./LICENSE).
