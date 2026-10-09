@@ -54,6 +54,10 @@ so the result also installs on newer releases.
 
 ## Running from a checkout
 
+You need Python 3.12 or newer, Node, a Rust toolchain (1.77 or newer) and Tauri's Linux build
+dependencies, which [their prerequisites page](https://v2.tauri.app/start/prerequisites/) lists
+as apt packages.
+
 ```bash
 ./scripts/install.sh       # engine + GPU transcription; re-run safely
 cd overlay && npm install && npm run tauri dev
