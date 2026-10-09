@@ -37,7 +37,9 @@
     error = null;
     refreshing = true;
     try {
-      report = await getSystemInfo(force);
+      // The saved chat model is about to be replaced on the next screen, so size speech against
+      // the one we are about to recommend instead.
+      report = await getSystemInfo(force, { assumeRecommendedLlm: true });
       if (!speechModel) speechModel = report.whisper.suggested;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);

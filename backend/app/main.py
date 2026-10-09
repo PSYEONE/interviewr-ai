@@ -485,11 +485,27 @@ def _guard_model_in_use(settings: Settings, model: str) -> None:
 
 
 @app.get("/system/info")
-async def system_info(request: Request) -> SystemReport:
-    """Hardware capability + Ollama status for the setup wizard's GPU-check screen."""
+async def system_info(
+    request: Request,
+    whisper_model: str | None = Query(None),
+    llm_model: str | None = Query(None),
+    assume_recommended_llm: bool = Query(False),
+) -> SystemReport:
+    """Hardware capability + Ollama status for the setup wizard's GPU-check screen.
+
+    Speech and chat models are sized against each other's VRAM, so a caller part-way through
+    choosing passes what it is choosing: ?whisper_model= and ?llm_model= override the saved values
+    for the labels only. ?assume_recommended_llm=true sizes speech against the chat model this
+    report recommends, for the wizard screen that comes before the chat model is picked.
+    """
     _require_auth(request)
     settings: Settings = request.app.state.settings
-    return await collect_system_report(settings)
+    return await collect_system_report(
+        settings,
+        whisper_model=whisper_model,
+        llm_model=llm_model,
+        assume_recommended_llm=assume_recommended_llm,
+    )
 
 
 @app.get("/system/disk")

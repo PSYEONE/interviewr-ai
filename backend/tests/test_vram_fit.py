@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.stt.whisper import fits_in_vram
-from app.system.hardware import GpuInfo, _nvidia_free_parse
+from app.system.hardware import GpuInfo, _nvidia_free_parse, recommend
 from app.system.whisper_models import (
     llm_vram_mb,
     speech_and_rag_vram_mb,
@@ -66,6 +66,28 @@ def test_cloud_speech_and_cloud_embeddings_reserve_nothing() -> None:
 def test_retrieval_turned_off_reserves_nothing_for_it() -> None:
     off = _settings(llm_provider="ollama", llm_model="qwen3:8b", rag_enabled=False)
     assert speech_and_rag_vram_mb(off) == 850  # the speech model only
+
+
+def test_an_override_labels_against_the_choice_being_made() -> None:
+    """The wizard saves nothing until its last screen, so without this the chat list is judged
+    against the speech model the user is in the middle of replacing."""
+    saved = _settings(llm_model="qwen3:8b", whisper_model="small.en")
+    assert speech_and_rag_vram_mb(saved) == 1150
+    assert speech_and_rag_vram_mb(saved, "medium.en") == 2400  # what is being picked right now
+
+    gpu = [_gpu(8192)]
+    stale = {m.name: m.fit for m in recommend(gpu, 32000, None, 1150).catalog}
+    honest = {m.name: m.fit for m in recommend(gpu, 32000, None, 2400).catalog}
+    # Exactly the reported fault: tight on the wizard screen, too_big once applied.
+    assert stale["qwen3:8b"] == "tight"
+    assert honest["qwen3:8b"] == "too_big"
+
+
+def test_an_assumed_llm_stands_even_while_a_cloud_provider_is_saved() -> None:
+    # The wizard may be switching from cloud to local, so an explicit override is not a cloud 0.
+    cloud = _settings(llm_provider="anthropic", llm_model="claude-sonnet-5", anthropic_api_key="k")
+    assert llm_vram_mb(cloud) == 0
+    assert llm_vram_mb(cloud, "qwen3:8b") > 5000
 
 
 def test_an_8gb_card_running_an_llm_is_not_offered_the_biggest_model() -> None:

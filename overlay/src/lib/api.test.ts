@@ -7,7 +7,7 @@ vi.mock("./connection", () => ({
   authHeaders: async () => ({}),
 }));
 vi.mock("./tauri", () => ({ saveText: vi.fn() }));
-const { pullModel } = await import("./api");
+const { getSystemInfo, pullModel } = await import("./api");
 
 function ndjson(...lines: object[]): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -22,6 +22,48 @@ function ndjson(...lines: object[]): Response {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("getSystemInfo", () => {
+  function reportStub(usable: number): Response {
+    return new Response(JSON.stringify({ recommendation: { usable_vram_mb: usable } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  it("caches the saved-settings report", async () => {
+    const fetchMock = vi.fn(async () => reportStub(6530));
+    vi.stubGlobal("fetch", fetchMock);
+    await getSystemInfo();
+    await getSystemInfo();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the hardware probe is slow
+  });
+
+  it("neither reads nor writes the cache when labels are overridden", async () => {
+    // Sharing one cache key is how the wizard and the model manager came to disagree: an
+    // overridden report describes a configuration that is not saved.
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => reportStub(5280));
+    vi.stubGlobal("fetch", fetchMock);
+    await getSystemInfo(); // seeds the cache
+    fetchMock.mockClear();
+
+    const overridden = await getSystemInfo(false, { whisperModel: "medium.en" });
+    expect(fetchMock).toHaveBeenCalledTimes(1); // went to the network despite a warm cache
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("whisper_model=medium.en");
+    expect(overridden.recommendation.usable_vram_mb).toBe(5280);
+
+    fetchMock.mockClear();
+    await getSystemInfo(); // the cached report must be untouched
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the wizard's assume flag", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => reportStub(6530));
+    vi.stubGlobal("fetch", fetchMock);
+    await getSystemInfo(true, { assumeRecommendedLlm: true });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("assume_recommended_llm=true");
+  });
 });
 
 describe("pullModel", () => {

@@ -10,6 +10,7 @@
     back,
     current = null,
     manage = false,
+    whisperModel = "",
   }: {
     report: SystemReport;
     complete: (delta: Record<string, unknown>) => void;
@@ -17,6 +18,10 @@
     current?: ConfigView | null;
     // Only the dashboard's manage screen offers deletes; the wizard stays a linear setup path.
     manage?: boolean;
+    // The speech model chosen on the previous wizard screen and not yet saved. Sizes here are
+    // judged against it, so a refresh cannot revert them to the old one. Empty from the dashboard,
+    // where the saved value is already the truth.
+    whisperModel?: string;
   } = $props();
 
   const EMBED_MODEL = "nomic-embed-text";
@@ -187,7 +192,7 @@
 
   async function refresh(): Promise<void> {
     try {
-      info = await getSystemInfo(true);
+      info = await getSystemInfo(true, whisperModel ? { whisperModel } : {});
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }

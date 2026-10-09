@@ -41,9 +41,21 @@ class SystemReport(BaseModel):
     whisper: WhisperChoice  # speech models, labelled for this machine
 
 
-async def collect_system_report(settings: Settings) -> SystemReport:
+async def collect_system_report(
+    settings: Settings,
+    *,
+    whisper_model: str | None = None,
+    llm_model: str | None = None,
+    assume_recommended_llm: bool = False,
+) -> SystemReport:
     """Gather hardware + Ollama status. Hardware probes are blocking subprocesses, so they
-    run in a thread; Ollama calls are async httpx."""
+    run in a thread; Ollama calls are async httpx.
+
+    The two model lists are labelled against each other's VRAM, so a caller mid-choice passes what
+    it is choosing. ``assume_recommended_llm`` is for the wizard's first screen, where no chat model
+    has been picked yet: speech sizes are judged against the one about to be recommended rather than
+    against whatever happens to be configured.
+    """
     info = await asyncio.to_thread(detect_system)
     disk = await asyncio.to_thread(probe_disk, settings.resolved_ollama_models_dir())
     admin = OllamaAdmin(settings.ollama_base_url)
@@ -60,6 +72,14 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         models=models,
         install_command=None if installed else INSTALL_COMMAND,
     )
+    # Chat models first, from the speech choice; then speech models from that result. One pass
+    # each way, so the mutual dependency never becomes a loop.
+    recommendation = recommend(
+        info.gpus, info.ram_mb, info.gpu_error, speech_and_rag_vram_mb(settings, whisper_model)
+    )
+    chat_model = llm_model
+    if chat_model is None and assume_recommended_llm and recommendation.suggested_models:
+        chat_model = recommendation.suggested_models[0]
     return SystemReport(
         gpus=info.gpus,
         cpu_count=info.cpu_count,
@@ -67,10 +87,10 @@ async def collect_system_report(settings: Settings) -> SystemReport:
         gpu_error=info.gpu_error,
         disk=disk,
         ollama=ollama,
-        recommendation=recommend(
-            info.gpus, info.ram_mb, info.gpu_error, speech_and_rag_vram_mb(settings)
+        recommendation=recommendation,
+        whisper=whisper_choice(
+            info.gpus, settings.whisper_use_gpu, llm_vram_mb(settings, chat_model)
         ),
-        whisper=whisper_choice(info.gpus, settings.whisper_use_gpu, llm_vram_mb(settings)),
     )
 
 

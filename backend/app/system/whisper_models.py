@@ -54,25 +54,33 @@ def vram_needed_mb(name: str) -> int | None:
     return None
 
 
-def llm_vram_mb(settings: Settings) -> int:
-    """VRAM the configured LLM holds while the app runs, since speech and chat share the card. 0 for cloud."""
-    if settings.llm_provider != "ollama" or not settings.llm_model:
+def llm_vram_mb(settings: Settings, model_override: str | None = None) -> int:
+    """VRAM the configured LLM holds while the app runs, since speech and chat share the card. 0 for cloud.
+
+    ``model_override`` labels against a model the user is picking but has not saved yet, which is
+    the wizard's whole situation.
+    """
+    name = model_override or settings.llm_model
+    # An override names a local model to assume, so it stands even while a cloud provider is saved,
+    # which is the case when the wizard is switching from cloud to local.
+    if not name or (model_override is None and settings.llm_provider != "ollama"):
         return 0
     for model in rank_catalog(None):
-        if model.name == settings.llm_model:
+        if model.name == name:
             return model.vram_mb if model.vram_mb is not None else _UNKNOWN_LLM_VRAM_MB
     return _UNKNOWN_LLM_VRAM_MB
 
 
-def speech_and_rag_vram_mb(settings: Settings) -> int:
+def speech_and_rag_vram_mb(settings: Settings, model_override: str | None = None) -> int:
     """VRAM the speech model and the local embedder hold, which the chat model cannot have.
 
     The mirror of ``llm_vram_mb``: all three live on one card, so each side has to allow for the
-    others or the wizard recommends a combination that does not fit.
+    others or the wizard recommends a combination that does not fit. ``model_override`` is the
+    speech model being chosen right now, which is not yet in settings.
     """
     reserved = 0
     if settings.whisper_use_gpu:
-        reserved += vram_needed_mb(settings.whisper_model) or 0
+        reserved += vram_needed_mb(model_override or settings.whisper_model) or 0
     if settings.rag_enabled and settings.embed_provider == "ollama" and settings.embed_model:
         reserved += _EMBED_VRAM_MB
     return reserved
