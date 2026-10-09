@@ -483,7 +483,7 @@ const KWIN_GROUP: &str = "b6a9f2c1-7e3d-4a8b-9c2e-0123456789ab";
 const KWIN_FILE: &str = "kwinrulesrc";
 /// Window class the KWin rule + capture script match on (the overlay's app_id / WM_CLASS).
 #[cfg(target_os = "linux")]
-const OVERLAY_WMCLASS: &str = "interviewr-overlay";
+const OVERLAY_WMCLASS: &str = "interviewr-ai";
 /// Rule key that persists hide-from-capture (applied natively on KWin 6.7+).
 #[cfg(target_os = "linux")]
 const KWIN_CAPTURE_KEY: &str = "excludefromcapture";
