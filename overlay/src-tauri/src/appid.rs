@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::{id as pid, Command, Stdio};
 
 /// App id we claim; matches the `.desktop` file tauri-bundler installs.
-pub const APP_ID: &str = "interviewr-overlay";
+pub const APP_ID: &str = "interviewr-ai";
 
 /// APP_ID escaped for a unit name (a bare `-` would be read as a launcher prefix).
-const UNIT_APP_ID: &str = r"interviewr\x2doverlay";
+const UNIT_APP_ID: &str = r"interviewr\x2dai";
 
 /// Moves this process into an `app-<APP_ID>-<pid>.scope` unless it already has our id; best effort.
 pub fn ensure_scope() {
@@ -237,7 +237,7 @@ fn start_scope() -> Result<(), String> {
     rt.block_on(async {
         let conn = zbus::Connection::session().await.map_err(|e| e.to_string())?;
         let props: Vec<(&str, zbus::zvariant::Value<'_>)> = vec![
-            ("Description", "interviewr overlay".into()),
+            ("Description", "interviewr-ai".into()),
             ("PIDs", vec![pid()].into()),
         ];
         let aux: Vec<(&str, Vec<(&str, zbus::zvariant::Value<'_>)>)> = Vec::new();
@@ -260,7 +260,7 @@ mod tests {
 
     const WANTED: &str = "[Desktop Entry]\nExec=\"/src/overlay/src-tauri/target/debug/interviewr-overlay\"\nX-Interviewr-Dev=true\n";
     const OLD_SCRIPT: &str = "[Desktop Entry]\nExec=/home/u/interviewr/overlay/src-tauri/target/release/interviewr-overlay\n";
-    const USERS_OWN: &str = "[Desktop Entry]\nExec=/usr/bin/interviewr-overlay --custom\n";
+    const USERS_OWN: &str = "[Desktop Entry]\nExec=/usr/bin/interviewr-ai --custom\n";
 
     #[test]
     fn installed_app_removes_a_dev_entry_that_would_hide_its_own() {
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn the_written_entry_carries_the_marker() {
-        let entry = super::dev_entry(std::path::Path::new("/tmp/interviewr-overlay"), std::path::Path::new("/tmp/icon.png"));
+        let entry = super::dev_entry(std::path::Path::new("/tmp/interviewr-ai"), std::path::Path::new("/tmp/icon.png"));
         assert!(entry.contains(DEV_MARKER));
         assert!(entry.contains("Name=interviewr (dev)"));
         assert!(entry.contains(&format!("StartupWMClass={APP_ID}")));
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn an_unescaped_dash_is_read_as_a_launcher_prefix() {
         // Why UNIT_APP_ID escapes the dash.
-        assert_eq!(id("app-interviewr-overlay-99.scope"), "overlay");
+        assert_eq!(id("app-interviewr-ai-99.scope"), "ai");
     }
 
     #[test]

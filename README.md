@@ -57,8 +57,11 @@ to the same stream.
 
 ## Install
 
+Download the `.deb` from the [latest release](https://github.com/PSYEONE/interviewr-ai/releases/latest),
+then:
+
 ```bash
-sudo apt install ./interviewr-overlay_0.1.0_amd64.deb
+sudo apt install ./interviewr-ai_0.1.0_amd64.deb
 ```
 
 Built for Ubuntu 24.04 and newer. Other Ubuntu and Debian based distros should work but are untested.

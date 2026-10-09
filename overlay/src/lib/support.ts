@@ -44,7 +44,6 @@ export interface SupportLink {
 // Donation pages. A URL still holding a placeholder is hidden; each host must also be in open_link's allowlist.
 const LINKS: SupportLink[] = [
   { label: "GitHub Sponsors", url: "https://github.com/sponsors/PSYEONE" },
-  { label: "Ko-fi", url: "https://ko-fi.com/YOUR_USERNAME" },
   { label: "Crypto", url: "https://nowpayments.io/donation/psyeone" },
 ];
 export const supportLinks: SupportLink[] = LINKS.filter((l) => !l.url.includes("YOUR_"));

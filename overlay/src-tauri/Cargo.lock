@@ -1642,7 +1642,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "interviewr-overlay"
+name = "interviewr-ai"
 version = "0.1.0"
 dependencies = [
  "ashpd",

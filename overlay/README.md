@@ -55,7 +55,7 @@ GTK can't pin a window on Wayland (keep-above is ignored), so on KDE the app wri
 "keep above" window rule itself. The **Pin** button toggles it and the choice persists across
 restarts, so there is no manual setup. Unpinned by default.
 
-If pinning has no effect, the window class differs from the expected `interviewr-overlay`; check
+If pinning has no effect, the window class differs from the expected `interviewr-ai`; check
 it via System Settings > Window Management > Window Rules > "Detect Window Properties" with the
 overlay focused.
 
