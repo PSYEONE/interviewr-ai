@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
 from pathlib import Path
 
 from .base import Chunk
 
 _TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text"}
+
+# A PDF's list markers arrive as Symbol/Wingdings glyphs in the private use area, which mean nothing
+# outside their font, so a line starting with one becomes a markdown bullet and the rest are dropped.
+_PRIVATE_USE = "\ue000-\uf8ff"
+_BULLETS = f"\u2022\u00b7\u25aa\u25cf\u25e6{_PRIVATE_USE}"
+_LEADING_BULLET = re.compile(rf"^[ \t]*[{_BULLETS}]+[ \t]*", re.MULTILINE)
+_STRAY_PRIVATE_USE = re.compile(f"[{_PRIVATE_USE}]")
+# Invisible characters that silently stop a word matching the same word typed normally.
+_INVISIBLE = re.compile("[\u00ad\u200b-\u200d\ufeff]")
+_ODD_SPACES = re.compile("[\u00a0\u2000-\u200a\u202f\u205f\u3000]")
 
 
 def extract_text(filename: str, data: bytes) -> str:
@@ -38,9 +49,17 @@ def _extract_docx(data: bytes) -> str:
 
 
 def _normalize(text: str) -> str:
-    """Collapse intra-line whitespace and runs of blank lines, keeping paragraph breaks."""
+    """Strip extraction artifacts, then collapse whitespace while keeping paragraph breaks."""
+    # NFKC folds the ligatures PDFs use, so "ﬁrst" can still be found by searching for "first".
+    text = unicodedata.normalize("NFKC", text)
+    text = _INVISIBLE.sub("", text)
+    text = _ODD_SPACES.sub(" ", text)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _LEADING_BULLET.sub("- ", text)
+    text = _STRAY_PRIVATE_USE.sub("", text)
     text = re.sub(r"[ \t]+", " ", text)
+    # PDF extraction leaves a space at the end of nearly every line.
+    text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n[ \t]+", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
