@@ -119,6 +119,33 @@
     border-left: 2px solid rgb(255 255 255 / 0.18);
     background: var(--solid);
   }
+  /* Reasoning while the user waits: four lines tall, scrolled to the newest, so a minute of
+     thinking never pushes the conversation off screen. */
+  .turn-think,
+  .turn-thought-all {
+    padding: 6px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--color-dim);
+  }
+  .turn-think {
+    max-height: calc(4 * 1.5 * 0.8rem);
+    overflow: hidden;
+  }
+  .turn-thought-all {
+    max-height: 14rem;
+    overflow-y: auto;
+  }
+  /* Once the answer starts, the reasoning collapses to a single line that can be reopened. */
+  .turn-thought > summary {
+    padding: 2px 12px;
+    font-size: 0.75rem;
+    color: var(--color-dim);
+    cursor: pointer;
+  }
+  .turn-thought > summary:hover { color: var(--color-fg); }
   /* pre-wrap keeps line breaks when a model writes plain lines instead of a markdown list. */
   .turn-a {
     padding: 10px 12px;

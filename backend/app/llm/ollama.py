@@ -7,16 +7,22 @@ from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
-from .base import SYSTEM_PROMPT, Message
+from .base import SYSTEM_PROMPT, Chunk, Message
 
 
 class OllamaClient:
     """Stateless Ollama client. Conversation history lives in the Session."""
 
     def __init__(
-        self, base_url: str, model: str, keep_alive: str = "30m", system_prompt: str = SYSTEM_PROMPT
+        self,
+        base_url: str,
+        model: str,
+        keep_alive: str = "30m",
+        system_prompt: str = SYSTEM_PROMPT,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,  # for tests
     ) -> None:
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
+        self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0, transport=transport)
         self._model = model
         self._keep_alive = keep_alive
         self._system_prompt = system_prompt
@@ -39,14 +45,21 @@ class OllamaClient:
             json={
                 "model": self._model,
                 "stream": False,
+                "think": False,
                 "keep_alive": self._keep_alive,
                 "messages": [{"role": "user", "content": "ok"}],
             },
         )
         resp.raise_for_status()
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens for the given conversation. The system prompt is prepended."""
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        """Stream a conversation's reply. The system prompt is prepended.
+
+        `think` is always explicit: left unset, a hybrid model reasons by default and takes tens of
+        seconds to produce its first visible word.
+        """
         payload: list[Message] = [{"role": "system", "content": self._system_prompt}]
         payload.extend(messages)
         async with self._client.stream(
@@ -55,6 +68,7 @@ class OllamaClient:
             json={
                 "model": self._model,
                 "stream": True,
+                "think": reasoning,
                 "keep_alive": self._keep_alive,
                 "messages": payload,
             },
@@ -64,9 +78,14 @@ class OllamaClient:
                 if not line:
                     continue
                 data = json.loads(line)
-                token = data.get("message", {}).get("content", "")
+                message = data.get("message", {})
+                # A line can carry reasoning, answer text, or both.
+                thought = message.get("thinking", "")
+                if thought:
+                    yield Chunk(thought, reasoning=True)
+                token = message.get("content", "")
                 if token:
-                    yield token
+                    yield Chunk(token)
                 if data.get("done", False):
                     break
 

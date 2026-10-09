@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
-from .base import SYSTEM_PROMPT, Message
+from .base import SYSTEM_PROMPT, Chunk, Message
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -42,8 +42,14 @@ class OpenAICompatClient:
         # Cloud models have no cold-start to absorb.
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens. The system prompt is prepended; messages are already OpenAI-shaped."""
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        """Stream tokens. The system prompt is prepended; messages are already OpenAI-shaped.
+
+        `reasoning` is accepted for the protocol and ignored: this provider's own reasoning API
+        is not wired up.
+        """
         payload: list[Message] = [{"role": "system", "content": self._system_prompt}, *messages]
         # Message already matches OpenAI's format; the cast satisfies the SDK's stricter per-role types.
         stream = await self._client.chat.completions.create(
@@ -57,7 +63,7 @@ class OpenAICompatClient:
                 continue
             token = chunk.choices[0].delta.content
             if token:
-                yield token
+                yield Chunk(token)
 
     async def close(self) -> None:
         await self._client.close()

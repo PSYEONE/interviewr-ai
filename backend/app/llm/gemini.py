@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .base import SYSTEM_PROMPT, Message
+from .base import SYSTEM_PROMPT, Chunk, Message
 
 if TYPE_CHECKING:
     from google.genai import Client
@@ -40,8 +40,14 @@ class GeminiClient:
         # Cloud models have no cold-start to absorb.
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Stream tokens. Gemini uses role 'model' for the assistant; system goes in config."""
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        """Stream tokens. Gemini uses role 'model' for the assistant; system goes in config.
+
+        `reasoning` is accepted for the protocol and ignored: this provider's own reasoning API
+        is not wired up.
+        """
         from google.genai import types
 
         contents: list[Any] = [
@@ -63,7 +69,7 @@ class GeminiClient:
         async for chunk in stream:
             token = chunk.text
             if token:
-                yield token
+                yield Chunk(token)
 
     async def close(self) -> None:
         # Best-effort: the SDK holds an httpx client behind a private handle.

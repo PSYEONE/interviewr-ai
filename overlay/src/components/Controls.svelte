@@ -18,6 +18,16 @@
   >
     {session.answerStyle === "bullets" ? "Bullet" : "Script"}
   </button>
+  {#if session.canThink}
+    <span class="text-dim text-sm ml-10">Reasoning:</span>
+    <button
+      class:on={session.reasoning}
+      title="Let the model think first. Better answers, but it can take a minute to start talking."
+      onclick={() => session.toggleReasoning()}
+    >
+      {session.reasoning ? "On" : "Off"}
+    </button>
+  {/if}
   <span class="flex-1"></span>
   <button
     disabled={!canFinalize}

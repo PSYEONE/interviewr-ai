@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Literal, NamedTuple, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from ..config import Settings
@@ -34,6 +34,13 @@ class Message(TypedDict):
     content: str
 
 
+class Chunk(NamedTuple):
+    """One streamed piece. Reasoning text is shown live but never stored or sent back as context."""
+
+    text: str
+    reasoning: bool = False
+
+
 @runtime_checkable
 class LLMClient(Protocol):
     """Stateless streaming LLM. Conversation history lives in the Session, not here.
@@ -45,7 +52,9 @@ class LLMClient(Protocol):
 
     async def warmup(self) -> None: ...
 
-    def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]: ...
+    def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]: ...
 
     async def close(self) -> None: ...
 

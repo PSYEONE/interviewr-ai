@@ -28,6 +28,14 @@ def test_health_reports_unconfigured(setup_mode_client: TestClient) -> None:
     assert body["status"] == "ok"
 
 
+def test_health_says_the_model_cannot_reason_until_proven_otherwise(
+    setup_mode_client: TestClient,
+) -> None:
+    # The interview screen hides its reasoning toggle on this, so the safe answer is False.
+    with setup_mode_client as client:
+        assert client.get("/health").json()["llm_can_think"] is False
+
+
 def test_settings_endpoint_live_in_setup_mode(setup_mode_client: TestClient) -> None:
     # The capability surface the wizard drives must answer even with no model configured.
     with setup_mode_client as client:

@@ -4,13 +4,26 @@ import { wsUrl } from "./connection";
 import type { AnswerStyle, CommandType, ServerEvent } from "./types";
 
 const _STYLE_KEY = "interviewr.answerStyle";
+const _REASONING_KEY = "interviewr.reasoning";
 
 function _loadStyle(): AnswerStyle {
   return localStorage.getItem(_STYLE_KEY) === "bullets" ? "bullets" : "script";
 }
 
+function _loadReasoning(): boolean {
+  return localStorage.getItem(_REASONING_KEY) === "1";
+}
+
 // One question and its answer; the question text comes from the engine's answer.start event.
-export type Turn = { id: string; question: string; answer: string; done: boolean };
+// `reasoning` is the model's thinking, shown while it works and dropped from history by the engine.
+export type Turn = {
+  id: string;
+  question: string;
+  answer: string;
+  done: boolean;
+  reasoning: string;
+  thoughtMs: number | null;
+};
 
 export type Status =
   | "offline"
@@ -35,10 +48,15 @@ class Session {
   lastTitled = $state<{ id: number; title: string } | null>(null);
   // Sticky answer formatting; persisted locally and re-sent to the engine on each connect.
   answerStyle = $state<AnswerStyle>(_loadStyle());
+  // Sticky too, and off by default: a reasoning model can take a minute before its first word.
+  reasoning = $state(_loadReasoning());
+  // Whether the configured model has a reasoning mode at all, from /health.
+  canThink = $state(false);
 
   #ws: WebSocket | null = null;
   #backoff = 1000;
   #curAnswer: string | null = null;
+  #thoughtStart: number | null = null;
   #ping: ReturnType<typeof setInterval> | null = null;
   #retryTimer: ReturnType<typeof setTimeout> | null = null;
   #stopped = true; // true while not in a live session, so onclose does not auto-reconnect
@@ -98,6 +116,19 @@ class Session {
     this.live = "";
   }
 
+  // Lets the model reason before answering. Hidden unless the engine says the model supports it.
+  setReasoning(on: boolean): void {
+    this.reasoning = on;
+    localStorage.setItem(_REASONING_KEY, on ? "1" : "0");
+    if (this.#ws && this.#ws.readyState === WebSocket.OPEN) {
+      this.#ws.send(JSON.stringify({ type: "reasoning", on }));
+    }
+  }
+
+  toggleReasoning(): void {
+    this.setReasoning(!this.reasoning);
+  }
+
   setAnswerStyle(style: AnswerStyle): void {
     this.answerStyle = style;
     localStorage.setItem(_STYLE_KEY, style);
@@ -119,6 +150,7 @@ class Session {
       this.#backoff = 1000;
       this.#setStatus("listening");
       this.setAnswerStyle(this.answerStyle); // re-assert the sticky style on the shared session
+      this.setReasoning(this.reasoning);
     };
     ws.onmessage = (e: MessageEvent<string>) => this.#handle(JSON.parse(e.data) as ServerEvent);
     ws.onclose = () => {
@@ -145,7 +177,20 @@ class Session {
   }
 
   #appendAnswer(id: string, token: string): void {
-    this.#patch(id, (t) => ({ ...t, answer: t.answer + token }));
+    this.#patch(id, (t) => ({
+      ...t,
+      answer: t.answer + token,
+      // Fixed once the first word lands, so the collapsed summary can say how long it thought.
+      thoughtMs:
+        t.answer === "" && this.#thoughtStart !== null
+          ? Date.now() - this.#thoughtStart
+          : t.thoughtMs,
+    }));
+  }
+
+  #appendReasoning(id: string, token: string): void {
+    this.#thoughtStart ??= Date.now();
+    this.#patch(id, (t) => ({ ...t, reasoning: t.reasoning + token }));
   }
 
   #finishAnswer(id: string, cancelled: boolean): void {
@@ -165,7 +210,14 @@ class Session {
     }
     this.turns = [
       ...this.turns,
-      { id: `err-${Date.now()}`, question: "", answer: `[error: ${message}]`, done: true },
+      {
+        id: `err-${Date.now()}`,
+        question: "",
+        answer: `[error: ${message}]`,
+        done: true,
+        reasoning: "",
+        thoughtMs: null,
+      },
     ];
   }
 
@@ -181,12 +233,23 @@ class Session {
         break;
       case "answer.start":
         this.#curAnswer = ev.answer_id;
+        this.#thoughtStart = null;
         // The engine used the pending transcript for this question, so clear ours too.
         this.pending = "";
         this.turns = [
           ...this.turns,
-          { id: ev.answer_id, question: ev.question, answer: "", done: false },
+          {
+            id: ev.answer_id,
+            question: ev.question,
+            answer: "",
+            done: false,
+            reasoning: "",
+            thoughtMs: null,
+          },
         ];
+        break;
+      case "answer.reasoning":
+        if (ev.answer_id === this.#curAnswer) this.#appendReasoning(ev.answer_id, ev.token);
         break;
       case "answer.token":
         if (ev.answer_id === this.#curAnswer) this.#appendAnswer(ev.answer_id, ev.token);

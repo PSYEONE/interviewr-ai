@@ -8,7 +8,7 @@ import pytest
 
 from app.config import EmbedProvider, LLMProvider, Settings, STTProvider
 from app.llm import build_llm
-from app.llm.base import LLMClient, Message
+from app.llm.base import Chunk, LLMClient, Message
 from app.llm.ollama import OllamaClient
 
 
@@ -25,8 +25,10 @@ class FakeLLM:
     async def warmup(self) -> None:
         return None
 
-    async def generate(self, messages: Sequence[Message]) -> AsyncIterator[str]:
-        yield "ok"
+    async def generate(
+        self, messages: Sequence[Message], *, reasoning: bool = False
+    ) -> AsyncIterator[Chunk]:
+        yield Chunk("ok")
 
     async def close(self) -> None:
         return None
