@@ -6,10 +6,7 @@ interviewr-ai listens to your interviews and meetings, transcribes them in real 
 surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 **privacy-first**, and **subscription-free**.
 
-<!-- Demo gif goes here, directly under the description and before the first
-     heading, which is where every comparable project puts it:
-![Demo](docs/media/demo.gif)
--->
+![A question detected from the call, answered from the candidate's CV in the overlay](docs/media/demo.gif)
 
 ## Features
 
