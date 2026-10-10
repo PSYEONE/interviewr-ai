@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
 from .base import SYSTEM_PROMPT, Chunk, Message
+
+_log = logging.getLogger(__name__)
 
 
 class OllamaClient:
@@ -89,5 +92,24 @@ class OllamaClient:
                 if data.get("done", False):
                     break
 
+    async def unload(self) -> None:
+        """Tell Ollama to drop the model now.
+
+        Ollama is a separate service, so it holds the weights for the whole keep-alive window even
+        after the engine that asked for them has exited. Quitting the app would otherwise leave
+        several GB parked on the card for half an hour. Best effort: a card we cannot free is not a
+        reason to fail shutdown.
+        """
+        try:
+            resp = await self._client.post(
+                "/api/chat",
+                json={"model": self._model, "messages": [], "keep_alive": 0},
+                timeout=5.0,  # shutdown must not hang on an unresponsive Ollama
+            )
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001 - includes a 404 for a model that was deleted
+            _log.debug("could not unload %s: %s", self._model, exc)
+
     async def close(self) -> None:
+        await self.unload()
         await self._client.aclose()

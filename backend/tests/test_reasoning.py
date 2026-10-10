@@ -39,7 +39,7 @@ async def test_thinking_is_switched_off_unless_asked_for() -> None:
         [c async for c in client.generate([{"role": "user", "content": "hi"}])]
     finally:
         await client.close()
-    assert json.loads(seen[-1].content)["think"] is False
+    assert json.loads(seen[0].content)["think"] is False
 
 
 async def test_thinking_is_requested_when_the_user_turns_it_on() -> None:
@@ -49,7 +49,7 @@ async def test_thinking_is_requested_when_the_user_turns_it_on() -> None:
         [c async for c in client.generate([{"role": "user", "content": "hi"}], reasoning=True)]
     finally:
         await client.close()
-    assert json.loads(seen[-1].content)["think"] is True
+    assert json.loads(seen[0].content)["think"] is True
 
 
 async def test_warmup_never_reasons() -> None:
@@ -60,7 +60,26 @@ async def test_warmup_never_reasons() -> None:
         await client.warmup()
     finally:
         await client.close()
-    assert json.loads(seen[-1].content)["think"] is False
+    assert json.loads(seen[0].content)["think"] is False
+
+
+async def test_closing_tells_ollama_to_drop_the_model() -> None:
+    """Ollama is a separate service and keeps the weights for its whole keep-alive window, so
+    quitting the app would otherwise leave several GB on the card for half an hour."""
+    seen: list[httpx.Request] = []
+    client = _client(seen)
+    await client.close()
+    body = json.loads(seen[-1].content)
+    assert body["keep_alive"] == 0
+    assert body["messages"] == []  # an unload, not a generation
+
+
+async def test_an_unreachable_ollama_does_not_break_shutdown() -> None:
+    def refused(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    client = OllamaClient("http://ollama", "qwen3:8b", transport=httpx.MockTransport(refused))
+    await client.close()  # must not raise
 
 
 async def test_reasoning_and_answer_arrive_as_separate_chunks() -> None:
