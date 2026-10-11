@@ -53,7 +53,7 @@ on your machine.
 To build the package yourself, run `./scripts/build-deb.sh` (needs docker). It builds on Ubuntu 24.04
 so the result also installs on newer releases.
 
-## Running from a checkout
+## Running from source
 
 You need Python 3.12 or newer, Node, a Rust toolchain (1.77 or newer) and Tauri's Linux build
 dependencies, which [their prerequisites page](https://v2.tauri.app/start/prerequisites/) lists
@@ -89,7 +89,7 @@ what the wizard knows about your hardware.
 
 ## Where your data lives
 
-A checkout keeps its config and databases beside the source (`.env` at the repo root,
+Run from source and the config and databases sit beside it (`.env` at the repo root,
 `backend/data/`). An installed copy, which has no writable source tree, uses
 `~/.config/interviewr/` and `~/.local/share/interviewr/` instead, and keeps both if you
 uninstall. `INTERVIEWR_CONFIG_DIR` and `INTERVIEWR_STATE_DIR` override either.
