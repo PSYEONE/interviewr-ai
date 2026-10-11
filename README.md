@@ -67,7 +67,7 @@ The installer creates `backend/.venv` and builds `pywhispercpp` against Vulkan s
 runs on the GPU. A plain `pip install` cannot do that, since pip serves a CPU-only wheel. The
 script prompts once for the build packages it needs and refuses to report success if the GPU
 build quietly fell back to the CPU. Pass `--cpu` to skip the GPU path deliberately, and see
-`docs/linux-vulkan-build.md` for what it automates and why.
+[the Vulkan build notes](./docs/linux-vulkan-build.md) for what it automates and why.
 
 To run the engine on its own:
 
