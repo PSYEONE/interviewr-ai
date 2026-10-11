@@ -12,9 +12,9 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 
 - **Live transcription** - whisper.cpp with the Vulkan backend, so the GPU is used on AMD,
   NVIDIA and Intel alike, with automatic CPU fallback.
-- **Answers from your own material** - your CV, the job description and the conversation so
-  far, streamed into the overlay while the question is still being asked. The system prompt
-  and answer style are editable.
+- **Answers from your own material** - it spots the question and answers from your CV, the job
+  description and the conversation so far, streamed into the overlay while the question is still
+  being asked. The system prompt and answer style are editable.
 - **Choose what gets captured** - all system audio, or one application isolated through a
   private null sink so notifications and music stay out of the transcript.
 - **Models managed in the app** - find, download, switch and delete models from the
@@ -29,11 +29,7 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 
 ## Status
 
-Working end to end on Linux/KDE, and still rough. The loop runs: system audio in, live
-transcription, question detection, a search through your CV and the job description for the
-relevant parts, a streamed answer in the overlay, and the conversation saved to history.
-
-Still experimental, so you will find bugs. Please
+Working end to end on Linux/KDE, but still rough, so you will find bugs. Please
 [open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) when you do.
 
 The default system prompts are a starting point rather than a finished thing, which is why they
