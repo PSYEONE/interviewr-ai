@@ -10,19 +10,19 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 
 ## Features
 
+- **Setup wizard** - reads your hardware on first run and picks an LLM and a speech model
+  that fit your VRAM, then downloads them for you.
+- **Local or bring your own key** - Ollama by default and nothing leaves the machine;
+  Anthropic, OpenAI, Gemini, Groq and cloud speech-to-text are options, not requirements.
+- **Models managed in the app** - find, download, switch and delete models from the
+  dashboard, with free-space checks. No terminal, no `ollama pull`.
+- **Choose what gets captured** - all system audio, or one application isolated through a
+  private null sink so notifications and music stay out of the transcript.
 - **Live transcription** - whisper.cpp with the Vulkan backend, so the GPU is used on AMD,
   NVIDIA and Intel alike, with automatic CPU fallback.
 - **Answers from your own material** - it spots the question and answers from your CV, the job
   description and the conversation so far, streamed into the overlay while the question is still
   being asked. The system prompt and answer style are editable.
-- **Choose what gets captured** - all system audio, or one application isolated through a
-  private null sink so notifications and music stay out of the transcript.
-- **Models managed in the app** - find, download, switch and delete models from the
-  dashboard, with free-space checks. No terminal, no `ollama pull`.
-- **Setup wizard** - reads your hardware on first run and picks an LLM and a speech model
-  that fit your VRAM, then downloads them for you.
-- **Local or bring your own key** - Ollama by default and nothing leaves the machine;
-  Anthropic, OpenAI, Gemini, Groq and cloud speech-to-text are options, not requirements.
 - **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
   from screencast on KDE Plasma 6.6+.
 - **History** - every conversation saved, with Markdown and JSON export.
