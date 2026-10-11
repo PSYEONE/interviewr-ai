@@ -119,7 +119,7 @@ documentation.
 | | interviewr-ai | Pluely 1.1.0 |
 |---|---|---|
 | **Setup** | Wizard detects your GPU, picks models that fit, downloads them | Manual; the Linux docs point you at `pactl list short sources` |
-| **Transcription** | whisper.cpp on your GPU, so audio never leaves the machine | Through a speech-to-text provider |
+| **Transcription** | whisper.cpp on your GPU, so audio never leaves the machine | Sent to an external provider |
 | **Audio source** | Picker, including isolating one application | The default output's monitor |
 | **Hide from screen share** | KDE Plasma 6.6+ | ["not possible on Linux"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
 | **Keep on top** | KDE and X11 | ["GNOME ignores always-on-top"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
