@@ -35,8 +35,7 @@ Working end to end on Linux/KDE, but still rough, so you will find bugs. Please
 The default system prompts are a starting point rather than a finished thing, which is why they
 are editable in Settings. If you find wording that works better, say so in an issue.
 
-**Planned:** Windows and macOS, and the same pipeline pointed at code: scanning what is on screen
-and helping with it the way it currently helps with interview questions.
+**Planned:** Windows and macOS, and help with code on screen as well as spoken questions.
 
 ## Install
 
