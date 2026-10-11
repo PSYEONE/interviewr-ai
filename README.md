@@ -12,8 +12,8 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 
 - **Setup wizard** - reads your hardware on first run and picks an LLM and a speech model
   that fit your VRAM, then downloads them for you.
-- **Local or bring your own key** - Ollama by default and nothing leaves the machine;
-  Anthropic, OpenAI, Gemini, Groq and cloud speech-to-text are options, not requirements.
+- **Local or bring your own key** - Ollama by default, so nothing leaves the machine. Switch to
+  Anthropic, OpenAI, Gemini, Groq or cloud speech-to-text whenever you want.
 - **Models managed in the app** - find, download, switch and delete models from the
   dashboard, with free-space checks. No terminal, no `ollama pull`.
 - **Choose what gets captured** - all system audio, or one application isolated through a
@@ -32,8 +32,8 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 Working end to end on Linux/KDE, but still rough, so you will find bugs. Please
 [open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) when you do.
 
-The default system prompts are a starting point rather than a finished thing, which is why they
-are editable in Settings. If you find wording that works better, say so in an issue.
+The default system prompts are a starting point, which is why they are editable in Settings. If
+you find wording that works better, say so in an issue.
 
 **Planned:** Windows and macOS, and a coding helper for questions on screen.
 
@@ -102,7 +102,7 @@ call, but also notification sounds, music, and every other tab.
 **Settings > Audio > Capture from** narrows that to one application. The engine creates a
 private null sink, routes that app's audio into it, loops it back to your speakers so you still
 hear the call, and records only that sink. In testing, a second application playing at the same
-time was attenuated by a factor of ~1.4e6, so it is isolation rather than a volume difference.
+time was attenuated by a factor of ~1.4e6, so it is effectively absent from the transcript.
 
 ## Architecture
 
