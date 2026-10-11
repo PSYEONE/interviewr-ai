@@ -24,7 +24,7 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
   description and the conversation so far, streamed into the overlay while the question is still
   being asked. The system prompt and answer style are editable.
 - **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
-  from screencast on KDE Plasma 6.6+.
+  from screencast on KDE Plasma 6.6+ (newer than most distributions ship today).
 - **History** - every conversation saved, with Markdown and JSON export.
 
 ## Status
@@ -47,8 +47,12 @@ sudo apt install ./interviewr-ai_0.1.0_amd64.deb
 ```
 
 Built for Ubuntu 24.04 and newer. Other Ubuntu and Debian based distros should work but are untested.
-The package includes its own Python and the GPU (Vulkan) transcription build, so nothing is compiled
-on your machine.
+Fedora, openSUSE and Arch need the source install below. The package includes its own Python and the
+GPU (Vulkan) transcription build, so nothing is compiled on your machine.
+
+Audio capture needs PipeWire, which current desktops ship by default. Everything except two overlay
+features works on any desktop: pinning on top needs KDE or X11, and hiding from screen shares needs
+KDE Plasma 6.6+, which is newer than most distributions currently ship.
 
 To build the package yourself, run `./scripts/build-deb.sh` (needs docker). It builds on Ubuntu 24.04
 so the result also installs on newer releases.
