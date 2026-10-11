@@ -1,8 +1,16 @@
 # Linux Vulkan build notes (pywhispercpp)
 
-Captured while bringing up Phase 0 on the maintainer's laptop (Intel UHD + NVIDIA RTX
-3070, Wayland). These are the non-obvious gotchas a future Linux installer must automate
-so the user never has to think about them.
+Why getting `pywhispercpp` onto the GPU takes a script rather than a `pip install`. Reference
+material: nothing here needs doing by hand.
+
+Installing the `.deb` skips all of it, because the package ships a Vulkan build. Running from
+source, `scripts/install.sh` does everything below: it detects Vulkan, installs the missing
+system build packages behind one sudo prompt, source-builds with `GGML_VULKAN=ON`, patches the
+RPATH, and refuses to exit successfully if `ggml_vulkan` is absent. It skips the build when one
+already works, so it is safe to re-run.
+
+The gotchas are recorded because each one cost hours and none of them are guessable. They were
+found bringing up Phase 0 on the maintainer's laptop (Intel UHD + NVIDIA RTX 3070, Wayland).
 
 ## The goal
 
@@ -104,26 +112,8 @@ python -c "from pywhispercpp.model import Model; print(Model.system_info())"
 # must show the ggml_vulkan line
 ```
 
-## This is automated
+## Still open
 
-`scripts/install.sh` does everything above: detects Vulkan, installs the missing system build
-packages behind one sudo prompt, source-builds with `GGML_VULKAN=ON`, patches the RPATH, and
-refuses to exit successfully if `ggml_vulkan` is absent. It skips the build when one already
-works, so it is safe to re-run. The steps below remain as the explanation of what it does and
-why, and as the manual path if you would rather do it yourself.
-
-Still open: hosting a prebuilt Vulkan wheel per Python ABI, so a fresh install skips the
-four-minute compile entirely. That is packaging work rather than installer work.
-
-## Installer TODO (automate all of the above)
-
-1. Detect Vulkan runtime (`vulkaninfo`); if absent, fall back to CPU build and warn.
-2. Ensure build deps (`libvulkan-dev`, `glslc`, `cmake`, `g++`) via the distro package
-   manager, prompting for sudo once.
-3. Source-build `pywhispercpp` with `GGML_VULKAN=ON`.
-4. RPATH-patch the resulting `.so` files with `$ORIGIN` (bundled `patchelf` pip wheel).
-5. Smoke-test `system_info()` for the `ggml_vulkan` line; if missing, report clearly and
-   offer the CPU wheel as fallback (`pip install --force-reinstall pywhispercpp`).
-6. Consider caching/shipping a prebuilt **Vulkan** wheel per Python ABI to skip the
-   multi-minute compile entirely (the upstream prebuilt wheel is CPU-only, so we'd have to
-   build and host our own).
+Hosting a prebuilt Vulkan wheel per Python ABI, so a source install skips the four-minute
+compile. The upstream prebuilt wheel is CPU-only, so it would mean building and hosting our own.
+That is packaging work rather than installer work.
