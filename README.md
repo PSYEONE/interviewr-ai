@@ -27,23 +27,6 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
   from screencast on KDE Plasma 6.6+.
 - **History** - every conversation saved, with Markdown and JSON export.
 
-## Compared to Pluely
-
-[Pluely](https://github.com/iamsrikanthnani/pluely) is the other open-source copilot that ships a
-Linux build. Checked against Pluely 1.1.0 in October 2026; the rows about Pluely come from its own
-documentation.
-
-| | interviewr-ai | Pluely 1.1.0 |
-|---|---|---|
-| **Setup** | Wizard detects your GPU, picks models that fit, downloads them | Manual; the Linux docs point you at `pactl list short sources` |
-| **Transcription** | whisper.cpp on your GPU, so audio never leaves the machine | Through a speech-to-text provider |
-| **Audio source** | Picker, including isolating one application | The default output's monitor |
-| **Hide from screen share** | KDE Plasma 6.6+ | ["not possible on Linux"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
-| **Keep on top** | KDE and X11 | ["GNOME ignores always-on-top"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
-| **Models** | Local by default, cloud optional | 277 hosted models on a plan, or bring your own keys |
-| **macOS and Windows** | No | Yes |
-| **Maturity** | 0.1.0, weeks old | 1.1.0, since August 2025 |
-
 ## Status
 
 Working end to end on Linux/KDE, but still rough, so you will find bugs. Please
@@ -126,6 +109,23 @@ A **Python/FastAPI engine** does capture, STT, RAG and LLM orchestration, and br
 transcript + answer events over an **authenticated WebSocket** to any number of thin
 clients. The **Tauri overlay** is the primary client; a phone/browser viewer can subscribe
 to the same stream.
+
+## Compared to Pluely
+
+[Pluely](https://github.com/iamsrikanthnani/pluely) is the other open-source copilot that ships a
+Linux build. Checked against Pluely 1.1.0 in October 2026; the rows about Pluely come from its own
+documentation.
+
+| | interviewr-ai | Pluely 1.1.0 |
+|---|---|---|
+| **Setup** | Wizard detects your GPU, picks models that fit, downloads them | Manual; the Linux docs point you at `pactl list short sources` |
+| **Transcription** | whisper.cpp on your GPU, so audio never leaves the machine | Through a speech-to-text provider |
+| **Audio source** | Picker, including isolating one application | The default output's monitor |
+| **Hide from screen share** | KDE Plasma 6.6+ | ["not possible on Linux"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
+| **Keep on top** | KDE and X11 | ["GNOME ignores always-on-top"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
+| **Models** | Local by default, cloud optional | 277 hosted models on a plan, or bring your own keys |
+| **macOS and Windows** | No | Yes |
+| **Maturity** | 0.1.0, weeks old | 1.1.0, since August 2025 |
 
 ## Support this project
 
