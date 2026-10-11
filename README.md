@@ -30,8 +30,8 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
 ## Compared to Pluely
 
 [Pluely](https://github.com/iamsrikanthnani/pluely) is the other open-source copilot that ships a
-Linux build, and it is good. Checked against Pluely 1.1.0 in October 2026; the rows about Pluely
-come from its own documentation.
+Linux build. Checked against Pluely 1.1.0 in October 2026; the rows about Pluely come from its own
+documentation.
 
 | | interviewr-ai | Pluely 1.1.0 |
 |---|---|---|
@@ -44,10 +44,6 @@ come from its own documentation.
 | **Licence** | AGPL-3.0 | GPL-3.0 |
 | **macOS and Windows** | No | Yes |
 | **Maturity** | 0.1.0, weeks old | 1.1.0, since August 2025 |
-
-The last two rows matter. Pluely is cross-platform and a year further along. This is the one to
-pick if you want everything local on Linux, and theirs is the one to pick if you want a polished
-app on three platforms today.
 
 ## Status
 
