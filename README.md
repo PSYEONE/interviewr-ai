@@ -33,6 +33,15 @@ Working end to end on Linux/KDE, and still rough. The loop runs: system audio in
 transcription, question detection, a search through your CV and the job description for the
 relevant parts, a streamed answer in the overlay, and the conversation saved to history.
 
+Still experimental, so you will find bugs. Please
+[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) when you do.
+
+The default system prompts are a starting point rather than a finished thing, which is why they
+are editable in Settings. If you find wording that works better, say so in an issue.
+
+**Planned:** Windows and macOS, and the same pipeline pointed at code: scanning what is on screen
+and helping with it the way it currently helps with interview questions.
+
 ## Install
 
 Download the `.deb` from the [latest release](https://github.com/PSYEONE/interviewr-ai/releases/latest),
