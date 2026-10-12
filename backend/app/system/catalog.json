@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-08-24",
+  "generated_at": "2026-10-12",
   "models": {
     "gemma3:27b": {
-      "download_mb": 16591,
-      "params": "27.4B",
+      "download_mb": 16606,
+      "params": "27.0B",
       "quant": "Q4_K_M",
       "family": "gemma3"
     },
     "gemma3:4b": {
-      "download_mb": 3184,
-      "params": "4.3B",
+      "download_mb": 3195,
+      "params": "3.9B",
       "quant": "Q4_K_M",
       "family": "gemma3"
     },
