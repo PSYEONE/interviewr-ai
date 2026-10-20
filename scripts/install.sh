@@ -49,9 +49,8 @@ raise SystemExit(0 if sys.version_info >= (3, 12) else 1)
 EOF
 # PipeWire is only needed to run the engine, so a packaging build skips the check.
 if [ "$BUILD_ONLY" -eq 0 ]; then
-  for tool in pw-record pactl; do
-    have "$tool" || die "$tool not found; the engine needs PipeWire (package: pipewire-utils / pulseaudio-utils)"
-  done
+  have pw-record || die "pw-record not found; the engine needs PipeWire's tools (Debian/Ubuntu: pipewire-bin, Arch: pipewire-audio, Fedora: pipewire-utils)"
+  have pactl || die "pactl not found; the engine needs it alongside PipeWire (Debian/Ubuntu/Fedora: pulseaudio-utils, Arch: libpulse)"
   echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), PipeWire tools present"
 else
   echo "  python $(python3 -V 2>&1 | cut -d' ' -f2), build-only (skipping runtime checks)"
@@ -88,9 +87,12 @@ fi
 if [ "$BUILD_ONLY" -eq 0 ]; then
   say "Looking for Vulkan"
   if ! have vulkaninfo || ! vulkaninfo --summary >/dev/null 2>&1; then
-    echo "  No working Vulkan runtime found."
-    echo "  Install your GPU's Vulkan driver (mesa-vulkan-drivers, or the NVIDIA driver), then"
-    echo "  re-run. To proceed on the CPU instead: scripts/install.sh --cpu"
+    echo "  No working Vulkan runtime found (vulkaninfo missing or listing no device)."
+    echo "  Install vulkaninfo and your GPU's Vulkan driver, then re-run:"
+    echo "    Debian/Ubuntu: vulkan-tools mesa-vulkan-drivers (or the NVIDIA driver)"
+    echo "    Arch:          vulkan-tools vulkan-radeon | vulkan-intel | nvidia-utils"
+    echo "    Fedora:        vulkan-tools mesa-vulkan-drivers (or the NVIDIA driver)"
+    echo "  Inside a VM there is usually no Vulkan at all. To proceed on the CPU: scripts/install.sh --cpu"
     exit 1
   fi
   vulkaninfo --summary 2>/dev/null | sed -n 's/^\s*deviceName\s*=\s*/  GPU: /p'
@@ -101,25 +103,53 @@ if [ "$BUILD_ONLY" -eq 0 ] && gpu_ready; then
 else
   # 4. Build deps, one sudo prompt, only for what is actually missing.
   say "Checking build dependencies"
-  # Debian/Ubuntu package names; glslang-tools and spirv-headers are required from pywhispercpp 1.5.1 onward.
+  # Each needed tool is checked by what it provides, then mapped to the package name of the
+  # detected package manager. glslang and spirv-headers are required from pywhispercpp 1.5.1 onward.
+  if have apt-get; then
+    PM=apt; INSTALL="sudo apt-get install -y"
+  elif have pacman; then
+    PM=pacman; INSTALL="sudo pacman -S --needed --noconfirm"
+  elif have dnf; then
+    PM=dnf; INSTALL="sudo dnf install -y"
+  elif have zypper; then
+    PM=zypper; INSTALL="sudo zypper install -y"
+  else
+    PM=unknown; INSTALL=""
+  fi
+  # Package name for one build need on the detected manager. apt and pacman are tested; dnf and
+  # zypper follow each distro's package index and are untested here.
+  pkg_for() {
+    case "$PM:$1" in
+      apt:cxx) echo g++ ;;         pacman:cxx) echo gcc ;;            dnf:cxx|zypper:cxx) echo gcc-c++ ;;
+      apt:glslc) echo glslc ;;     pacman:glslc|zypper:glslc) echo shaderc ;;  dnf:glslc) echo glslc ;;
+      apt:glslang) echo glslang-tools ;;  pacman:glslang|dnf:glslang|zypper:glslang) echo glslang ;;
+      apt:vulkan) echo libvulkan-dev ;;  pacman:vulkan) echo vulkan-headers ;;
+      dnf:vulkan) echo vulkan-loader-devel ;;  zypper:vulkan) echo vulkan-devel ;;
+      apt:spirv|pacman:spirv|zypper:spirv) echo spirv-headers ;;  dnf:spirv) echo spirv-headers-devel ;;
+      *) echo "$1" ;;
+    esac
+  }
+  needs=()
+  have cmake || needs+=(cmake)
+  have g++ || needs+=(cxx)
+  have glslc || needs+=(glslc)
+  have glslangValidator || needs+=(glslang)
+  [ -e /usr/include/vulkan/vulkan.h ] || needs+=(vulkan)
+  compgen -G "/usr/lib*/cmake/SPIRV-Headers" >/dev/null 2>&1 ||
+    compgen -G "/usr/lib/*/cmake/SPIRV-Headers" >/dev/null 2>&1 ||
+    [ -d /usr/share/cmake/SPIRV-Headers ] || needs+=(spirv)
   pkgs=()
-  have cmake || pkgs+=(cmake)
-  have g++ || pkgs+=(g++)
-  have glslc || pkgs+=(glslc)
-  have glslangValidator || pkgs+=(glslang-tools)
-  [ -e /usr/include/vulkan/vulkan.h ] || pkgs+=(libvulkan-dev)
-  compgen -G "/usr/lib/*/cmake/SPIRV-Headers" >/dev/null 2>&1 ||
-    [ -d /usr/share/cmake/SPIRV-Headers ] || pkgs+=(spirv-headers)
+  for need in "${needs[@]+"${needs[@]}"}"; do pkgs+=("$(pkg_for "$need")"); done
   if [ ${#pkgs[@]} -gt 0 ]; then
-    if ! have apt-get; then
+    if [ "$PM" = unknown ]; then
       die "install these with your package manager, then re-run: ${pkgs[*]}"
     fi
     echo "  Missing: ${pkgs[*]}"
     if [ "$ASSUME_YES" -eq 0 ]; then
-      read -r -p "  Install them with sudo apt-get? [y/N] " reply
+      read -r -p "  Install them with '$INSTALL'? [y/N] " reply
       [[ "$reply" =~ ^[Yy]$ ]] || die "build dependencies are required for the GPU build (or use --cpu)"
     fi
-    sudo apt-get install -y "${pkgs[@]}"
+    $INSTALL "${pkgs[@]}"
   else
     echo "  all present"
   fi

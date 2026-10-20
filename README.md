@@ -69,9 +69,14 @@ cd overlay && npm install && npm run tauri dev
 
 The installer creates `backend/.venv` and builds `pywhispercpp` against Vulkan so transcription
 runs on the GPU. A plain `pip install` cannot do that, since pip serves a CPU-only wheel. The
-script prompts once for the build packages it needs and refuses to report success if the GPU
-build quietly fell back to the CPU. Pass `--cpu` to skip the GPU path deliberately, and see
+script prompts once for the build packages it needs, using the package names of apt, pacman, dnf
+or zypper, and refuses to report success if the GPU build quietly fell back to the CPU. Pass
+`--cpu` to skip the GPU path deliberately, and see
 [the Vulkan build notes](./docs/linux-vulkan-build.md) for what it automates and why.
+
+The apt and pacman paths are tested; dnf and zypper are not. If the script asks for a package that
+does not exist on your distro, or the build fails, please
+[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) with the output.
 
 To run the engine on its own:
 
