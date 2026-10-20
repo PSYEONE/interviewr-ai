@@ -113,14 +113,6 @@
         </span>
         <span class="choice-desc">Bring your own key for Claude, GPT, Gemini or Groq. Works on any hardware.</span>
       </button>
-
-      <button class="choice" disabled>
-        <span class="flex w-full items-center gap-2">
-          <span class="choice-title flex-1">Rent a GPU</span>
-          <span class="badge-muted">soon</span>
-        </span>
-        <span class="choice-desc">Managed GPU in the cloud. Frontier speed, your data stays private.</span>
-      </button>
     </div>
 
   {/if}
