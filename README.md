@@ -24,9 +24,7 @@ surfaces AI-generated answers in a native overlay. It is **Linux-first**,
   description and the conversation so far, streamed into the overlay while the question is still
   being asked. The system prompt and answer style are editable.
 - **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
-  from screencast on KDE Plasma 6.6+ (newer than most distributions ship today), and a tray icon
-  that turns blue while a session is live. The tray sits in your panel, so hiding the overlay from
-  a screencast does not hide it.
+  from screencast on KDE Plasma 6.6+ (newer than most distributions ship today).
 - **History** - every conversation saved, with Markdown and JSON export.
 
 ## Status

@@ -10,9 +10,6 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 #[derive(Serialize)]
@@ -100,55 +97,6 @@ fn get_connection() -> Connection {
 #[tauri::command]
 fn quit(app: tauri::AppHandle) {
     app.exit(0);
-}
-
-// Tray icon: grey while idle, the accent-ring variant while the engine is listening or thinking.
-// It lives in the panel, so it is the one indicator that stays visible when the overlay is hidden
-// from screencasts; the idle icon is deliberately quiet for that reason.
-
-const TRAY_ID: &str = "main";
-const TRAY_IDLE: &[u8] = include_bytes!("../icons/tray-idle.png");
-const TRAY_LIVE: &[u8] = include_bytes!("../icons/tray-live.png");
-
-fn tray_image(live: bool) -> Result<Image<'static>, String> {
-    Image::from_bytes(if live { TRAY_LIVE } else { TRAY_IDLE }).map_err(|e| e.to_string())
-}
-
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show overlay", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
-    TrayIconBuilder::with_id(TRAY_ID)
-        .icon(Image::from_bytes(TRAY_IDLE)?)
-        .menu(&menu)
-        .show_menu_on_left_click(true)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "show" => {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.unminimize();
-                    let _ = win.show();
-                    let _ = win.set_focus();
-                }
-            }
-            "quit" => app.exit(0),
-            _ => {}
-        })
-        .build(app)?;
-    Ok(())
-}
-
-/// Swaps the tray icon between idle and live. The window icon follows for X11; Wayland
-/// compositors take the window icon from the desktop entry and ignore the call.
-#[tauri::command]
-fn set_live(app: AppHandle, live: bool) -> Result<(), String> {
-    let image = tray_image(live)?;
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        tray.set_icon(Some(image.clone())).map_err(|e| e.to_string())?;
-    }
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.set_icon(image);
-    }
-    Ok(())
 }
 
 // Engine sidecar: the overlay spawns and supervises the FastAPI engine as a child process.
@@ -914,7 +862,6 @@ pub fn run() {
             shortcuts_configure,
             shortcuts_list,
             shortcuts_app_id_problem,
-            set_live,
             quit
         ])
         .setup(|app| {
@@ -922,10 +869,6 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(false);
                 size_to_screen(&win);
-            }
-            // A desktop without a tray host just shows nothing; not worth failing startup over.
-            if let Err(e) = build_tray(app.handle()) {
-                eprintln!("[overlay] tray icon unavailable: {e}");
             }
             // Own the backend unless one is already serving the port or the user opted out.
             let handle = app.handle().clone();
