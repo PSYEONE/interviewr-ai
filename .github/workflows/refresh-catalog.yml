@@ -1,7 +1,8 @@
 name: Refresh model catalog
 
-# The curated list lives in hardware.py; this only regenerates the facts in catalog.json.
-# A quiet week produces no PR, so the absence of one is itself the signal that nothing moved.
+# The curated list lives in hardware.py; this only regenerates the facts in catalog.json and
+# commits routine drift straight to main. The run goes red instead of committing when a tag no
+# longer resolves or a size jumps by a re-quantisation's worth (--strict); the log says which.
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays, 06:00 UTC
@@ -9,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   refresh:
@@ -26,26 +26,16 @@ jobs:
 
       - name: Regenerate catalog.json
         working-directory: backend
-        run: python scripts/refresh_catalog.py
+        run: python scripts/refresh_catalog.py --strict
 
-      # gh is preinstalled on the runner, so no third-party action holds write access here.
-      - name: Open a PR when the catalog changed
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit the catalog when it changed
         run: |
           if git diff --quiet -- backend/app/system/catalog.json; then
             echo "catalog unchanged; nothing to do"
             exit 0
           fi
-          BRANCH="catalog-refresh-$(date +%Y-%m-%d)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
           git add backend/app/system/catalog.json
           git commit -m "refresh model catalog from the ollama registry"
-          git push -u origin "$BRANCH"
-          gh pr create --fill --title "Refresh model catalog" --body \
-            "Automated refresh of \`backend/app/system/catalog.json\` from the Ollama registry.
-          Sizes, parameter counts, quantisation or family changed upstream. Review the diff:
-          a large size swing usually means a re-quantisation, and a dropped tag means the model
-          was pulled from the library and should be replaced in \`_CURATED\`."
+          git push

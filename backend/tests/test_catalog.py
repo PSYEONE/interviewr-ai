@@ -60,7 +60,7 @@ def test_catalog_json_is_current() -> None:
 
 # The refresh script is not a package, so put its directory on the path before importing it.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from refresh_catalog import build, stamp_for  # noqa: E402
+from refresh_catalog import build, guard, stamp_for  # noqa: E402
 
 
 def test_stamp_is_kept_when_the_facts_are_unchanged() -> None:
@@ -80,3 +80,26 @@ def test_stamp_advances_when_a_model_changed() -> None:
 
 def test_stamp_advances_when_there_is_no_previous_file() -> None:
     assert stamp_for({"phi4": {}}, {}, "2026-08-24") == "2026-08-24"
+
+
+_FRESH = {"a:1b": {"download_mb": 1000}, "b:7b": {"download_mb": 5000}}
+
+
+def test_guard_passes_small_drift() -> None:
+    current = {"a:1b": {"download_mb": 990}, "b:7b": {"download_mb": 5100}}
+    assert guard(_FRESH, current, failed=[]) == []
+
+
+def test_guard_fails_when_a_tag_did_not_resolve() -> None:
+    reasons = guard({"a:1b": {"download_mb": 1000}}, _FRESH, failed=["b:7b: 404"])
+    assert len(reasons) == 1 and reasons[0].startswith("b:7b")
+
+
+def test_guard_fails_on_a_requantisation_sized_jump() -> None:
+    current = {"a:1b": {"download_mb": 1000}, "b:7b": {"download_mb": 4000}}
+    reasons = guard(_FRESH, current, failed=[])
+    assert len(reasons) == 1 and reasons[0].startswith("b:7b") and "25%" in reasons[0]
+
+
+def test_guard_passes_a_model_new_to_the_catalog() -> None:
+    assert guard(_FRESH, {"a:1b": {"download_mb": 1000}}, failed=[]) == []

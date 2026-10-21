@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regenerates app/system/catalog.json (download size, parameters, quantisation, family) from the Ollama registry.
 
-The list of offered models lives in hardware.py. Use --check to fail without writing if the committed file is out of date.
+The list of offered models lives in hardware.py. Use --check to fail without writing if the committed file is out of date,
+and --strict to refuse a result that dropped a model or moved a size by more than a re-quantisation's worth.
 """
 
 from __future__ import annotations
@@ -47,7 +48,12 @@ async def _facts(tag: str, client: httpx.AsyncClient) -> dict[str, object]:
     }
 
 
-async def build() -> dict[str, object]:
+# A size change bigger than this is a re-quantisation, not drift, and changes which GPUs fit.
+MAX_SIZE_CHANGE = 0.15
+
+
+async def build() -> tuple[dict[str, object], list[str]]:
+    """The fresh catalog plus the tags that did not resolve."""
     models: dict[str, object] = {}
     failed: list[str] = []
     # Blob reads 307 to R2 object storage; manifests don't, but one client serves both.
@@ -65,7 +71,28 @@ async def build() -> dict[str, object]:
     return {
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d"),
         "models": dict(sorted(models.items())),
-    }
+    }, failed
+
+
+def guard(
+    fresh_models: dict[str, object],
+    current_models: dict[str, object],
+    failed: list[str],
+    max_change: float = MAX_SIZE_CHANGE,
+) -> list[str]:
+    """Reasons an unattended run must not write: tags that vanished, and sizes that jumped."""
+    reasons = [f"{f} (tag did not resolve; replace it in _CURATED if it was pulled)" for f in failed]
+    for name, facts in fresh_models.items():
+        before = current_models.get(name)
+        if not isinstance(before, dict) or not isinstance(facts, dict):
+            continue
+        old, new = before.get("download_mb"), facts.get("download_mb")
+        if not isinstance(old, int) or not isinstance(new, int) or old <= 0:
+            continue
+        change = abs(new - old) / old
+        if change > max_change:
+            reasons.append(f"{name}: download size {old} -> {new} MB ({change:.0%}); check for a re-quantisation")
+    return reasons
 
 
 def _serialize(data: dict[str, object]) -> str:
@@ -91,10 +118,19 @@ def _current() -> dict[str, object]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true", help="fail if the committed file is stale")
+    ap.add_argument("--strict", action="store_true", help="refuse to write if a tag vanished or a size jumped")
     args = ap.parse_args()
 
-    fresh = asyncio.run(build())
+    fresh, failed = asyncio.run(build())
     current = _current()
+    if args.strict:
+        current_models = current.get("models")
+        reasons = guard(fresh["models"], current_models if isinstance(current_models, dict) else {}, failed)  # type: ignore[arg-type]
+        if reasons:
+            print("\nrefusing to write catalog.json:", file=sys.stderr)
+            for r in reasons:
+                print(f"  {r}", file=sys.stderr)
+            return 1
     if args.check:
         if not current:
             print("catalog.json missing or unreadable", file=sys.stderr)
