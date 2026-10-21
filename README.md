@@ -10,7 +10,7 @@ Live transcription and AI answers, with your audio and documents kept on your ma
 
 <h2></h2>
 
-<picture><img src="docs/media/demo.gif" alt="A question detected from the call, answered from the candidate's CV in the overlay"></picture>
+<p align="center"><picture><img src="docs/media/demo.gif" width="760" alt="A question detected from the call, answered from the candidate's CV in the overlay"></picture></p>
 
 ## Features
 
@@ -97,7 +97,7 @@ missing, recommends an LLM that fits your GPU's VRAM and downloads it, and fetch
 model. That is why there is no `ollama pull` step above: naming a model up front would ignore
 what the wizard knows about your hardware.
 
-<picture><img src="docs/media/wizard.gif" alt="The setup wizard picking models that fit the detected GPU"></picture>
+<p align="center"><picture><img src="docs/media/wizard.gif" width="760" alt="The setup wizard picking models that fit the detected GPU"></picture></p>
 
 ## Where your data lives
 
