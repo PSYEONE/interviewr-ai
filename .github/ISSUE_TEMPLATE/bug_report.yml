@@ -1,0 +1,98 @@
+name: Bug report
+description: Something broke or behaved wrongly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The fields below are what it takes to reproduce a problem on a
+        machine that isn't yours, so please fill in what you can.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start an interview with ...
+        2. Play audio from ...
+        3. ...
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it was installed
+      options:
+        - .deb from a release
+        - From source (scripts/install.sh)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the release name, or `git log -1 --oneline` for a source install.
+      placeholder: 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and version
+      placeholder: Kubuntu 24.04, Arch (2026-10), Fedora 43
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop and session
+      description: Which desktop environment, and whether the session is Wayland or X11.
+      placeholder: KDE Plasma 6.7 on Wayland, GNOME 48 on X11
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: Output of `vulkaninfo --summary | grep deviceName`, or "none / CPU".
+      placeholder: AMD Radeon RX 7900 XT (RADV), NVIDIA RTX 3070 (nvidia 580)
+
+  - type: dropdown
+    id: providers
+    attributes:
+      label: Speech and model providers
+      description: As set in Settings.
+      options:
+        - Local speech (whisper.cpp) and local model (Ollama)
+        - Local speech, cloud model (API key)
+        - Cloud speech, any model
+        - Not sure
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Engine and overlay output
+      description: |
+        Installed: run `interviewr-ai` from a terminal and copy the output (engine lines are
+        prefixed `[engine]`), or `journalctl --user -n 200 --no-pager`. From source: the
+        terminal running `npm run tauri dev`. Remove anything private; the transcript may be in there.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched the open issues for this problem.
+        - label: The log above has nothing I wouldn't want public.
