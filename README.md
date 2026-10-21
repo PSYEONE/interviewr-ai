@@ -1,15 +1,12 @@
 <h1 align="center"><picture><img src="docs/media/logo.png" width="96" align="absmiddle" alt=""></picture> interviewr-ai</h1>
 
-**The open-source interview and meeting copilot for Linux: live transcription and AI answers,
-with your audio and documents kept on your machine.**
+<p align="center"><b>The open-source interview and meeting copilot for Linux.</b><br>
+Live transcription and AI answers, with your audio and documents kept on your machine.</p>
 
-interviewr-ai listens to your interviews and meetings, transcribes them in real time with
-whisper.cpp on your GPU, spots the questions and streams an answer drawn from your CV and the job
-description into a native overlay. Use it to rehearse interviews, follow calls with live captions,
-or keep private meeting notes. It runs local models by default, so nothing leaves the machine
-unless you bring your own API key. **Linux-first**, **privacy-first**, **subscription-free**, and an
-open-source alternative to interview assistants such as Cluely and Pluely that send your audio to
-the cloud.
+- **Live transcription** of your calls with whisper.cpp on your GPU, for rehearsing interviews or following along with captions.
+- **Answers from your own material.** It spots the question and streams an answer drawn from your CV and the job description into a native overlay.
+- **Local by default.** Ollama for the model, so nothing leaves the machine unless you bring your own API key.
+- **Linux-first, privacy-first, subscription-free.** An open-source alternative to Cluely and Pluely, which send your audio to the cloud by default.
 
 <picture><img src="docs/media/demo.gif" alt="A question detected from the call, answered from the candidate's CV in the overlay"></picture>
 
