@@ -18,6 +18,17 @@ die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || die "docker not found"
 docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon (is it running, and are you in the docker group?)"
 
+# The version comes from tauri.conf.json (scripts/bump-version.sh keeps every copy in step). A
+# release build should be of the tagged commit, so an untagged or dirty tree gets a warning.
+version="$(sed -n 's/^  "version": "\([^"]*\)",/\1/p' "$ROOT/overlay/src-tauri/tauri.conf.json")"
+tag="$(git -C "$ROOT" describe --tags --exact-match 2>/dev/null || true)"
+if [ "$tag" != "v$version" ] || ! git -C "$ROOT" diff --quiet; then
+  echo "warning: building $version from an untagged or modified tree; for a release, run" >&2
+  echo "         scripts/bump-version.sh first so the package matches a tag" >&2
+else
+  echo "  version $version (tag $tag)"
+fi
+
 say "Building the image"
 # Plain progress prints the full build log.
 docker build --progress plain -f "$ROOT/packaging/Dockerfile" -t "$IMAGE" "$ROOT"
