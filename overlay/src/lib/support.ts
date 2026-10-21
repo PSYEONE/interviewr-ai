@@ -48,8 +48,8 @@ const LINKS: SupportLink[] = [
 ];
 export const supportLinks: SupportLink[] = LINKS.filter((l) => !l.url.includes("YOUR_"));
 
-// Opens an empty issue tagged "feedback"; nothing is sent unless the user submits it there.
-export const FEEDBACK_URL = "https://github.com/PSYEONE/interviewr-ai/issues/new?labels=feedback";
+// Opens GitHub's issue chooser, where the feedback form applies its own label; nothing is sent unless the user submits it there.
+export const FEEDBACK_URL = "https://github.com/PSYEONE/interviewr-ai/issues/new/choose";
 
 export function openSupportLink(url: string): void {
   void openLink(url).catch(() => {
