@@ -34,7 +34,7 @@ Live transcription and AI answers, with your audio and documents kept on your ma
 ## Status
 
 Working end to end on Linux/KDE, but still rough, so you will find bugs. Please
-[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) when you do.
+[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new?template=bug_report.yml) when you do.
 
 The default system prompts are a starting point, which is why they are editable in Settings. If
 you find wording that works better, say so in an issue.
@@ -80,7 +80,7 @@ or zypper, and refuses to report success if the GPU build quietly fell back to t
 
 The apt and pacman paths are tested; dnf and zypper are not. If the script asks for a package that
 does not exist on your distro, or the build fails, please
-[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new) with the output.
+[open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new?template=bug_report.yml) with the output.
 
 To run the engine on its own:
 
@@ -146,7 +146,7 @@ This is free and open source. If it helped you, consider supporting development:
 - **GitHub Sponsors:** https://github.com/sponsors/PSYEONE
 - **Crypto:** https://nowpayments.io/donation/psyeone (any of ~350 coins)
 
-Found a problem or have an idea? [Open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new).
+Found a problem or have an idea? [Open an issue](https://github.com/PSYEONE/interviewr-ai/issues/new/choose).
 
 Every bit keeps this Linux-first, privacy-first, and subscription-free.
 
