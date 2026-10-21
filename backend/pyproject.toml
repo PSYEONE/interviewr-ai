@@ -1,6 +1,6 @@
 [project]
 name = "interviewr-ai"
-version = "0.0.0"
+version = "0.1.1"
 description = "Linux-first, privacy-first real-time interview/meeting copilot"
 requires-python = ">=3.12"
 license = { text = "AGPL-3.0-or-later" }

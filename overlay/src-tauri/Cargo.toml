@@ -1,6 +1,6 @@
 [package]
 name = "interviewr-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Real-time interview and meeting copilot"
 edition = "2021"
 rust-version = "1.77"
