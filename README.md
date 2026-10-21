@@ -8,6 +8,8 @@ Live transcription and AI answers, with your audio and documents kept on your ma
 - **Local by default.** Ollama for the model, so nothing leaves the machine unless you bring your own API key.
 - **Linux-first, privacy-first, subscription-free.** An open-source alternative to Cluely and Pluely, which send your audio to the cloud by default.
 
+<h2></h2>
+
 <picture><img src="docs/media/demo.gif" alt="A question detected from the call, answered from the candidate's CV in the overlay"></picture>
 
 ## Features
