@@ -50,6 +50,7 @@
     "linux": {
       "deb": {
         "depends": [
+          "libayatana-appindicator3-1",
           "libvulkan1",
           "pipewire-bin",
           "pulseaudio-utils"

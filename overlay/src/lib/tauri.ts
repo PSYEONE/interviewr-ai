@@ -15,6 +15,8 @@ export const setStealth = (on: boolean): Promise<boolean> => invoke<boolean>("se
 export const getCaptureSupported = (): Promise<boolean> =>
   invoke<boolean>("get_capture_supported");
 export const quit = (): Promise<void> => invoke("quit");
+// Tray icon state: blue while the engine is listening or thinking, grey otherwise.
+export const setLive = (live: boolean): Promise<void> => invoke("set_live", { live });
 // Opens a donation or feedback page in the browser; the Rust side only allows known links.
 export const openLink = (url: string): Promise<void> => invoke("open_link", { url });
 

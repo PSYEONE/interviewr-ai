@@ -5,7 +5,8 @@
   import Wizard from "./components/wizard/Wizard.svelte";
   import { getHealth } from "./lib/api";
   import { hotkeys } from "./lib/hotkeys.svelte";
-  import { engineError, onEngineFailed, restartEngine } from "./lib/tauri";
+  import { session } from "./lib/session.svelte";
+  import { engineError, onEngineFailed, restartEngine, setLive } from "./lib/tauri";
   import { windowControls } from "./lib/windowControls.svelte";
 
   type View = "loading" | "wizard" | "dashboard" | "offline" | "error";
@@ -43,6 +44,12 @@
     }
     void decide();
   }
+
+  // Tray icon follows the session: blue while listening or thinking, grey otherwise.
+  $effect(() => {
+    const live = session.status === "listening" || session.status === "thinking";
+    setLive(live).catch(() => {});
+  });
 
   onMount(() => {
     void decide();
