@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/media/logo.png" width="128" alt="interviewr-ai logo"></p>
+
 # interviewr-ai
 
 **The interview/meeting copilot that runs on Linux and keeps your data on your machine.**
