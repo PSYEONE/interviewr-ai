@@ -138,7 +138,6 @@ documentation.
 | **Keep on top** | KDE and X11 | ["GNOME ignores always-on-top"](https://docs.pluely.com/docs/getting-started/permissions-linux) |
 | **Models** | Local by default, cloud optional | 277 hosted models on a plan, or bring your own keys |
 | **macOS and Windows** | No | Yes |
-| **Maturity** | 0.1.0, weeks old | 1.1.0, since August 2025 |
 
 ## Support this project
 
