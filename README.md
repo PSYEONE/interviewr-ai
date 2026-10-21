@@ -1,4 +1,4 @@
-<h1 align="center"><img src="docs/media/logo.png" width="96" align="absmiddle" alt=""> interviewr-ai</h1>
+<h1 align="center"><picture><img src="docs/media/logo.png" width="96" align="absmiddle" alt=""></picture> interviewr-ai</h1>
 
 **The interview/meeting copilot that runs on Linux and keeps your data on your machine.**
 
