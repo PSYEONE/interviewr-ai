@@ -83,14 +83,30 @@ fn cfg(key: &str) -> Option<String> {
     })
 }
 
+/// The token both we and the engine use: the configured one, else the one minted for the
+/// engine we spawned, else none (an external engine with no token relies on its Origin check).
+fn auth_token(state: &EngineState) -> String {
+    cfg("INTERVIEWR_AUTH_TOKEN")
+        .or_else(|| state.generated_token.get().cloned())
+        .unwrap_or_default()
+}
+
+/// 32 random bytes as hex. Without a token any web page could read the transcript over
+/// ws://127.0.0.1, so the overlay mints one per launch when `.env` has none.
+fn mint_token() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("the OS random source is unavailable");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[tauri::command]
-fn get_connection() -> Connection {
+fn get_connection(state: tauri::State<EngineState>) -> Connection {
     Connection {
         host: cfg("INTERVIEWR_HOST").unwrap_or_else(|| "127.0.0.1".into()),
         port: cfg("INTERVIEWR_PORT")
             .and_then(|p| p.parse().ok())
             .unwrap_or(8765),
-        token: cfg("INTERVIEWR_AUTH_TOKEN").unwrap_or_default(),
+        token: auth_token(&state),
     }
 }
 
@@ -131,6 +147,8 @@ struct EngineState {
     stderr_tail: Mutex<VecDeque<String>>,
     /// Last fatal error, kept so the UI can fetch one emitted before it was listening.
     last_error: Mutex<Option<String>>,
+    /// Per-launch auth token handed to the engine we spawn when `.env` configures none.
+    generated_token: OnceLock<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -294,6 +312,7 @@ fn spawn_engine(app: &AppHandle) -> Result<(), String> {
         .current_dir(&cmd.dir)
         // Lets the engine exit on its own if the overlay dies without stopping it.
         .env("INTERVIEWR_PARENT_PID", std::process::id().to_string())
+        .env("INTERVIEWR_AUTH_TOKEN", auth_token(&app.state::<EngineState>()))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::piped());
@@ -879,6 +898,9 @@ pub fn run() {
             } else {
                 state.manage_engine.store(true, Ordering::SeqCst);
                 state.should_run.store(true, Ordering::SeqCst);
+                if cfg("INTERVIEWR_AUTH_TOKEN").is_none() {
+                    let _ = state.generated_token.set(mint_token());
+                }
                 if let Err(e) = spawn_engine(&handle) {
                     report_failure(&handle, e);
                 }

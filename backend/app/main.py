@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import aclosing, asynccontextmanager
 from pathlib import Path
@@ -227,12 +228,16 @@ async def _bootstrap_documents(settings: Settings, retriever: Retriever) -> None
 
 app = FastAPI(title="interviewr-ai", version="0.0.0", lifespan=lifespan)
 
-# Allow the overlay's local and Tauri origins; requests are still token-gated.
+# The overlay's own origins: the Tauri webview and a local dev server. Shared by CORS and,
+# when no token is configured, by the auth check itself.
+_LOCAL_ORIGIN_RE = (
+    r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|tauri://localhost|https?://tauri\.localhost)$"
+)
+_LOCAL_ORIGIN = re.compile(_LOCAL_ORIGIN_RE)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=(
-        r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|tauri://localhost|https?://tauri\.localhost)$"
-    ),
+    allow_origin_regex=_LOCAL_ORIGIN_RE,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -267,11 +272,18 @@ async def health(request: Request) -> dict[str, object]:
     }
 
 
-def _token_ok(settings: Settings, token: str) -> bool:
-    if not settings.auth_token:
-        # No token configured: only allowed on a localhost bind.
-        return settings.host == "127.0.0.1"
-    return hmac.compare_digest(token, settings.auth_token)
+def _token_ok(settings: Settings, token: str, origin: str | None) -> bool:
+    """Whether a client may connect: the configured token, or a local non-browser client without one.
+
+    A localhost bind alone is not enough. Browsers skip same-origin for WebSocket upgrades and for
+    form posts, so any open web page could read the transcript or plant a document. Browsers always
+    send Origin; our overlay, curl and the test client do not, so no Origin or a local one passes.
+    """
+    if settings.auth_token:
+        return hmac.compare_digest(token, settings.auth_token)
+    if settings.host != "127.0.0.1":
+        return False
+    return origin is None or _LOCAL_ORIGIN.match(origin) is not None
 
 
 @app.websocket("/ws")
@@ -280,7 +292,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
     bus: EventBus = ws.app.state.bus
     session: Session | None = ws.app.state.session
 
-    if not _token_ok(settings, ws.query_params.get("token", "")):
+    if not _token_ok(settings, ws.query_params.get("token", ""), ws.headers.get("origin")):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await ws.accept()
@@ -365,7 +377,7 @@ def _require_auth(request: Request) -> None:
         header = request.headers.get("authorization", "")
         if header.lower().startswith("bearer "):
             token = header[7:]
-    if not _token_ok(settings, token):
+    if not _token_ok(settings, token, request.headers.get("origin")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad or missing token")
 
 
