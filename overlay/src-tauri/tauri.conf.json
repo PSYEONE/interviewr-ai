@@ -40,7 +40,7 @@
     "license": "AGPL-3.0-only",
     "category": "Utility",
     "shortDescription": "Real-time interview and meeting copilot",
-    "longDescription": "Captures system audio, transcribes it live, spots the questions and streams an\nanswer drawn from your resume and the job description into a native overlay.\nRuns on your machine by default: whisper.cpp on the GPU for speech, Ollama for\nthe model, with cloud providers as an option. No account, no subscription, no\ntelemetry.",
+    "longDescription": "Captures system audio, transcribes it live and, on a hotkey, streams an answer\ndrawn from your resume and the job description into a native overlay.\nRuns on your machine by default: whisper.cpp on the GPU for speech, Ollama for\nthe model, with cloud providers as an option. No account, no subscription, no\ntelemetry.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

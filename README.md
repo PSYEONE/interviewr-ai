@@ -4,13 +4,13 @@
 Live transcription and AI answers, with your audio and documents kept on your machine.</p>
 
 - **Live transcription** of your calls with whisper.cpp on your GPU, for rehearsing interviews or following along with captions.
-- **Answers from your own material.** It spots the question and streams an answer drawn from your CV and the job description into a native overlay.
+- **Answers from your own material.** Press the hotkey when a question lands and it streams an answer drawn from your CV and the job description into a native overlay.
 - **Local by default.** Ollama for the model, so nothing leaves the machine unless you bring your own API key.
 - **Linux-first, privacy-first, subscription-free.** An open-source alternative to Cluely and Pluely, which send your audio to the cloud by default.
 
 <h2></h2>
 
-<p align="center"><picture><img src="docs/media/demo.gif" width="760" alt="A question detected from the call, answered from the candidate's CV in the overlay"></picture></p>
+<p align="center"><picture><img src="docs/media/demo.gif" width="760" alt="A question from the call, answered from the candidate's CV in the overlay"></picture></p>
 
 ## Features
 
@@ -24,9 +24,10 @@ Live transcription and AI answers, with your audio and documents kept on your ma
   private null sink so notifications and music stay out of the transcript.
 - **Live transcription** - whisper.cpp with the Vulkan backend, so the GPU is used on AMD,
   NVIDIA and Intel alike, with automatic CPU fallback.
-- **Answers from your own material** - it spots the question and answers from your CV, the job
-  description and the conversation so far, streamed into the overlay while the question is still
-  being asked. The system prompt and answer style are editable.
+- **Answers from your own material** - press the hotkey as a question lands and it answers from
+  your CV, the job description and the conversation so far, streamed into the overlay. Question
+  detection is not built yet, so you choose what gets answered. The system prompt and answer
+  style are editable.
 - **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
   from screencast on KDE Plasma 6.6+ (newer than most distributions ship today).
 - **History** - every conversation saved, with Markdown and JSON export.
