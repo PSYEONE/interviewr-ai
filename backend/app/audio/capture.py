@@ -8,6 +8,7 @@ import logging
 import re
 import signal
 import sys
+from collections import deque
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Literal
@@ -17,6 +18,8 @@ import numpy as np
 SAMPLE_RATE = 16000
 CHUNK_SAMPLES = 4800  # 0.3s at 16kHz
 CHUNK_BYTES = CHUNK_SAMPLES * 4  # f32 = 4 bytes per sample
+# Audio held for a consumer that has fallen behind (a slow CPU transcription pass) before the oldest is dropped.
+QUEUE_MAX_S = 10.0
 
 _PR_SET_PDEATHSIG = 1  # linux/prctl.h
 
@@ -125,6 +128,46 @@ async def _pw_record_raw_args() -> list[str]:
     return _raw_args
 
 
+class AudioPump:
+    """Drains a pipe into a bounded queue so a slow consumer never blocks the writer.
+
+    asyncio only buffers a pipe up to its own limit, after which pw-record blocks on write() and
+    PipeWire drops frames with no trace. Dropping here instead is loud and keeps the newest audio.
+    """
+
+    def __init__(self, reader: asyncio.StreamReader, chunk_bytes: int, max_chunks: int) -> None:
+        self._reader = reader
+        self._chunk_bytes = chunk_bytes
+        self.queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=max(1, max_chunks))
+        self.dropped = 0  # chunks discarded because the consumer fell behind
+
+    def _offer(self, item: bytes | None) -> None:
+        if self.queue.full():
+            self.queue.get_nowait()  # stale audio is worth less than fresh audio
+            self.dropped += 1
+            if self.dropped == 1 or self.dropped % 32 == 0:
+                _log.warning(
+                    "transcription is behind; dropped %d audio chunks so far", self.dropped
+                )
+        self.queue.put_nowait(item)
+
+    async def run(self) -> None:
+        """Reads until EOF, then queues None so the consumer sees the end."""
+        try:
+            while True:
+                self._offer(await self._reader.readexactly(self._chunk_bytes))
+        except asyncio.IncompleteReadError:
+            pass
+        finally:
+            self._offer(None)
+
+
+async def _tail_stderr(stderr: asyncio.StreamReader, tail: deque[str]) -> None:
+    """Keeps pw-record's last stderr lines; an undrained pipe would block it once full."""
+    async for raw in stderr:
+        tail.append(raw.decode(errors="replace").rstrip())
+
+
 async def capture_audio(
     device: str,
     rate: int = SAMPLE_RATE,
@@ -150,26 +193,38 @@ async def capture_audio(
         stderr=asyncio.subprocess.PIPE,
         preexec_fn=_die_with_parent,  # reap pw-record if the engine dies ungracefully
     )
-    assert proc.stdout is not None
+    assert proc.stdout is not None and proc.stderr is not None
+    pump = AudioPump(proc.stdout, chunk_bytes, int(QUEUE_MAX_S * rate / chunk_samples))
+    pump_task = asyncio.create_task(pump.run())
+    stderr_tail: deque[str] = deque(maxlen=20)
+    stderr_task = asyncio.create_task(_tail_stderr(proc.stderr, stderr_tail))
     exited = False
     try:
         while True:
             try:
-                data = await asyncio.wait_for(proc.stdout.readexactly(chunk_bytes), stall_s)
+                data = await asyncio.wait_for(pump.queue.get(), stall_s)
             except TimeoutError:
                 # pw-record sends silence as zeros, so no data at all means it's stuck.
                 _log.warning("pw-record sent no audio for %.0fs; restarting capture", stall_s)
                 return
+            if data is None:
+                exited = True
+                return
             yield np.frombuffer(data, dtype=np.float32).copy()
-    except asyncio.IncompleteReadError:
-        exited = True
     finally:
+        pump_task.cancel()
         if proc.returncode is None:
             try:
                 proc.terminate()
             except ProcessLookupError:
                 pass  # pw-record already exited (e.g. on shutdown)
         await proc.wait()
-        if exited and proc.stderr is not None:
-            detail = (await proc.stderr.read()).decode(errors="replace").strip()
+        # The pipe closes with the process, so the tail is complete within moments.
+        try:
+            await asyncio.wait_for(stderr_task, 1.0)
+        except TimeoutError:
+            stderr_task.cancel()
+        await asyncio.gather(pump_task, stderr_task, return_exceptions=True)
+        if exited:
+            detail = "\n".join(stderr_tail).strip()
             _log.warning("pw-record stopped (exit code %s): %s", proc.returncode, detail[-300:] or "no error output")

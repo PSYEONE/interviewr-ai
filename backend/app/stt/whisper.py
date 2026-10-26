@@ -182,7 +182,7 @@ async def transcribe_stream(
     emit_partials: bool = True,
 ) -> AsyncGenerator[Hypothesis, None]:
     """Streams a live transcript, committing words once two back-to-back transcriptions agree on them."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     speech: list[np.ndarray] = []
     speech_s = 0.0  # above-threshold audio; gates out tiny noise blips
     buffered_s = 0.0  # total audio since the segment opened

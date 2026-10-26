@@ -179,6 +179,11 @@ async def _capture_once(
     source = prefs.app or "system audio"
     _log.info("capturing %s (device %s)", source, device)
     bus.publish(StatusEvent(state="listening", source=source))
+    # A partial pass re-transcribes the whole utterance every few hundred ms. On the CPU that can
+    # outrun the capture buffer and cost words, so the CPU fallback commits at utterance end only.
+    emit_partials = settings.stt_emit_partials and transcriber.on_gpu
+    if settings.stt_emit_partials and not emit_partials:
+        _log.info("transcribing on the CPU; live partials are off for this capture")
     audio_stream = capture_audio(device)
     transcript_stream = transcribe_stream(
         audio_stream,
@@ -188,7 +193,7 @@ async def _capture_once(
         max_utterance_s=settings.vad_max_utterance_s,
         partial_interval_s=settings.stt_partial_interval_s,
         commit_margin_words=settings.stt_commit_margin_words,
-        emit_partials=settings.stt_emit_partials,
+        emit_partials=emit_partials,
     )
     feed = asyncio.ensure_future(_feed(transcript_stream, session, settings))
     stop = asyncio.ensure_future(session.wait_capture_stop())
