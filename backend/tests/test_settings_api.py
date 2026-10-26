@@ -110,3 +110,12 @@ def test_apply_accepts_valid_cloud_combo(tmp_path: Path) -> None:
     text = env.read_text()
     assert "INTERVIEWR_LLM_PROVIDER=anthropic" in text
     assert "INTERVIEWR_ANTHROPIC_API_KEY=sk-xyz" in text
+
+
+def test_restart_required_only_for_settings_reload_cannot_apply() -> None:
+    from app.config_store import restart_required
+
+    assert restart_required({"rag_top_k": 3, "audio_capture_app": "firefox"}) is False
+    assert restart_required({"system_prompt": "x", "history_enabled": False}) is False
+    assert restart_required({"llm_model": "llama3"}) is True
+    assert restart_required({"rag_top_k": 3, "whisper_model": "small"}) is True

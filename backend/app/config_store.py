@@ -37,6 +37,25 @@ _WRITABLE: frozenset[str] = frozenset(
 )
 
 
+# Settings /settings/reload applies to the running engine; anything else needs a restart.
+LIVE_SETTINGS: frozenset[str] = frozenset(
+    {
+        "llm_keep_alive",
+        "system_prompt",
+        "answer_style_script",
+        "answer_style_bullets",
+        "rag_top_k",
+        "history_enabled",
+        "audio_capture_app",
+    }
+)
+
+
+def restart_required(updates: dict[str, object]) -> bool:
+    """Whether applying `updates` needs an engine restart rather than a reload."""
+    return not set(updates) <= LIVE_SETTINGS
+
+
 class ConfigView(BaseModel):
     """Current config for the settings UI. Secrets are reported as set/unset booleans only."""
 

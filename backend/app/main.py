@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .config import LLMProvider, Settings, get_settings
-from .config_store import ConfigView, apply_config, current_config
+from .config_store import ConfigView, apply_config, current_config, restart_required
 from .events import (
     AnswerCommand,
     AnswerStyleCommand,
@@ -244,9 +244,10 @@ app.add_middleware(
 
 
 async def _llm_can_think(settings: Settings) -> bool:
-    """Whether the configured model has a reasoning mode. Asked once: a model change restarts us."""
+    """Whether we offer the reasoning toggle. Only Ollama models are probed; asked once, since a model change restarts us."""
     if settings.llm_provider != LLMProvider.OLLAMA:
-        return False  # the cloud adapters don't expose their reasoning APIs
+        # Anthropic and Gemini do have reasoning modes, but our adapters do not drive them yet.
+        return False
     admin = OllamaAdmin(settings.ollama_base_url)
     try:
         return "thinking" in await admin.capabilities(settings.llm_model)
@@ -264,7 +265,8 @@ async def health(request: Request) -> dict[str, object]:
         # Speech model state, so the UI can show a first run's download instead of looking stuck.
         "stt_ready": bool(getattr(request.app.state, "stt_ready", False)),
         "stt_progress": int(getattr(request.app.state, "stt_progress", 0)),
-        # Drives the interview screen's reasoning toggle, which is hidden when the model can't.
+        # Drives the interview screen's reasoning toggle. False means the toggle is not offered
+        # (only Ollama is probed), not that the model cannot reason.
         "llm_can_think": bool(getattr(request.app.state, "llm_can_think", False)),
         "stt_provider": settings.stt_provider,
         "llm_provider": settings.llm_provider,
@@ -588,14 +590,14 @@ async def read_settings(request: Request) -> ConfigView:
 
 @app.post("/settings")
 async def write_settings(request: Request, body: SettingsUpdate) -> dict[str, bool]:
-    """Validates and saves config to .env; the engine must restart to apply it."""
+    """Validates and saves config to .env; says whether a restart or /settings/reload applies it."""
     _require_auth(request)
     settings: Settings = request.app.state.settings
     try:
         apply_config(settings, body.updates)
     except (ValueError, ValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return {"restart_required": True}
+    return {"restart_required": restart_required(body.updates)}
 
 
 @app.post("/settings/reload")
