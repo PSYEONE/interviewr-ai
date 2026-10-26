@@ -28,3 +28,7 @@ tokio = { version = "1", features = ["sync", "rt", "net", "time"] }
 # Claiming our own systemd app scope, which is what gives the portal an app id. Already in the
 # tree via ashpd. See src/appid.rs.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[profile.release]
+# Debug symbols are a third of the binary and nobody reads them from a .deb.
+strip = true

@@ -15,11 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       dpkg-dev fakeroot \
     && rm -rf /var/lib/apt/lists/*
 
-# Bundled standalone Python, so the package doesn't depend on the distro's Python.
+# Bundled standalone Python, so the package doesn't depend on the distro's Python. The stripped
+# build: the plain one carries debug info that makes libpython alone about 200 MB.
 ARG PYTHON_VERSION=3.12.8
 ARG PBS_RELEASE=20241219
 RUN curl -fsSL -o /tmp/python.tar.gz \
-      "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/cpython-${PYTHON_VERSION}+${PBS_RELEASE}-x86_64-unknown-linux-gnu-install_only.tar.gz" \
+      "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/cpython-${PYTHON_VERSION}+${PBS_RELEASE}-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz" \
     && mkdir -p "$INTERVIEWR_PREFIX" \
     && tar -xzf /tmp/python.tar.gz -C "$INTERVIEWR_PREFIX" \
     && rm /tmp/python.tar.gz \
@@ -51,11 +52,11 @@ ENV MAKEFLAGS=-j${BUILD_JOBS}
 RUN INTERVIEWR_VENV="$INTERVIEWR_PREFIX/python" INTERVIEWR_CMAKE_ARGS="-DGGML_NATIVE=OFF" \
     ./scripts/install.sh --build-only
 
-# Removes dev-only packages, the editable install, caches and bundled test folders.
+# Removes dev-only packages, the editable install, pip itself and bundled test folders at any depth.
 RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') \
-    && "$INTERVIEWR_PREFIX/python/bin/python3" -m pip uninstall -y interviewr-ai ruff mypy pytest pytest-asyncio jiwer 2>/dev/null || true \
-    && find "$SITE" -name '__pycache__' -prune -exec rm -rf {} + \
-    && find "$SITE" -name 'tests' -maxdepth 2 -type d -prune -exec rm -rf {} + \
+    && "$INTERVIEWR_PREFIX/python/bin/python3" -m pip uninstall -y interviewr-ai ruff mypy pytest pytest-asyncio jiwer patchelf 2>/dev/null || true \
+    && rm -rf "$SITE"/pip "$SITE"/pip-*.dist-info \
+    && find "$SITE" -type d \( -name 'tests' -o -name 'test' \) -prune -exec rm -rf {} + \
     && echo "payload site-packages: $(du -sh "$SITE" | cut -f1)"
 
 # Keeps only the library names the engine loads (each soname), since the bundler copies every alias in full.
@@ -72,8 +73,29 @@ RUN SITE=$("$INTERVIEWR_PREFIX/python/bin/python3" -c 'import sysconfig; print(s
 
 # Copies the engine source into the payload.
 RUN mkdir -p "$INTERVIEWR_PREFIX/backend" \
-    && cp -a /src/backend/app /src/backend/static /src/backend/run_pipeline.py "$INTERVIEWR_PREFIX/backend/" \
-    && find "$INTERVIEWR_PREFIX/backend" -name '__pycache__' -prune -exec rm -rf {} +
+    && cp -a /src/backend/app /src/backend/static /src/backend/run_pipeline.py "$INTERVIEWR_PREFIX/backend/"
+
+# Trims the interpreter to what the engine runs. The bundler copies every symlink as a full file,
+# so one interpreter at bin/python (what the overlay's venv_python() looks for) and one libpython
+# (the soname the binary loads via $ORIGIN/../lib) replace three copies of each. Tk, IDLE, ensurepip
+# and the stdlib's own tests are dead weight for a headless engine. Wheels built without
+# stripping (uvloop alone is 15 MB of symbols) are stripped like any Debian package would be.
+RUN PY="$INTERVIEWR_PREFIX/python" \
+    && cd "$PY/bin" \
+    && real=$(readlink -f python3.12) \
+    && find . -mindepth 1 ! -name python3.12 -delete \
+    && mv "$real" python \
+    && cd "$PY/lib" \
+    && rm -f libpython3.12.so libpython3.so \
+    && rm -rf tcl8* tk8* itcl* thread2* Tix* libtcl* libtk* pkgconfig \
+    && STD="$PY/lib/python3.12" \
+    && rm -rf "$STD"/tkinter "$STD"/idlelib "$STD"/turtledemo "$STD"/turtle.py "$STD"/ensurepip \
+           "$STD"/test "$STD"/lib2to3 "$STD"/lib-dynload/_tkinter*.so "$PY/include" "$PY/share" \
+    && find "$PY" -type f \( -name '*.so' -o -name '*.so.*' \) -exec strip --strip-unneeded {} + 2>/dev/null \
+    && "$PY/bin/python" -c 'import ssl, sqlite3, zlib, uvloop, numpy, _pywhispercpp, sys; print(sys.prefix)' \
+    && cd "$INTERVIEWR_PREFIX/backend" && "$PY/bin/python" -c 'import app.main' \
+    && find "$INTERVIEWR_PREFIX" -name '__pycache__' -prune -exec rm -rf {} + \
+    && echo "payload: $(du -sh "$INTERVIEWR_PREFIX" | cut -f1)"
 
 # Builds the overlay and the .deb; --locked fails the build if Cargo.lock is out of date.
 RUN cd /src/overlay \
