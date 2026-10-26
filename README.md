@@ -48,7 +48,7 @@ Download the `.deb` from the [latest release](https://github.com/PSYEONE/intervi
 then:
 
 ```bash
-sudo apt install ./interviewr-ai_0.1.1_amd64.deb
+sudo apt install ./interviewr-ai_0.1.2_amd64.deb
 ```
 
 Built for Ubuntu 24.04 and newer. Other Ubuntu and Debian based distros should work but are untested.
