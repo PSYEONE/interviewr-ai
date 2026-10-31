@@ -25,9 +25,9 @@ Live transcription and AI answers, with your audio and documents kept on your ma
 - **Live transcription** - whisper.cpp with the Vulkan backend, so the GPU is used on AMD,
   NVIDIA and Intel alike, with automatic CPU fallback.
 - **Answers from your own material** - press the hotkey as a question lands and it answers from
-  your CV, the job description and the conversation so far, streamed into the overlay. Question
-  detection is not built yet, so you choose what gets answered. The system prompt and answer
-  style are editable.
+  your CV, the job description and the conversation so far, streamed into the overlay. You decide
+  what gets answered, so it never talks over a question you'd rather take yourself. The system
+  prompt and answer style are editable.
 - **Overlay that behaves** - global hotkeys, collapse to a strip, Pin on KDE and X11, hide
   from screencast on KDE Plasma 6.6+ (newer than most distributions ship today).
 - **History** - every conversation saved, with Markdown and JSON export.
