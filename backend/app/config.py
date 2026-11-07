@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     # stt
     stt_provider: STTProvider = STTProvider.WHISPER_CPP
     whisper_model: str = "small.en"  # best accuracy/speed tradeoff on test-clean (see eval/)
+    # whisper.cpp language code (bg, de, ...) or "auto" to detect per utterance. English-only
+    # (.en) models ignore it. Required explicitly: whisper.cpp otherwise forces "en", which on a
+    # multilingual model translates foreign speech instead of transcribing it.
+    whisper_language: str = "auto"
     whisper_use_gpu: bool = True  # Vulkan; falls back to CPU
     whisper_gpu_device: int = -1  # Vulkan device index; -1 = default (0). Pin the discrete GPU on iGPU+dGPU laptops
     vad_silence_rms: float = 0.01  # skip whisper on windows quieter than this (RMS)
@@ -143,6 +147,27 @@ class Settings(BaseSettings):
         if v == "" and info.field_name is not None:
             return cls.model_fields[info.field_name].get_default()
         return v
+
+    @field_validator("whisper_language", mode="before")
+    @classmethod
+    def _normalize_language(cls, v: object) -> object:
+        # Blank means auto-detect. A code is checked against whisper.cpp's list when the local STT
+        # extra is installed; cloud-only installs have no list and accept the value as given.
+        if v is None:
+            return "auto"
+        if not isinstance(v, str):
+            return v
+        code = v.strip().lower()
+        if code in ("", "auto"):
+            return "auto"
+        from .stt.whisper import available_languages
+
+        known = available_languages()
+        if known and code not in known:
+            raise ValueError(
+                f"unknown whisper language '{code}'; use a whisper.cpp code such as 'bg' or 'auto'"
+            )
+        return code
 
     @model_validator(mode="after")
     def _guard_remote_exposure(self) -> "Settings":

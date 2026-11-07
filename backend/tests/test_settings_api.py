@@ -119,3 +119,27 @@ def test_restart_required_only_for_settings_reload_cannot_apply() -> None:
     assert restart_required({"system_prompt": "x", "history_enabled": False}) is False
     assert restart_required({"llm_model": "llama3"}) is True
     assert restart_required({"rag_top_k": 3, "whisper_model": "small"}) is True
+
+
+def test_the_speech_language_is_a_live_setting(tmp_path: Path) -> None:
+    """A decode parameter the stream reads per utterance, so changing it must not cost a restart."""
+    from app.config_store import restart_required
+
+    env = tmp_path / ".env"
+    apply_config(_settings(), {"whisper_language": "bg"}, env_path=env)
+    assert "INTERVIEWR_WHISPER_LANGUAGE=bg" in env.read_text()
+    assert current_config(_settings(whisper_language="bg")).whisper_language == "bg"
+    assert restart_required({"whisper_language": "bg"}) is False
+
+
+def test_a_blank_language_means_auto_detect() -> None:
+    assert _settings(whisper_language="").whisper_language == "auto"
+    assert _settings(whisper_language=" BG ").whisper_language == "bg"
+
+
+def test_an_unknown_language_code_is_refused_before_it_is_saved(tmp_path: Path) -> None:
+    pytest.importorskip("pywhispercpp")
+    env = tmp_path / ".env"
+    with pytest.raises(ValueError, match="unknown whisper language 'xx'"):
+        apply_config(_settings(), {"whisper_language": "xx"}, env_path=env)
+    assert not env.exists()

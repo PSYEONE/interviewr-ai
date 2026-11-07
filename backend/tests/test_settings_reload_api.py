@@ -95,3 +95,29 @@ async def test_reload_updates_the_capture_target(
     assert prefs.app == "Chromium"
 
     get_settings.cache_clear()
+
+
+async def test_reload_updates_the_speech_language(
+    client: httpx.AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stream reads the language from CapturePrefs at each utterance start, so a reload is
+    enough for the next sentence to be decoded in the new language."""
+    env = tmp_path / ".env"
+    env.write_text("INTERVIEWR_LLM_MODEL=m\n")
+    apply_config(
+        Settings(llm_model="m", _env_file=None),  # type: ignore[call-arg]
+        {"whisper_language": "bg"},
+        env_path=env,
+    )
+    monkeypatch.setitem(Settings.model_config, "env_file", env)
+    get_settings.cache_clear()
+
+    prefs = CapturePrefs()
+    app.state.capture_prefs = prefs
+    assert prefs.language == "auto"
+
+    resp = await client.post("/settings/reload")
+    assert resp.status_code == 200
+    assert prefs.language == "bg"
+
+    get_settings.cache_clear()

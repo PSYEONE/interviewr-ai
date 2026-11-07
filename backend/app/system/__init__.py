@@ -45,6 +45,7 @@ async def collect_system_report(
     settings: Settings,
     *,
     whisper_model: str | None = None,
+    whisper_language: str | None = None,
     llm_model: str | None = None,
     assume_recommended_llm: bool = False,
 ) -> SystemReport:
@@ -52,7 +53,8 @@ async def collect_system_report(
     run in a thread; Ollama calls are async httpx.
 
     The two model lists are labelled against each other's VRAM, so a caller mid-choice passes what
-    it is choosing. ``assume_recommended_llm`` is for the wizard's first screen, where no chat model
+    it is choosing; ``whisper_language`` likewise, since the suggested speech model depends on it.
+    ``assume_recommended_llm`` is for the wizard's first screen, where no chat model
     has been picked yet: speech sizes are judged against the one about to be recommended rather than
     against whatever happens to be configured.
     """
@@ -89,7 +91,10 @@ async def collect_system_report(
         ollama=ollama,
         recommendation=recommendation,
         whisper=whisper_choice(
-            info.gpus, settings.whisper_use_gpu, llm_vram_mb(settings, chat_model)
+            info.gpus,
+            settings.whisper_use_gpu,
+            llm_vram_mb(settings, chat_model),
+            whisper_language or settings.whisper_language,
         ),
     )
 
