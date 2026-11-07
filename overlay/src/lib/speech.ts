@@ -4,17 +4,14 @@ import type { WhisperOption } from "./types";
 
 export const AUTO_LANGUAGE = "auto";
 
-// "small.en · 466 MB · English only · 4.8% word errors", plus a warning when it won't fit the GPU.
+// "small.en · 466 MB · English only", plus a warning when it won't fit the GPU. The measured error
+// rate is left out: the list is ordered by size, and "bigger is more accurate" says it without jargon.
 export function speechLabel(m: WhisperOption, warnFit = false): string {
   const size =
     m.download_mb >= 1024 ? `${(m.download_mb / 1024).toFixed(1)} GB` : `${m.download_mb} MB`;
   const scope = m.english_only ? "English only" : "multilingual";
-  // The error rate was measured on English speech, so a multilingual model has no comparable figure.
-  let accuracy = "accuracy not measured";
-  if (m.live_wer !== null) accuracy = `${(m.live_wer * 100).toFixed(1)}% word errors`;
-  else if (m.english_only) accuracy = "fastest, least accurate";
   const warn = warnFit && m.fit === "too_big" ? ", may not fit this GPU" : "";
-  return `${m.name} · ${size} · ${scope} · ${accuracy}${warn}`;
+  return `${m.name} · ${size} · ${scope}${warn}`;
 }
 
 let names: Intl.DisplayNames | null | undefined;

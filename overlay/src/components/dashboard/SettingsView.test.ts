@@ -178,8 +178,8 @@ describe("the speech language", () => {
     const labels = [...select("wmodel").options].map((o) => o.textContent ?? "");
     expect(labels.find((l) => l.startsWith("small.en"))).toContain("English only");
     expect(labels.find((l) => l.startsWith("small ·"))).toContain("multilingual");
-    // The measured error rate is English; it must not be shown for a multilingual model.
-    expect(labels.find((l) => l.startsWith("small ·"))).not.toContain("word errors");
+    // The error-rate figure is jargon in a menu; the list is ordered by size instead.
+    expect(labels.some((l) => l.includes("%"))).toBe(false);
   });
 
   it("warns when another language is paired with a .en model", async () => {
