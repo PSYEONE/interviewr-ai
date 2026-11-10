@@ -238,6 +238,6 @@ async def _feed(
         if item.final:
             if settings.debug_print:
                 print(f"[FINAL] {item.text}")
-            session.add_transcript(item.text)
+            session.add_transcript(item.text, item.language)
         else:
             session.publish_partial(item.text)

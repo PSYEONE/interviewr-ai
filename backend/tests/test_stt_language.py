@@ -110,6 +110,18 @@ async def _run(stream: AsyncIterator[np.ndarray], stub: _Stub, **kwargs: Any) ->
     return finals
 
 
+async def test_hypotheses_carry_the_pinned_language_for_the_answer_prompt() -> None:
+    """The session tells the LLM which language the question was in, so every committed word
+    must say which language it was decoded in; before the pin there is nothing to say."""
+    model = _FakeModel(detect="bg")
+    seen: list[tuple[bool, str]] = []
+    async for hyp in transcribe_stream(_utterances(1), _Stub(model), sample_rate=RATE):
+        seen.append((hyp.final, hyp.language))
+    assert all(lang == "bg" for final, lang in seen if final)
+    assert seen[0] == (False, "")  # a pre-pin partial
+    assert any(lang == "bg" for final, lang in seen if not final)  # partials after the pin
+
+
 async def test_the_language_is_detected_once_per_utterance_and_pinned() -> None:
     """Detecting on every partial flips languages mid-sentence; one detection per utterance, reused
     for its remaining partials and its final pass, is what keeps a sentence in one language."""

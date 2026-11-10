@@ -19,6 +19,7 @@ from .events import (
 )
 from .history import HistoryStore, TurnRecord
 from .llm.base import STYLE_DIRECTIVES, LLMClient, Message
+from .stt.languages import language_name
 from .rag import Retriever, format_context
 
 _log = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class Session:
         self._max_buffer_chars = max_buffer_chars
         self._max_history_chars = max_history_chars
         self._parts: list[str] = []
+        self._language = ""  # whisper code of the latest final utterance; "" until one arrives
         self._history: list[Message] = []
         self._seq = 0
         self._gen_task: asyncio.Task[None] | None = None
@@ -156,9 +158,12 @@ class Session:
         """Form-only instruction appended to the question for the LLM; never stored in history."""
         return self._style_directives.get(self._answer_style, "")
 
-    def add_transcript(self, text: str) -> None:
+    def add_transcript(self, text: str, language: str = "") -> None:
         """Append a transcript chunk and broadcast it. Called by the producer loop."""
         self._parts.append(text)
+        if language:
+            # The question is usually the last thing said, so the latest utterance sets the answer language.
+            self._language = language
         joined = " ".join(self._parts)
         if len(joined) > self._max_buffer_chars:
             self._parts = [joined[-self._max_buffer_chars :]]
@@ -181,7 +186,7 @@ class Session:
             return
         if self._gen_task is not None and not self._gen_task.done():
             self._gen_task.cancel()
-        self._gen_task = asyncio.create_task(self._run_answer(transcript))
+        self._gen_task = asyncio.create_task(self._run_answer(transcript, self._language))
 
     def clear(self) -> None:
         """Drop the pending (possibly mis-heard) transcript without generating."""
@@ -198,7 +203,7 @@ class Session:
         self._conversation_id = None  # the next answered turn opens a new conversation
         self._bus.publish(StatusEvent(state="listening"))
 
-    async def _run_answer(self, transcript: str) -> None:
+    async def _run_answer(self, transcript: str, language: str = "") -> None:
         answer_id = uuid.uuid4().hex
         self._bus.publish(StatusEvent(state="thinking"))
         self._bus.publish(
@@ -211,6 +216,11 @@ class Session:
         directive = self._style_directive()
         if directive:
             prompt = f"{prompt}\n\n{directive}"
+        if language:
+            # Stated outright: small local models ignore "answer in the question's language" when
+            # the resume chunks around it are in English.
+            name = language_name(language)
+            prompt = f"{prompt}\n\nThe question was asked in {name}. Answer in {name}."
         messages: list[Message] = [*self._history, {"role": "user", "content": prompt}]
         tokens: list[str] = []
         cancelled = False

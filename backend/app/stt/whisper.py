@@ -175,6 +175,7 @@ class Hypothesis(NamedTuple):
 
     text: str
     final: bool
+    language: str = ""  # whisper code the utterance was decoded in; "" before it is pinned
 
 
 # Strips non-speech notes whisper adds on unclear audio, like [BLANK_AUDIO] or (wind blowing).
@@ -300,9 +301,9 @@ async def transcribe_stream(
             if speech_s >= min_speech_s:
                 hyp = await transcribe_buffer(True)  # highest-quality pass; trust it fully
                 if len(hyp) > committed:
-                    yield Hypothesis(" ".join(hyp[committed:]), True)
+                    yield Hypothesis(" ".join(hyp[committed:]), True, utterance_lang or "")
                 if emit_partials:
-                    yield Hypothesis("", False)  # clear the tentative tail
+                    yield Hypothesis("", False, utterance_lang or "")  # clear the tentative tail
             reset()
             continue
 
@@ -318,8 +319,8 @@ async def transcribe_stream(
             # Nothing is committed until the language is pinned, or a wrong early guess would stick.
             safe = max(committed, agree - commit_margin_words) if utterance_lang else committed
             if safe > committed:
-                yield Hypothesis(" ".join(hyp[committed:safe]), True)
+                yield Hypothesis(" ".join(hyp[committed:safe]), True, utterance_lang or "")
                 committed = safe
             if emit_partials:
-                yield Hypothesis(" ".join(hyp[committed:]), False)
+                yield Hypothesis(" ".join(hyp[committed:]), False, utterance_lang or "")
             prev_hyp = hyp

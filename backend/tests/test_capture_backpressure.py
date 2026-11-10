@@ -69,7 +69,7 @@ class _Session:
     async def wait_capture_stop(self) -> None:
         await asyncio.Event().wait()
 
-    def add_transcript(self, text: str) -> None:
+    def add_transcript(self, text: str, language: str = "") -> None:
         pass
 
     def publish_partial(self, text: str) -> None:
