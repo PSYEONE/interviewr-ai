@@ -1,5 +1,6 @@
 <script lang="ts">
   import { postSettings, waitForHealth } from "../../lib/api";
+  import { languageName } from "../../lib/speech";
   import { engineManaged, restartEngine } from "../../lib/tauri";
   import type { SystemReport } from "../../lib/types";
 
@@ -23,6 +24,8 @@
   const LABELS: Record<string, string> = {
     llm_provider: "LLM provider",
     llm_model: "Model",
+    whisper_model: "Speech model",
+    whisper_language: "Speech language",
     whisper_gpu_device: "Speech-to-text GPU",
     ollama_base_url: "Ollama URL",
     anthropic_api_key: "Anthropic API key",
@@ -46,6 +49,7 @@
   function display(key: string, value: unknown): string {
     if (key.endsWith("_api_key")) return "••••••";
     if (key === "llm_provider") return PROVIDERS[String(value)] ?? String(value);
+    if (key === "whisper_language") return languageName(String(value));
     if (key === "whisper_gpu_device") {
       const idx = Number(value);
       if (idx < 0) return "Auto";

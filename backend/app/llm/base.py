@@ -13,7 +13,8 @@ SYSTEM_PROMPT = (
     "You receive live audio transcription and provide concise, helpful responses. "
     "Focus on answering questions detected in the transcript, "
     "providing relevant context, and surfacing key points. "
-    "Be direct and brief."
+    "Be direct and brief. "
+    "Answer in the language the question was asked in."
 )
 
 # Formatting instructions added to the question for each answer style; users can override them like the system prompt.

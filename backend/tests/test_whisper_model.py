@@ -13,6 +13,9 @@ from app.stt import whisper as stt
 from app.system.hardware import GpuInfo
 from app.system.whisper_models import suggest_whisper, whisper_choice
 
+_ENGLISH = ["tiny.en", "base.en", "small.en", "medium.en"]
+_MULTILINGUAL = ["small", "medium", "large-v3-turbo", "large-v3-turbo-q5_0"]
+
 
 def _gpu(vram_mb: int | None, kind: str = "discrete") -> GpuInfo:
     return GpuInfo(index=0, name="card", vendor="nvidia", kind=kind, vram_mb=vram_mb)
@@ -28,11 +31,42 @@ def test_more_vram_gets_a_more_accurate_model() -> None:
     assert suggest_whisper(8192) == "medium.en"
 
 
+def test_a_language_other_than_english_gets_a_multilingual_model() -> None:
+    """Issue #12: a .en model turns Bulgarian into unrelated English, so the suggestion must
+    follow the language. small drifts into Russian on Cyrillic, so a card with room gets turbo."""
+    assert suggest_whisper(None, "bg") == "small"
+    assert suggest_whisper(2048, "bg") == "large-v3-turbo-q5_0"  # needs about what small does
+    assert suggest_whisper(4096, "bg") == "large-v3-turbo-q5_0"
+    assert suggest_whisper(8192, "bg") == "large-v3-turbo"
+    # English and auto-detect keep the measured .en ladder; auto alone is no sign of another language.
+    assert suggest_whisper(4096, "en") == "small.en"
+    assert suggest_whisper(4096, "auto") == "small.en"
+
+
 def test_every_model_stays_selectable_with_a_fit_label() -> None:
     choice = whisper_choice([_gpu(8192)])
     assert choice.suggested == "medium.en"
-    assert [m.name for m in choice.models] == ["tiny.en", "base.en", "small.en", "medium.en"]
+    assert [m.name for m in choice.models] == _ENGLISH + _MULTILINGUAL
     assert {m.fit for m in choice.models} <= {"fits", "tight", "too_big"}
+
+
+def test_english_only_models_are_marked_so_the_ui_can_say_so() -> None:
+    by_name = {m.name: m for m in whisper_choice([_gpu(8192)]).models}
+    assert all(by_name[n].english_only for n in _ENGLISH)
+    assert not any(by_name[n].english_only for n in _MULTILINGUAL)
+    # The measured accuracy is LibriSpeech English and must not be shown for other languages.
+    assert all(by_name[n].live_wer is None and by_name[n].speed is None for n in _MULTILINGUAL)
+
+
+def test_the_language_list_comes_from_whisper_itself() -> None:
+    pytest.importorskip("pywhispercpp")
+    languages = whisper_choice([_gpu(8192)]).languages
+    assert "en" in languages and "bg" in languages
+    assert len(languages) >= 99  # whisper's full set, so the UI never hardcodes it
+
+
+def test_the_suggestion_follows_the_language_being_chosen() -> None:
+    assert whisper_choice([_gpu(8192)], language="bg").suggested == "large-v3-turbo"
 
 
 def test_gpu_transcription_off_is_treated_as_cpu() -> None:

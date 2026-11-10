@@ -27,6 +27,8 @@ class _Loaded(WhisperTranscriber):
 
     def __init__(self) -> None:
         self.on_gpu = True
+        self.language = "auto"
+        self.english_only = False
         self._lock = threading.Lock()
         self._model = object()  # type: ignore[assignment]
 

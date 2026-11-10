@@ -37,6 +37,12 @@ class Retriever:
         """Live-update the retrieval depth (applied by POST /settings/reload, no restart)."""
         self._top_k = top_k
 
+    def set_keep_alive(self, keep_alive: str) -> None:
+        """Forwards the Ollama keep-alive to a local embedder; cloud embedders have nothing to keep."""
+        setter = getattr(self._embedder, "set_keep_alive", None)
+        if callable(setter):
+            setter(keep_alive)
+
     async def check_health(self) -> bool:
         return await self._embedder.check_health()
 

@@ -33,6 +33,15 @@ def fits_in_vram(needed_mb: int, free_mb: int | None) -> bool:
     return free_mb is None or free_mb >= needed_mb * _VRAM_MARGIN + _VRAM_EXTRA_MB
 
 
+def available_languages() -> list[str]:
+    """whisper.cpp's language codes, or [] when the local STT extra is not installed."""
+    try:
+        from pywhispercpp.model import Model
+    except ImportError:
+        return []
+    return list(Model.available_languages())
+
+
 def model_path(name: str) -> Path:
     """Where pywhispercpp looks for this model, so a download here is one it will use."""
     from pywhispercpp.constants import MODELS_DIR
@@ -81,7 +90,11 @@ class WhisperTranscriber:
     """Wraps pywhispercpp Model for whole-buffer transcription."""
 
     def __init__(
-        self, model_name: str = "base.en", use_gpu: bool = True, gpu_device: int = -1
+        self,
+        model_name: str = "base.en",
+        use_gpu: bool = True,
+        gpu_device: int = -1,
+        language: str = "auto",
     ) -> None:
         from pywhispercpp.model import ContextParams, Model
 
@@ -90,6 +103,9 @@ class WhisperTranscriber:
         if gpu_device >= 0:
             ctx["gpu_device"] = gpu_device
         self.on_gpu = use_gpu
+        self.language = language
+        # .en models have no language tokens; whisper.cpp ignores the setting for them, as do we.
+        self.english_only = model_name.endswith(".en")
         # Transcription runs in an executor thread, so the model is guarded against release under it.
         self._lock = threading.Lock()
         self._model: Model | None = Model(
@@ -111,11 +127,40 @@ class WhisperTranscriber:
         with self._lock:
             self._loaded().transcribe(np.zeros(16000, dtype=np.float32))
 
-    def transcribe_raw(self, audio: np.ndarray) -> str:
+    def set_language(self, language: str) -> None:
+        """Changes the configured language; the stream applies it from its next utterance."""
+        self.language = language
+
+    def detects_language(self) -> bool:
+        """Whether an utterance's language has to be found from its audio."""
+        return not self.english_only and self.language == "auto"
+
+    def resolve_language(self, audio: np.ndarray) -> str:
+        """The code one utterance is decoded in, detected from the audio when configured to auto.
+
+        Detection costs an encoder pass, the same one whisper.cpp spends internally on every
+        "auto" call, so the stream runs it once per utterance and pins the result.
+        """
+        if self.english_only:
+            return "en"
+        if self.language != "auto":
+            return self.language
+        with self._lock:
+            (code, prob), _all = self._loaded().auto_detect_language(audio)
+        _log.info("detected language: %s (%.2f)", code, float(prob))
+        return code
+
+    def transcribe_raw(self, audio: np.ndarray, language: str | None = None) -> str:
         """Transcribes a float32 buffer and cleans the text, keeping no state between calls."""
+        code = "en" if self.english_only else language or self.language
         with self._lock:
             segments = self._loaded().transcribe(
                 audio,
+                # pywhispercpp only sets what it is given, and whisper.cpp's own default is "en",
+                # which makes a multilingual model translate. So both are always passed. whisper.cpp
+                # detects on "" without complaint; "auto" also detects but logs an unknown-language error.
+                language="" if code == "auto" else code,
+                translate=False,
                 temperature=0.0,  # greedy; no random sampling
                 no_context=True,  # don't carry decoder state across calls (reduces drift)
                 suppress_blank=True,
@@ -130,6 +175,7 @@ class Hypothesis(NamedTuple):
 
     text: str
     final: bool
+    language: str = ""  # whisper code the utterance was decoded in; "" before it is pinned
 
 
 # Strips non-speech notes whisper adds on unclear audio, like [BLANK_AUDIO] or (wind blowing).
@@ -140,6 +186,10 @@ PARTIAL_MIN_S = 1.0
 
 # Silence kept at the end of a buffer; whisper makes up text ("thank you") for long silent tails.
 TRIM_KEEP_S = 0.2
+
+# Audio needed before the language is detected. On 1 s and 2 s of Bulgarian, large-v3-turbo said
+# Greek; on the full clip it was right. Until then partials are tentative and nothing is committed.
+DETECT_MIN_S = 3.0
 
 
 def _collapse_repeats(words: list[str], limit: int = 2) -> list[str]:
@@ -180,8 +230,13 @@ async def transcribe_stream(
     partial_interval_s: float = 0.4,
     commit_margin_words: int = 2,
     emit_partials: bool = True,
+    language: Callable[[], str] | None = None,
 ) -> AsyncGenerator[Hypothesis, None]:
-    """Streams a live transcript, committing words once two back-to-back transcriptions agree on them."""
+    """Streams a live transcript, committing words once two back-to-back transcriptions agree on them.
+
+    ``language`` reads the configured language code at each utterance start, so a settings reload
+    reaches a running stream without restarting it.
+    """
     loop = asyncio.get_running_loop()
     speech: list[np.ndarray] = []
     speech_s = 0.0  # above-threshold audio; gates out tiny noise blips
@@ -190,18 +245,30 @@ async def transcribe_stream(
     since_partial_s = 0.0  # time since the last partial transcription
     prev_hyp: list[str] = []  # previous hypothesis, for 2-pass agreement
     committed = 0  # words already emitted as final this utterance
+    # Pinned for the whole utterance: detecting on every partial would flip languages mid-sentence.
+    utterance_lang: str | None = None
 
-    async def transcribe_buffer() -> list[str]:
+    async def transcribe_buffer(final: bool) -> list[str]:
+        nonlocal utterance_lang
         audio = np.concatenate(speech)
         drop = int((trailing_silence_s - TRIM_KEEP_S) * sample_rate)
         if 0 < drop < len(audio):
             audio = audio[:-drop]  # don't feed a long silent tail to whisper
-        text = await loop.run_in_executor(None, transcriber.transcribe_raw, audio)
+        if utterance_lang is None:
+            if language is not None:
+                transcriber.set_language(language())
+            enough = final or len(audio) >= DETECT_MIN_S * sample_rate
+            if enough or not transcriber.detects_language():
+                utterance_lang = await loop.run_in_executor(
+                    None, transcriber.resolve_language, audio
+                )
+        # Before the pin, whisper.cpp detects for itself on each partial; that text stays tentative.
+        text = await loop.run_in_executor(None, transcriber.transcribe_raw, audio, utterance_lang)
         return text.split()
 
     def reset() -> None:
         nonlocal speech, speech_s, buffered_s, trailing_silence_s, since_partial_s
-        nonlocal prev_hyp, committed
+        nonlocal prev_hyp, committed, utterance_lang
         speech = []
         speech_s = 0.0
         buffered_s = 0.0
@@ -209,6 +276,7 @@ async def transcribe_stream(
         since_partial_s = 0.0
         prev_hyp = []
         committed = 0
+        utterance_lang = None
 
     async for chunk in audio_stream:
         chunk_s = len(chunk) / sample_rate
@@ -231,11 +299,11 @@ async def transcribe_stream(
 
         if ended:
             if speech_s >= min_speech_s:
-                hyp = await transcribe_buffer()  # highest-quality pass; trust it fully
+                hyp = await transcribe_buffer(True)  # highest-quality pass; trust it fully
                 if len(hyp) > committed:
-                    yield Hypothesis(" ".join(hyp[committed:]), True)
+                    yield Hypothesis(" ".join(hyp[committed:]), True, utterance_lang or "")
                 if emit_partials:
-                    yield Hypothesis("", False)  # clear the tentative tail
+                    yield Hypothesis("", False, utterance_lang or "")  # clear the tentative tail
             reset()
             continue
 
@@ -245,13 +313,14 @@ async def transcribe_stream(
             and since_partial_s >= partial_interval_s
         ):
             since_partial_s = 0.0
-            hyp = await transcribe_buffer()
+            hyp = await transcribe_buffer(False)
             agree = _common_prefix(prev_hyp, hyp)
             # Hold back the newest agreed words, since whisper often revises the most recent ones.
-            safe = max(committed, agree - commit_margin_words)
+            # Nothing is committed until the language is pinned, or a wrong early guess would stick.
+            safe = max(committed, agree - commit_margin_words) if utterance_lang else committed
             if safe > committed:
-                yield Hypothesis(" ".join(hyp[committed:safe]), True)
+                yield Hypothesis(" ".join(hyp[committed:safe]), True, utterance_lang or "")
                 committed = safe
             if emit_partials:
-                yield Hypothesis(" ".join(hyp[committed:]), False)
+                yield Hypothesis(" ".join(hyp[committed:]), False, utterance_lang or "")
             prev_hyp = hyp

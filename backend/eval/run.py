@@ -39,9 +39,9 @@ class TimedTranscriber(WhisperTranscriber):
     def reset_meter(self) -> None:
         self.infer_s = 0.0
 
-    def transcribe_raw(self, audio: np.ndarray) -> str:
+    def transcribe_raw(self, audio: np.ndarray, language: str | None = None) -> str:
         start = time.perf_counter()
-        out = super().transcribe_raw(audio)
+        out = super().transcribe_raw(audio, language)
         self.infer_s += time.perf_counter() - start
         return out
 
