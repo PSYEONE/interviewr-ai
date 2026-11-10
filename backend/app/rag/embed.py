@@ -20,9 +20,14 @@ if TYPE_CHECKING:
 class OllamaEmbedder:
     """Local embeddings via Ollama's ``/api/embed`` (batched ``input``)."""
 
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(self, base_url: str, model: str, keep_alive: str = "30m") -> None:
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
         self._model = model
+        self._keep_alive = keep_alive
+
+    def set_keep_alive(self, keep_alive: str) -> None:
+        """Live-update how long Ollama keeps the embedder loaded (applied by POST /settings/reload)."""
+        self._keep_alive = keep_alive
 
     @property
     def model_id(self) -> str:
@@ -38,8 +43,11 @@ class OllamaEmbedder:
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
+        # Without keep_alive Ollama drops the embedder after 5 minutes while the chat model stays,
+        # and the next answer waits tens of seconds for it to load again.
         resp = await self._client.post(
-            "/api/embed", json={"model": self._model, "input": list(texts)}
+            "/api/embed",
+            json={"model": self._model, "input": list(texts), "keep_alive": self._keep_alive},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -122,7 +130,9 @@ class GeminiEmbedder:
 def build_embedder(settings: Settings) -> Embedder:
     match settings.embed_provider:
         case EmbedProvider.OLLAMA:
-            return OllamaEmbedder(settings.ollama_base_url, settings.embed_model)
+            return OllamaEmbedder(
+                settings.ollama_base_url, settings.embed_model, settings.llm_keep_alive
+            )
         case EmbedProvider.OPENAI:
             return OpenAIEmbedder(settings.openai_api_key, settings.embed_model)
         case EmbedProvider.GEMINI:

@@ -613,6 +613,7 @@ async def reload_settings(request: Request) -> dict[str, bool]:
     retriever: Retriever | None = request.app.state.retriever
     if retriever is not None:
         retriever.set_top_k(fresh.rag_top_k)
+        retriever.set_keep_alive(fresh.llm_keep_alive)
     session: Session | None = request.app.state.session
     if session is not None:
         session.set_history_enabled(fresh.history_enabled)
