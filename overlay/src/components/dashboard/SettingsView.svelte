@@ -361,7 +361,7 @@
       <div>
         <label for="wlang">
           Spoken language
-          <Info text="Language to transcribe. Auto-detect picks it per sentence, so a conversation can switch languages. English-only (.en) models ignore this and always transcribe English." />
+          <Info text="Auto-detect picks the language per sentence, so a conversation can switch between languages. Choosing one language forces every sentence into it, even speech in another language. English-only (.en) models always transcribe English." />
         </label>
         <select id="wlang" bind:value={form.whisper_language}>
           {#each languageChoices as l (l.code)}

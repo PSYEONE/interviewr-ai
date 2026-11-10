@@ -125,9 +125,9 @@
     {/if}
     <p class="text-dim text-xs">
       Transcribes what you hear, on this machine. Bigger is more accurate but slower, and it downloads
-      once. Auto-detect picks the language per sentence, so a conversation can switch languages; .en
-      models only understand English. Sizes are judged against the GPU memory left over once your
-      local model is loaded.
+      once. Auto-detect picks the language per sentence, so a conversation can switch languages;
+      choosing one language forces every sentence into it. .en models only understand English. Sizes
+      are judged against the GPU memory left over once your local model is loaded.
     </p>
 
     <div class="flex flex-wrap items-stretch gap-3">
