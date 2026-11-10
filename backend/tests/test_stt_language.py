@@ -33,8 +33,8 @@ class _FakeModel:
     def transcribe(self, _audio: np.ndarray, **params: Any) -> list[Any]:
         self.calls.append(params)
         # Before the language is pinned whisper.cpp guesses for itself, often wrongly on a short
-        # buffer (Greek for Bulgarian), so an "auto" decode comes back in the wrong script.
-        text = "αυτό μία δύο τρία" if params["language"] == "auto" else "една дума още тук"
+        # buffer (Greek for Bulgarian), so an undecided ("") decode comes back in the wrong script.
+        text = "αυτό μία δύο τρία" if params["language"] == "" else "една дума още тук"
         return [SimpleNamespace(text=text)]
 
 
@@ -60,7 +60,8 @@ def test_language_and_translate_are_always_passed() -> None:
     _Stub(model, language="auto").transcribe_raw(_audio(1))
     _Stub(model, language="bg").transcribe_raw(_audio(1))
     _Stub(model).transcribe_raw(_audio(1), "de")
-    assert [c["language"] for c in model.calls] == ["auto", "bg", "de"]
+    # "" is how whisper.cpp is asked to detect; "auto" would also work but logs an error line.
+    assert [c["language"] for c in model.calls] == ["", "bg", "de"]
     assert all(c["translate"] is False for c in model.calls)
 
 
@@ -118,9 +119,9 @@ async def test_the_language_is_detected_once_per_utterance_and_pinned() -> None:
     assert model.detections == 2  # exactly one per utterance
     languages = [c["language"] for c in model.calls]
     assert languages.count("bg") > 2  # partials plus finals under the pinned code
-    # Each utterance: undecided ("auto") partials on the short buffer, then bg once pinned, no flips.
+    # Each utterance: undecided ("") partials on the short buffer, then bg once pinned, no flips.
     runs = [lang for i, lang in enumerate(languages) if i == 0 or lang != languages[i - 1]]
-    assert runs == ["auto", "bg", "auto", "bg"]
+    assert runs == ["", "bg", "", "bg"]
 
 
 async def test_nothing_is_committed_before_the_language_is_pinned() -> None:

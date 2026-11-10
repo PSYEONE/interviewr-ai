@@ -152,14 +152,14 @@ class WhisperTranscriber:
 
     def transcribe_raw(self, audio: np.ndarray, language: str | None = None) -> str:
         """Transcribes a float32 buffer and cleans the text, keeping no state between calls."""
-        if self.english_only:
-            language = "en"
+        code = "en" if self.english_only else language or self.language
         with self._lock:
             segments = self._loaded().transcribe(
                 audio,
                 # pywhispercpp only sets what it is given, and whisper.cpp's own default is "en",
-                # which makes a multilingual model translate. So both are always passed.
-                language=language or self.language,
+                # which makes a multilingual model translate. So both are always passed. whisper.cpp
+                # detects on "" without complaint; "auto" also detects but logs an unknown-language error.
+                language="" if code == "auto" else code,
                 translate=False,
                 temperature=0.0,  # greedy; no random sampling
                 no_context=True,  # don't carry decoder state across calls (reduces drift)
