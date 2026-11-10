@@ -154,7 +154,7 @@ describe("the speech language", () => {
     await render();
     const labels = [...select("wlang").options].map((o) => o.textContent?.trim());
     expect(labels[0]).toBe("Auto-detect");
-    expect(labels).toContain("Bulgarian (bg)");
+    expect(labels).toContain("Bulgarian");
     expect(select("wlang").value).toBe("auto");
   });
 
@@ -170,7 +170,7 @@ describe("the speech language", () => {
     getSettings.mockResolvedValue({ ...CONFIG, whisper_model: "small", whisper_language: "bg" });
     await render();
     const current = target.querySelector('[data-testid="speech-current"]')?.textContent ?? "";
-    expect(current.replace(/\s+/g, " ")).toContain("Using small · Bulgarian (bg)");
+    expect(current.replace(/\s+/g, " ")).toContain("Using small · Bulgarian");
   });
 
   it("tags English-only models so they are not picked for another language", async () => {

@@ -16,7 +16,7 @@ export function speechLabel(m: WhisperOption, warnFit = false): string {
 
 let names: Intl.DisplayNames | null | undefined;
 
-// "bg" -> "Bulgarian (bg)"; the bare code when the browser has no name for it (whisper's "jw").
+// "bg" -> "Bulgarian"; the bare code when the browser has no name for it (whisper's "jw").
 export function languageName(code: string): string {
   if (code === AUTO_LANGUAGE) return "Auto-detect";
   if (names === undefined) {
@@ -27,8 +27,7 @@ export function languageName(code: string): string {
     }
   }
   try {
-    const name = names?.of(code);
-    return name && name !== code ? `${name} (${code})` : code;
+    return names?.of(code) ?? code;
   } catch {
     return code;
   }
