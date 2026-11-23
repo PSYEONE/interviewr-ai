@@ -84,3 +84,17 @@ async def test_speech_models_can_be_sized_against_the_recommended_chat_model(
 async def test_an_unknown_query_parameter_is_ignored(client: httpx.AsyncClient) -> None:
     # ?token= rides along on every authed request, so undeclared params must not 422.
     assert (await client.get("/system/info?token=&nonsense=1")).status_code == 200
+
+
+async def test_the_speech_suggestion_follows_the_language_being_chosen(
+    client: httpx.AsyncClient,
+) -> None:
+    """A .en model turns Bulgarian into English, so the wizard asks for the language it is about
+    to save and gets a multilingual suggestion back, before anything is written."""
+    saved = (await client.get("/system/info")).json()
+    bulgarian = (await client.get("/system/info?whisper_language=bg")).json()
+    assert saved["whisper"]["suggested"].endswith(".en")
+    assert not bulgarian["whisper"]["suggested"].endswith(".en")
+    by_name = {m["name"]: m for m in bulgarian["whisper"]["models"]}
+    assert by_name["small.en"]["english_only"] is True
+    assert by_name[bulgarian["whisper"]["suggested"]]["english_only"] is False

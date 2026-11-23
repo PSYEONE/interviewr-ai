@@ -502,14 +502,15 @@ def _guard_model_in_use(settings: Settings, model: str) -> None:
 async def system_info(
     request: Request,
     whisper_model: str | None = Query(None),
+    whisper_language: str | None = Query(None),
     llm_model: str | None = Query(None),
     assume_recommended_llm: bool = Query(False),
 ) -> SystemReport:
     """Hardware capability + Ollama status for the setup wizard's GPU-check screen.
 
     Speech and chat models are sized against each other's VRAM, so a caller part-way through
-    choosing passes what it is choosing: ?whisper_model= and ?llm_model= override the saved values
-    for the labels only. ?assume_recommended_llm=true sizes speech against the chat model this
+    choosing passes what it is choosing: ?whisper_model=, ?whisper_language= and ?llm_model=
+    override the saved values for the labels and the suggestion only. ?assume_recommended_llm=true sizes speech against the chat model this
     report recommends, for the wizard screen that comes before the chat model is picked.
     """
     _require_auth(request)
@@ -517,6 +518,7 @@ async def system_info(
     return await collect_system_report(
         settings,
         whisper_model=whisper_model,
+        whisper_language=whisper_language,
         llm_model=llm_model,
         assume_recommended_llm=assume_recommended_llm,
     )
@@ -611,6 +613,7 @@ async def reload_settings(request: Request) -> dict[str, bool]:
     retriever: Retriever | None = request.app.state.retriever
     if retriever is not None:
         retriever.set_top_k(fresh.rag_top_k)
+        retriever.set_keep_alive(fresh.llm_keep_alive)
     session: Session | None = request.app.state.session
     if session is not None:
         session.set_history_enabled(fresh.history_enabled)

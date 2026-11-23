@@ -15,6 +15,12 @@
     hotkeys,
     type HotkeyAction,
   } from "../../lib/hotkeys.svelte";
+  import {
+    englishOnlyMismatch,
+    languageName,
+    languageOptions,
+    speechLabel,
+  } from "../../lib/speech";
   import { FEEDBACK_URL, openSupportLink, supportLinks } from "../../lib/support";
   import type { ConfigView, GpuInfo, WhisperOption } from "../../lib/types";
   import ConfirmBack from "../ConfirmBack.svelte";
@@ -26,6 +32,7 @@
   interface Editable {
     stt_provider: string;
     whisper_model: string;
+    whisper_language: string;
     whisper_use_gpu: boolean;
     whisper_gpu_device: number;
     rag_enabled: boolean;
@@ -40,6 +47,7 @@
   const KEYS: (keyof Editable)[] = [
     "stt_provider",
     "whisper_model",
+    "whisper_language",
     "whisper_use_gpu",
     "whisper_gpu_device",
     "rag_enabled",
@@ -53,6 +61,7 @@
   ];
   // Settings the engine can apply without a restart; changing anything else restarts it.
   const CHEAP = new Set<keyof Editable>([
+    "whisper_language", // a decode parameter, read at each utterance start
     "rag_top_k",
     "history_enabled",
     "llm_keep_alive",
@@ -65,17 +74,12 @@
     return name && !speechModels.some((m) => m.name === name) ? name : null;
   });
 
-  // "small.en · 466 MB · 4.8% word errors"
-  function speechLabel(m: WhisperOption): string {
-    const size = m.download_mb >= 1024 ? `${(m.download_mb / 1024).toFixed(1)} GB` : `${m.download_mb} MB`;
-    const accuracy = m.live_wer === null ? "fastest, least accurate" : `${(m.live_wer * 100).toFixed(1)}% word errors`;
-    return `${m.name} · ${size} · ${accuracy}`;
-  }
 
   function pick(c: ConfigView): Editable {
     return {
       stt_provider: c.stt_provider,
       whisper_model: c.whisper_model,
+      whisper_language: c.whisper_language,
       whisper_use_gpu: c.whisper_use_gpu,
       whisper_gpu_device: c.whisper_gpu_device,
       rag_enabled: c.rag_enabled,
@@ -94,6 +98,16 @@
   let gpus = $state<GpuInfo[]>([]);
   let previewPrompt = $state(false); // dev-only preview of the support pop-up
   let speechModels = $state<WhisperOption[]>([]);
+  let languages = $state<string[]>([]);
+  // Auto-detect plus whisper's codes; the saved code stays listed even before the list arrives.
+  const languageChoices = $derived(languageOptions(languages, original?.whisper_language ?? ""));
+  // A .en model paired with another language would transcribe English whatever is said.
+  const mismatch = $derived.by(() => {
+    const f = form;
+    if (!f) return false;
+    const picked = speechModels.find((m) => m.name === f.whisper_model) ?? f.whisper_model;
+    return englishOnlyMismatch(f.whisper_language, picked);
+  });
   let audioApps = $state<string[]>([]);
   let loadingApps = $state(false);
   // Saved app captured at load; building the options from the select's own bound value would stop it showing reliably.
@@ -139,6 +153,7 @@
       const info = await getSystemInfo();
       gpus = info.gpus;
       speechModels = info.whisper.models;
+      languages = info.whisper.languages;
     } catch {
       gpus = []; // GPU list is a convenience; Auto still works
     }
@@ -313,6 +328,11 @@
       <p class="text-dim text-sm">Loading…</p>
     {:else}
       <h2>Speech-to-text</h2>
+      {#if original}
+        <p class="text-dim text-xs" data-testid="speech-current">
+          Using {original.whisper_model} · {languageName(original.whisper_language)}
+        </p>
+      {/if}
       <div>
         <label for="stt">
           Provider
@@ -337,6 +357,20 @@
             <option value={customWhisper}>{customWhisper}</option>
           {/if}
         </select>
+      </div>
+      <div>
+        <label for="wlang">
+          Spoken language
+          <Info text="Auto-detect picks the language per sentence, so a conversation can switch between languages. Choosing one language forces every sentence into it, even speech in another language. English-only (.en) models always transcribe English." />
+        </label>
+        <select id="wlang" bind:value={form.whisper_language}>
+          {#each languageChoices as l (l.code)}
+            <option value={l.code}>{l.label}</option>
+          {/each}
+        </select>
+        {#if mismatch}
+          <p class="text-warn text-xs">This model only transcribes English. Pick a multilingual one for that language.</p>
+        {/if}
       </div>
       <label class="flex items-center gap-2">
         <input type="checkbox" bind:checked={form.whisper_use_gpu} /> Use GPU for transcription

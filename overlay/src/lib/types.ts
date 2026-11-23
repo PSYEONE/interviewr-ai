@@ -78,6 +78,7 @@ export interface DiskInfo {
 // One speech model, labelled for the detected hardware (mirrors backend WhisperOption).
 export interface WhisperOption {
   name: string;
+  english_only: boolean; // a .en model: transcribes English only and ignores the language setting
   download_mb: number;
   vram_mb: number; // what whisper.cpp needs on the GPU
   live_wer: number | null; // word error rate through the live pipeline; null when not measured
@@ -88,6 +89,7 @@ export interface WhisperOption {
 export interface WhisperChoice {
   suggested: string; // preselected for this machine
   models: WhisperOption[];
+  languages: string[]; // whisper.cpp language codes; empty when the local STT extra is missing
 }
 
 export interface SystemReport {
@@ -104,6 +106,7 @@ export interface SystemReport {
 export interface ConfigView {
   stt_provider: string;
   whisper_model: string;
+  whisper_language: string; // whisper.cpp code, or "auto" to detect per utterance
   whisper_gpu_device: number;
   whisper_use_gpu: boolean;
   llm_provider: string;

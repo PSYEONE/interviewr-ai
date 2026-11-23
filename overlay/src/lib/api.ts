@@ -59,6 +59,7 @@ export async function waitForHealth(
  *  each other's VRAM. Omit them to be labelled against the saved settings. */
 export interface FitOverrides {
   whisperModel?: string;
+  whisperLanguage?: string; // the suggested speech model depends on it
   llmModel?: string;
   assumeRecommendedLlm?: boolean; // size speech against the chat model this report recommends
 }
@@ -66,6 +67,7 @@ export interface FitOverrides {
 function fitQuery(opts: FitOverrides): string {
   const q = new URLSearchParams();
   if (opts.whisperModel) q.set("whisper_model", opts.whisperModel);
+  if (opts.whisperLanguage) q.set("whisper_language", opts.whisperLanguage);
   if (opts.llmModel) q.set("llm_model", opts.llmModel);
   if (opts.assumeRecommendedLlm) q.set("assume_recommended_llm", "true");
   return q.size ? `?${q}` : "";

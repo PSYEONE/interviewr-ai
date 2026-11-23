@@ -6,20 +6,35 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from ..stt.whisper import available_languages
 from .hardware import GpuInfo, rank_catalog
 
 if TYPE_CHECKING:
     from ..config import Settings
 
 # Download size, VRAM whisper.cpp needs, and accuracy/speed measured by backend/eval on a laptop
-# RTX 3070 (LibriSpeech test-clean, 100 clips, through the streaming pipeline).
+# RTX 3070 (LibriSpeech test-clean, 100 clips, through the streaming pipeline). Those two numbers
+# are English only, so the multilingual rows carry None rather than a figure that was never measured.
+# Sizes are the Hugging Face files in MiB. large-v3-turbo-q5_0 was measured at 850 MB resident on
+# an RTX 3070 (Vulkan); the f16 turbo figure is that measurement with the bigger weights, an estimate.
 _MODELS: list[tuple[str, int, int, float | None, float | None]] = [
     # name, download MB, VRAM MB, live word error rate, speed
     ("tiny.en", 75, 275, None, None),
     ("base.en", 142, 390, 0.060, 0.22),
     ("small.en", 466, 850, 0.048, 0.37),
     ("medium.en", 1462, 2100, 0.043, 0.66),
+    ("small", 465, 850, None, None),
+    ("medium", 1463, 2100, None, None),
+    ("large-v3-turbo", 1549, 2000, None, None),
+    ("large-v3-turbo-q5_0", 547, 1000, None, None),
 ]
+
+# For a language other than English. small drifts into a neighbouring language on Cyrillic
+# (Bulgarian comes out as Russian), so any GPU gets a large-v3-turbo build: the q5_0 one needs
+# about what small does. On the CPU the large encoder is too slow for live use, so small it is.
+_MULTILINGUAL_CPU = "small"
+_MULTILINGUAL_GPU = "large-v3-turbo-q5_0"
+_MULTILINGUAL_BIG = "large-v3-turbo"
 
 # Assumed VRAM for a local LLM that isn't in the catalog, so an unknown model still reserves room.
 _UNKNOWN_LLM_VRAM_MB = 4096
@@ -34,6 +49,7 @@ _MEDIUM_FROM_MB = 6000
 
 class WhisperOption(BaseModel):
     name: str
+    english_only: bool  # a .en model: transcribes English only and ignores the language setting
     download_mb: int
     vram_mb: int  # what whisper.cpp needs on the GPU
     live_wer: float | None  # word error rate through the live pipeline; None when not measured
@@ -44,6 +60,7 @@ class WhisperOption(BaseModel):
 class WhisperChoice(BaseModel):
     suggested: str  # what the wizard preselects for this machine
     models: list[WhisperOption]
+    languages: list[str]  # whisper.cpp language codes; empty when the local STT extra is missing
 
 
 def vram_needed_mb(name: str) -> int | None:
@@ -94,8 +111,16 @@ def _fit(vram_mb: int | None, needs_mb: int) -> str:
     return "tight" if vram_mb >= needs_mb else "too_big"
 
 
-def suggest_whisper(vram_mb: int | None) -> str:
-    """The default speech model for this machine: bigger is more accurate but slower."""
+def suggest_whisper(vram_mb: int | None, language: str = "auto") -> str:
+    """The default speech model for this machine and language: bigger is more accurate but slower.
+
+    English and auto keep the .en ladder, whose accuracy is measured; an explicit other language
+    needs a multilingual model, or the transcript comes out in English whatever was said.
+    """
+    if language not in ("auto", "en"):
+        if vram_mb is None:
+            return _MULTILINGUAL_CPU
+        return _MULTILINGUAL_BIG if vram_mb >= _MEDIUM_FROM_MB else _MULTILINGUAL_GPU
     # On CPU, small.en is barely more accurate than base.en but three times the download and twice as slow.
     if vram_mb is None:
         return "base.en"
@@ -105,7 +130,7 @@ def suggest_whisper(vram_mb: int | None) -> str:
 
 
 def whisper_choice(
-    gpus: list[GpuInfo], use_gpu: bool = True, llm_reserved_mb: int = 0
+    gpus: list[GpuInfo], use_gpu: bool = True, llm_reserved_mb: int = 0, language: str = "auto"
 ) -> WhisperChoice:
     """Speech models labelled for the GPU memory left once the local LLM has its share."""
     usable = [g.vram_mb for g in gpus if g.kind == "discrete" and g.vram_mb is not None]
@@ -115,6 +140,7 @@ def whisper_choice(
     models = [
         WhisperOption(
             name=name,
+            english_only=name.endswith(".en"),
             download_mb=download_mb,
             vram_mb=needs_mb,
             live_wer=live_wer,
@@ -123,4 +149,8 @@ def whisper_choice(
         )
         for name, download_mb, needs_mb, live_wer, speed in _MODELS
     ]
-    return WhisperChoice(suggested=suggest_whisper(vram_mb), models=models)
+    return WhisperChoice(
+        suggested=suggest_whisper(vram_mb, language),
+        models=models,
+        languages=available_languages(),
+    )

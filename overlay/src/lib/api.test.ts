@@ -58,6 +58,13 @@ describe("getSystemInfo", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("sends the language being chosen, which changes the suggested speech model", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL) => reportStub(6530));
+    vi.stubGlobal("fetch", fetchMock);
+    await getSystemInfo(false, { whisperLanguage: "bg" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("whisper_language=bg");
+  });
+
   it("sends the wizard's assume flag", async () => {
     const fetchMock = vi.fn(async (_url: RequestInfo | URL) => reportStub(6530));
     vi.stubGlobal("fetch", fetchMock);

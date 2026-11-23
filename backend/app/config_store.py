@@ -14,6 +14,7 @@ _WRITABLE: frozenset[str] = frozenset(
     {
         "stt_provider",
         "whisper_model",
+        "whisper_language",
         "whisper_use_gpu",
         "whisper_gpu_device",
         "llm_provider",
@@ -40,6 +41,7 @@ _WRITABLE: frozenset[str] = frozenset(
 # Settings /settings/reload applies to the running engine; anything else needs a restart.
 LIVE_SETTINGS: frozenset[str] = frozenset(
     {
+        "whisper_language",
         "llm_keep_alive",
         "system_prompt",
         "answer_style_script",
@@ -61,6 +63,7 @@ class ConfigView(BaseModel):
 
     stt_provider: str
     whisper_model: str
+    whisper_language: str
     whisper_gpu_device: int
     whisper_use_gpu: bool
     llm_provider: str
@@ -89,6 +92,7 @@ def current_config(settings: Settings) -> ConfigView:
     return ConfigView(
         stt_provider=settings.stt_provider,
         whisper_model=settings.whisper_model,
+        whisper_language=settings.whisper_language,
         whisper_gpu_device=settings.whisper_gpu_device,
         whisper_use_gpu=settings.whisper_use_gpu,
         llm_provider=settings.llm_provider,

@@ -36,14 +36,20 @@ class CapturePrefs:
 
     device: str = ""
     app: str = ""
+    language: str = "auto"  # whisper language code or auto; read at each utterance start
 
     @classmethod
     def of(cls, settings: Settings) -> CapturePrefs:
-        return cls(device=settings.audio_device, app=settings.audio_capture_app)
+        return cls(
+            device=settings.audio_device,
+            app=settings.audio_capture_app,
+            language=settings.whisper_language,
+        )
 
     def update(self, settings: Settings) -> None:
         self.device = settings.audio_device
         self.app = settings.audio_capture_app
+        self.language = settings.whisper_language
 
 
 async def resolve_device(prefs: CapturePrefs) -> str:
@@ -64,6 +70,7 @@ def _build_transcriber(
         model_name=settings.whisper_model,
         use_gpu=use_gpu,
         gpu_device=settings.whisper_gpu_device,
+        language=settings.whisper_language,
     )
     # Pay the one-time Vulkan shader compile now so the first real utterance is fast.
     transcriber.warmup()
@@ -194,6 +201,7 @@ async def _capture_once(
         partial_interval_s=settings.stt_partial_interval_s,
         commit_margin_words=settings.stt_commit_margin_words,
         emit_partials=emit_partials,
+        language=lambda: prefs.language,
     )
     feed = asyncio.ensure_future(_feed(transcript_stream, session, settings))
     stop = asyncio.ensure_future(session.wait_capture_stop())
@@ -230,6 +238,6 @@ async def _feed(
         if item.final:
             if settings.debug_print:
                 print(f"[FINAL] {item.text}")
-            session.add_transcript(item.text)
+            session.add_transcript(item.text, item.language)
         else:
             session.publish_partial(item.text)

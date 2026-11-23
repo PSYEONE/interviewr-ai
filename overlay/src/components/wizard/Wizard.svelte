@@ -28,18 +28,18 @@
   // Remember which model path was taken so Context's Back returns to the right screen.
   let setupStep = $state<"local" | "cloud">("local");
 
-  function chooseLocal(r: SystemReport, whisperModel: string): void {
+  function chooseLocal(r: SystemReport, whisperModel: string, whisperLanguage: string): void {
     report = r;
     speechModel = whisperModel;
-    updates = { ...updates, whisper_model: whisperModel };
+    updates = { ...updates, whisper_model: whisperModel, whisper_language: whisperLanguage };
     setupStep = "local";
     step = "local";
   }
-  function chooseCloud(r: SystemReport, whisperModel: string): void {
+  function chooseCloud(r: SystemReport, whisperModel: string, whisperLanguage: string): void {
     report = r;
     // Speech is always transcribed locally, so the choice applies on the cloud path too.
     speechModel = whisperModel;
-    updates = { ...updates, whisper_model: whisperModel };
+    updates = { ...updates, whisper_model: whisperModel, whisper_language: whisperLanguage };
     setupStep = "cloud";
     step = "cloud";
   }
